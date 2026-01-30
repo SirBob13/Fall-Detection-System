@@ -1,0 +1,16 @@
+{
+  "app": {
+    "name": "Fall Detection",
+    "tagline": "Smart fall detection system"
+  },
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "loading": "Loading...",
+    "error": "Error occurred",
+    "retry": "Retry",
+    "back": "Back"
+  },
+  "direction": "ltr"
+}
