@@ -8,15 +8,16 @@ from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Query, Header
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
-import random
+from sqlalchemy import text
 import math
 import time
 
 from ..database import get_db
-from ..services.ai_model import load_model_and_scaler
+from ..services.ai_model import load_model_and_scaler, predict_from_sample
 from .. import crud, schemas
 from ..services.auth_service import AuthService
-from ..models import User, Alert, MotionData, Prediction, VitalData
+from ..models import User, Alert, Prediction
+from ..double_verification import DoubleVerificationSystem
 from ..services.notification_service import NotificationService
 
 logger = logging.getLogger(__name__)
@@ -33,7 +34,7 @@ async def health_check(db: Session = Depends(get_db)):
     try:
         # Check database connection
         try:
-            db.execute("SELECT 1")
+            db.execute(text("SELECT 1"))
             database_connected = True
         except Exception as db_error:
             logger.error(f"Database connection failed: {db_error}")
@@ -107,7 +108,10 @@ async def root():
                 "health": "/health",
                 "authentication": "/api/v1/auth/*",
                 "motion_data": "/api/v1/motion",
+                "motion_history": "/api/v1/motion/{user_id}",
                 "vital_signs": "/api/v1/vitals",
+                "vital_history": "/api/v1/vitals/{user_id}",
+                "predictions": "/api/v1/predictions/{user_id}",
                 "alerts": "/api/v1/alerts",
                 "users": "/api/v1/users",
                 "emergency": "/api/v1/emergency/*"
@@ -532,12 +536,55 @@ def process_motion_data(
         gyro_y = float(data.get('gyro_y', 0.0))
         gyro_z = float(data.get('gyro_z', 0.0))
         temperature = float(data.get('temperature', 36.5))
+        user_id = int(data.get('user_id'))
+        device_id = data.get('device_id')
+
+        # Ensure device exists (auto-register if missing)
+        device = crud.get_device_by_id(db, device_id)
+        if device is None:
+            device_payload = schemas.DeviceCreate(
+                user_id=user_id,
+                device_id=device_id,
+                mac_address=data.get('mac_address'),
+                firmware_version=data.get('firmware_version'),
+                battery_level=data.get('battery_level')
+            )
+            device = crud.create_device(db, device_payload)
+        elif device.user_id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "success": False,
+                    "error": "Device ID already registered to another user"
+                }
+            )
         
-        # Use AI model for prediction
-        from ..services.ai_model import predict_fall, preprocess_motion_data
-        
-        # Create buffer (simulate by repeating current reading)
-        features = preprocess_motion_data(
+        # Use AI model for prediction (per-user/device buffer)
+        buffer_key = f"{user_id}:{device_id}"
+        ai_result = predict_from_sample(
+            acc_x=acc_x,
+            acc_y=acc_y,
+            acc_z=acc_z,
+            gyro_x=gyro_x,
+            gyro_y=gyro_y,
+            gyro_z=gyro_z,
+            buffer_key=buffer_key
+        )
+
+        if not ai_result.get("success", False):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={
+                    "success": False,
+                    "error": "AI prediction failed",
+                    "details": ai_result.get("error")
+                }
+            )
+
+        # Store motion data
+        motion_data_schema = schemas.MotionDataCreate(
+            user_id=user_id,
+            device_id=device_id,
             acc_x=acc_x,
             acc_y=acc_y,
             acc_z=acc_z,
@@ -546,91 +593,69 @@ def process_motion_data(
             gyro_z=gyro_z,
             temperature=temperature
         )
-        
-        # Create buffer of 50 time steps (as required by model)
-        buffer = np.array([features] * 50, dtype=np.float32)
-        
-        # Get AI prediction
-        ai_result = predict_fall(buffer)
-        
-        # Prepare response with dual output
+        stored_motion = crud.create_motion_data(db, motion_data_schema)
+
+        # Double verification with vitals
+        verification_system = DoubleVerificationSystem(db)
+        verified = verification_system.verify_fall_with_vitals(
+            user_id=user_id,
+            fall_prediction=ai_result,
+            current_vitals=None
+        )
+
+        # Store prediction in DB
+        db_pred = Prediction(
+            user_id=user_id,
+            motion_data_id=stored_motion.id,
+            fall_now_probability=verified.get("fall_now_probability", 0.0),
+            fall_soon_probability=verified.get("fall_soon_probability", 0.0),
+            fall_now_prediction=verified.get("fall_now_prediction", False),
+            fall_soon_prediction=verified.get("fall_soon_prediction", False),
+            vital_check_performed=verified.get("vital_check_performed", False),
+            vital_check_result=verified.get("vital_check_result"),
+            final_verdict=verified.get("final_verdict", False),
+            confidence_score=verified.get("confidence_score", 0.0),
+            timestamp=datetime.utcnow()
+        )
+        db.add(db_pred)
+        db.commit()
+        db.refresh(db_pred)
+
+        # Create alert if needed
+        alert = None
+        if verified.get("final_verdict", False):
+            alert = verification_system.create_alert_if_needed(
+                user_id=user_id,
+                prediction_id=db_pred.id,
+                verification_result=verified
+            )
+
+        # Prepare response with dual output + verification
         response = {
-            "success": ai_result.get("success", False),
-            "message": ai_result.get("message", ""),
+            "success": True,
+            "message": "Prediction completed",
             "prediction": {
-                "fall_now_probability": ai_result.get("fall_now_probability", 0.0),
-                "fall_soon_probability": ai_result.get("fall_soon_probability", 0.0),
-                "fall_now_prediction": ai_result.get("fall_now_prediction", False),
-                "fall_soon_prediction": ai_result.get("fall_soon_prediction", False),
-                "confidence_score": ai_result.get("confidence_score", 0.0),
-                "final_verdict": ai_result.get("fall_now_prediction", False),
+                "fall_now_probability": verified.get("fall_now_probability", 0.0),
+                "fall_soon_probability": verified.get("fall_soon_probability", 0.0),
+                "fall_now_prediction": verified.get("fall_now_prediction", False),
+                "fall_soon_prediction": verified.get("fall_soon_prediction", False),
+                "confidence_score": verified.get("confidence_score", 0.0),
+                "final_verdict": verified.get("final_verdict", False),
+                "vital_check_performed": verified.get("vital_check_performed", False),
+                "vital_check_result": verified.get("vital_check_result"),
                 "timestamp": datetime.utcnow().isoformat(),
                 "is_mock": ai_result.get("is_mock", False),
                 "model_type": "dual_output" if "fall_soon_probability" in ai_result else "single_output"
             },
             "is_test_data": ai_result.get("is_mock", False),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
+            "database_stored": True,
+            "motion_id": stored_motion.id,
+            "prediction_id": db_pred.id,
+            "alert_generated": alert is not None,
+            "alert_id": alert.id if alert else None
         }
-        
-        # If fall detected, store in database
-        if ai_result.get("fall_now_prediction", False):
-            try:
-                motion_data_schema = schemas.MotionDataCreate(
-                    user_id=int(data.get('user_id')),
-                    device_id=data.get('device_id'),
-                    acc_x=acc_x,
-                    acc_y=acc_y,
-                    acc_z=acc_z,
-                    gyro_x=gyro_x,
-                    gyro_y=gyro_y,
-                    gyro_z=gyro_z,
-                    temperature=temperature
-                )
-                
-                stored_motion = crud.create_motion_data(db, motion_data_schema)
-                response["database_stored"] = True
-                response["motion_id"] = stored_motion.id
-                
-                # Create alert if needed
-                if ai_result.get("fall_now_prediction"):
-                    from ..models import Alert, Prediction
-                    
-                    # Store prediction
-                    db_pred = Prediction(
-                        user_id=int(data.get('user_id')),
-                        motion_data_id=stored_motion.id,
-                        fall_now_probability=ai_result.get("fall_now_probability", 0),
-                        fall_soon_probability=ai_result.get("fall_soon_probability", 0),
-                        fall_now_prediction=ai_result.get("fall_now_prediction", False),
-                        fall_soon_prediction=ai_result.get("fall_soon_prediction", False),
-                        vital_check_performed=False,
-                        final_verdict=ai_result.get("fall_now_prediction", False),
-                        confidence_score=ai_result.get("confidence_score", 0),
-                        timestamp=datetime.utcnow()
-                    )
-                    db.add(db_pred)
-                    db.flush()
-                    
-                    # Create alert
-                    alert = Alert(
-                        user_id=int(data.get('user_id')),
-                        prediction_id=db_pred.id,
-                        alert_type="fall",
-                        severity="critical" if ai_result.get("fall_now_probability", 0) > 0.7 else "high",
-                        message=f"Fall detected with {ai_result.get('fall_now_probability', 0):.1%} probability",
-                        status="pending",
-                        timestamp=datetime.utcnow()
-                    )
-                    db.add(alert)
-                    db.commit()
-                    
-                    response["alert_generated"] = True
-                    response["alert_id"] = alert.id
-                
-            except Exception as db_error:
-                logger.warning(f"Database storage failed: {db_error}")
-                response["database_stored"] = False
-        
+
         return response
         
     except HTTPException:
@@ -677,16 +702,21 @@ async def process_vital_data(
                 }
             )
         
-        # Extract vital data with validation
+        # Extract vital data with validation (real values only)
+        vital_fields = [
+            'heart_rate',
+            'blood_pressure_systolic',
+            'blood_pressure_diastolic',
+            'oxygen_saturation',
+            'body_temperature',
+            'respiration_rate'
+        ]
+        vital_readings = {}
         try:
-            vital_readings = {
-                'heart_rate': float(data.get('heart_rate', random.uniform(60, 100))),
-                'blood_pressure_systolic': float(data.get('blood_pressure_systolic', random.uniform(110, 140))),
-                'blood_pressure_diastolic': float(data.get('blood_pressure_diastolic', random.uniform(70, 90))),
-                'oxygen_saturation': float(data.get('oxygen_saturation', random.uniform(95, 99))),
-                'body_temperature': float(data.get('body_temperature', random.uniform(36.0, 37.5))),
-                'respiration_rate': float(data.get('respiration_rate', random.uniform(12, 20)))
-            }
+            for field in vital_fields:
+                val = data.get(field, None)
+                if val is not None:
+                    vital_readings[field] = float(val)
         except ValueError as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -695,24 +725,15 @@ async def process_vital_data(
                     "error": f"Invalid vital data format: {str(e)}"
                 }
             )
-        
-        # Check for abnormalities (mock detection)
-        is_abnormal = random.random() < 0.10
-        abnormality_type = None
-        
-        if is_abnormal:
-            abnormalities = ['heart_rate', 'blood_pressure', 'oxygen_saturation', 'temperature']
-            abnormality_type = random.choice(abnormalities)
-            
-            # Adjust values to simulate abnormality
-            if abnormality_type == 'heart_rate':
-                vital_readings['heart_rate'] = random.uniform(40, 50) if random.random() < 0.5 else random.uniform(130, 160)
-            elif abnormality_type == 'blood_pressure':
-                vital_readings['blood_pressure_systolic'] = random.uniform(150, 200)
-            elif abnormality_type == 'oxygen_saturation':
-                vital_readings['oxygen_saturation'] = random.uniform(85, 92)
-            elif abnormality_type == 'temperature':
-                vital_readings['body_temperature'] = random.uniform(38.0, 40.0)
+
+        if not vital_readings:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "success": False,
+                    "error": "At least one vital field is required"
+                }
+            )
         
         try:
             # Store in database
@@ -722,7 +743,10 @@ async def process_vital_data(
             )
             
             stored_vital = crud.create_vital_data(db, vital_data)
-            
+
+            is_abnormal = bool(stored_vital.is_abnormal)
+            abnormality_type = stored_vital.abnormality_type
+
             alert_id = None
             if is_abnormal:
                 # Create vital alert
@@ -742,9 +766,9 @@ async def process_vital_data(
                 # Notify about vital abnormality
                 background_tasks.add_task(
                     notification_service.notify_vital_abnormality,
-                    user=user,
-                    alert=alert,
-                    vital_data=vital_readings
+                    user_id=user_id,
+                    vitals=vital_readings,
+                    message=alert.message
                 )
             
             response_data = {
@@ -764,7 +788,7 @@ async def process_vital_data(
                     "id": user.id,
                     "name": user.name
                 },
-                "is_test_data": True,
+                "is_test_data": False,
                 "timestamp": datetime.utcnow().isoformat()
             }
             
@@ -790,7 +814,7 @@ async def process_vital_data(
                         "database_stored": False
                     },
                     "warning": "Data not stored in database",
-                    "is_test_data": True,
+                    "is_test_data": False,
                     "timestamp": datetime.utcnow().isoformat()
                 }
             )
@@ -806,6 +830,142 @@ async def process_vital_data(
                 "error": f"Failed to process vital data: {str(e)}"
             }
         )
+
+# ======================
+# Data Retrieval Routes
+# ======================
+
+@router.get("/motion/{user_id}", response_model=Dict[str, Any])
+async def get_motion_history(
+    user_id: int,
+    limit: int = Query(100, ge=1, le=500, description="Number of motion records to return"),
+    db: Session = Depends(get_db)
+):
+    """Get recent motion data for a user."""
+    user = crud.get_user(db, user_id)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"success": False, "error": f"User with ID {user_id} not found"}
+        )
+
+    motions = crud.get_recent_motion_data(db, user_id, limit=limit)
+    formatted = [
+        {
+            "id": m.id,
+            "device_id": m.device_id,
+            "acc_x": m.acc_x,
+            "acc_y": m.acc_y,
+            "acc_z": m.acc_z,
+            "gyro_x": m.gyro_x,
+            "gyro_y": m.gyro_y,
+            "gyro_z": m.gyro_z,
+            "acc_mag": m.acc_mag,
+            "gyro_mag": m.gyro_mag,
+            "temperature": m.temperature,
+            "is_fall_suspected": m.is_fall_suspected,
+            "timestamp": m.timestamp.isoformat() if m.timestamp else None
+        }
+        for m in motions
+    ]
+
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={
+            "success": True,
+            "user_id": user_id,
+            "count": len(formatted),
+            "data": formatted,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    )
+
+
+@router.get("/vitals/{user_id}", response_model=Dict[str, Any])
+async def get_vitals_history(
+    user_id: int,
+    limit: int = Query(50, ge=1, le=200, description="Number of vital records to return"),
+    db: Session = Depends(get_db)
+):
+    """Get recent vital signs for a user."""
+    user = crud.get_user(db, user_id)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"success": False, "error": f"User with ID {user_id} not found"}
+        )
+
+    vitals = crud.get_recent_vital_data(db, user_id, limit=limit)
+    formatted = [
+        {
+            "id": v.id,
+            "heart_rate": v.heart_rate,
+            "blood_pressure_systolic": v.blood_pressure_systolic,
+            "blood_pressure_diastolic": v.blood_pressure_diastolic,
+            "oxygen_saturation": v.oxygen_saturation,
+            "body_temperature": v.body_temperature,
+            "respiration_rate": v.respiration_rate,
+            "is_abnormal": v.is_abnormal,
+            "abnormality_type": v.abnormality_type,
+            "timestamp": v.timestamp.isoformat() if v.timestamp else None
+        }
+        for v in vitals
+    ]
+
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={
+            "success": True,
+            "user_id": user_id,
+            "count": len(formatted),
+            "data": formatted,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    )
+
+
+@router.get("/predictions/{user_id}", response_model=Dict[str, Any])
+async def get_prediction_history(
+    user_id: int,
+    limit: int = Query(50, ge=1, le=200, description="Number of prediction records to return"),
+    db: Session = Depends(get_db)
+):
+    """Get recent predictions for a user."""
+    user = crud.get_user(db, user_id)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"success": False, "error": f"User with ID {user_id} not found"}
+        )
+
+    preds = crud.get_user_predictions(db, user_id, limit=limit)
+    formatted = [
+        {
+            "id": p.id,
+            "motion_data_id": p.motion_data_id,
+            "fall_now_probability": p.fall_now_probability,
+            "fall_soon_probability": p.fall_soon_probability,
+            "fall_now_prediction": p.fall_now_prediction,
+            "fall_soon_prediction": p.fall_soon_prediction,
+            "vital_check_performed": p.vital_check_performed,
+            "vital_check_result": p.vital_check_result,
+            "final_verdict": p.final_verdict,
+            "confidence_score": p.confidence_score,
+            "timestamp": p.timestamp.isoformat() if p.timestamp else None
+        }
+        for p in preds
+    ]
+
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={
+            "success": True,
+            "user_id": user_id,
+            "count": len(formatted),
+            "data": formatted,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    )
 
 # ======================
 # Alerts Routes - WITH PROPER STATUS CODES

@@ -9,7 +9,8 @@ from sqlalchemy import desc, and_
 import numpy as np  # تم إضافة هذا الاستيراد
 
 from . import models, schemas
-from .services.ai_model import predict_fall, preprocess_motion_data
+from .config import TIME_STEPS, FALL_THRESHOLD_NOW, FALL_THRESHOLD_SOON
+from .services.ai_model import predict_fall
 from .double_verification import DoubleVerificationSystem
 
 logger = logging.getLogger(__name__)
@@ -95,40 +96,28 @@ def process_motion_and_predict(
     if len(recent_motions) < 10:
         logger.info(f"Using simulated motion data for prediction")
         
-        # إنشاء بيانات حركة محاكاة
-        motion_buffer = []
-        for i in range(50):
-            features = np.array([
+        # إنشاء بيانات حركة محاكاة (raw)
+        raw_buffer = []
+        for i in range(TIME_STEPS):
+            raw_buffer.append([
                 motion_data.acc_x + np.random.uniform(-0.5, 0.5),
                 motion_data.acc_y + np.random.uniform(-0.5, 0.5),
                 motion_data.acc_z + np.random.uniform(-0.5, 0.5),
                 motion_data.gyro_x + np.random.uniform(-10, 10),
                 motion_data.gyro_y + np.random.uniform(-10, 10),
                 motion_data.gyro_z + np.random.uniform(-10, 10),
-                0, 0  # سيتم حسابها لاحقاً
-            ], dtype=np.float32)
-            
-            # حساب المقدار
-            features[6] = np.sqrt(features[0]**2 + features[1]**2 + features[2]**2)
-            features[7] = np.sqrt(features[3]**2 + features[4]**2 + features[5]**2)
-            
-            motion_buffer.append(features)
+            ])
     
     else:
         # استخدام البيانات الحقيقية
-        motion_buffer = []
-        for motion in recent_motions[-50:]:
-            features = preprocess_motion_data(
-                acc_x=motion.acc_x,
-                acc_y=motion.acc_y,
-                acc_z=motion.acc_z,
-                gyro_x=motion.gyro_x,
-                gyro_y=motion.gyro_y,
-                gyro_z=motion.gyro_z
-            )
-            motion_buffer.append(features)
+        raw_buffer = []
+        for motion in recent_motions[-TIME_STEPS:]:
+            raw_buffer.append([
+                motion.acc_x, motion.acc_y, motion.acc_z,
+                motion.gyro_x, motion.gyro_y, motion.gyro_z
+            ])
     
-    motion_buffer = np.array(motion_buffer)
+    motion_buffer = np.array(raw_buffer, dtype=np.float32)
     
     # 4. عمل تنبؤ باستخدام AI
     try:
@@ -140,15 +129,15 @@ def process_motion_and_predict(
         
         # إذا كان التسارع عالي، نفترض وجود سقوط
         fall_now_prob = min(0.95, acc_mag / 10.0)
-        fall_now = fall_now_prob > 0.5
+        fall_now = fall_now_prob > FALL_THRESHOLD_NOW
         
         ai_prediction = {
             "success": True,
             "fall_now_probability": fall_now_prob,
             "fall_soon_probability": fall_now_prob * 0.7,
             "fall_now_prediction": fall_now,
-            "fall_soon_prediction": fall_now_prob * 0.7 > 0.4,
-            "threshold": 0.5,
+            "fall_soon_prediction": (fall_now_prob * 0.7) > FALL_THRESHOLD_SOON,
+            "threshold": FALL_THRESHOLD_NOW,
             "timestamp": datetime.utcnow()
         }
     

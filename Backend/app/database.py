@@ -3,6 +3,7 @@ Updated database configuration for Fall Detection System
 """
 
 import os
+from datetime import datetime
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
@@ -43,6 +44,7 @@ else:
 
 # Create engine with better configuration
 try:
+    connect_args = {'connect_timeout': 10} if DB_CONNECTION == "mysql" else {}
     engine = create_engine(
         DATABASE_URL,
         echo=DEBUG,  # إظهار SQL في وضع التصحيح
@@ -50,9 +52,7 @@ try:
         pool_recycle=3600,
         pool_size=5,
         max_overflow=10,
-        connect_args={
-            'connect_timeout': 10
-        }
+        connect_args=connect_args
     )
     print("✅ Database engine created successfully")
 except Exception as e:
@@ -121,7 +121,7 @@ def create_test_data():
     Create test data for development
     """
     try:
-        from . import crud, schemas
+        from . import crud, schemas, models
         from sqlalchemy.orm import Session
         
         db = SessionLocal()
@@ -154,7 +154,7 @@ def create_test_data():
                 password_hash="$2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW",  # test123
                 email_verified=True,
                 phone_verified=True,
-                created_at=models.datetime.utcnow()
+                created_at=datetime.utcnow()
             )
             db.add(test_auth)
             
@@ -166,7 +166,7 @@ def create_test_data():
                 firmware_version="1.0.0",
                 battery_level=85.0,
                 is_connected=True,
-                last_seen=models.datetime.utcnow()
+                last_seen=datetime.utcnow()
             )
             db.add(test_device)
             

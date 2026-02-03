@@ -14,12 +14,20 @@ import random
 import warnings
 from typing import Dict, Any, Tuple, Optional, List, Union
 from datetime import datetime
-from scipy import signal
+from pathlib import Path
 from collections import deque
 
 # Import config
 try:
-    from ..config import MODEL_PATH, SCALER_PATH, TIME_STEPS, USE_MOCK_DATA
+    from ..config import (
+        MODEL_PATH,
+        SCALER_PATH,
+        TIME_STEPS,
+        USE_MOCK_DATA,
+        FALL_THRESHOLD_NOW,
+        FALL_THRESHOLD_SOON,
+        VAR_WINDOW,
+    )
 except ImportError:
     # Default fallback values if config not available
     BASE_DIR = Path(__file__).resolve().parent.parent
@@ -28,6 +36,9 @@ except ImportError:
     SCALER_PATH = AI_DIR / "scaler" / "scaler_final.save"
     TIME_STEPS = 100
     USE_MOCK_DATA = False
+    VAR_WINDOW = 10
+    FALL_THRESHOLD_NOW = 0.35
+    FALL_THRESHOLD_SOON = 0.30
 
 logger = logging.getLogger(__name__)
 
@@ -65,9 +76,9 @@ FEATURE_CONFIG = {
     ]
 }
 
-# Sliding window buffer (for real-time processing)
+# Sliding window buffer (for real-time raw processing)
 class SlidingWindowBuffer:
-    def __init__(self, window_size: int = TIME_STEPS, num_features: int = 16):
+    def __init__(self, window_size: int = TIME_STEPS, num_features: int = 6):
         self.window_size = window_size
         self.num_features = num_features
         self.buffer = deque(maxlen=window_size * 2)  # Keep double for feature calculations
@@ -105,8 +116,36 @@ class SlidingWindowBuffer:
         """Get current buffer size."""
         return len(self.buffer)
 
-# Global sliding window buffer
-_buffer = SlidingWindowBuffer(window_size=TIME_STEPS, num_features=16)
+# Global sliding window buffer (single stream fallback)
+_buffer = SlidingWindowBuffer(window_size=TIME_STEPS, num_features=6)
+
+# Per-device/user raw buffers
+_raw_buffers: Dict[str, deque] = {}
+
+def _get_raw_buffer(buffer_key: str) -> deque:
+    """Get or create a raw buffer for a specific stream key."""
+    if buffer_key not in _raw_buffers:
+        _raw_buffers[buffer_key] = deque(maxlen=TIME_STEPS)
+    return _raw_buffers[buffer_key]
+
+def append_raw_sample(
+    buffer_key: str,
+    acc_x: float,
+    acc_y: float,
+    acc_z: float,
+    gyro_x: float,
+    gyro_y: float,
+    gyro_z: float
+) -> np.ndarray:
+    """Append a raw sample to the per-stream buffer and return the buffer as ndarray."""
+    buf = _get_raw_buffer(buffer_key)
+    buf.append([acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z])
+    return np.array(buf, dtype=np.float32)
+
+def clear_raw_buffer(buffer_key: str) -> None:
+    """Clear a per-stream buffer."""
+    if buffer_key in _raw_buffers:
+        _raw_buffers[buffer_key].clear()
 
 def load_model_and_scaler() -> Tuple[Optional[tf.keras.Model], Optional[any]]:
     """
@@ -162,11 +201,11 @@ def load_model_and_scaler() -> Tuple[Optional[tf.keras.Model], Optional[any]]:
             "loaded_at": datetime.now().isoformat()
         })
         
-        # Update buffer with correct number of features
+        # Update raw buffer
         global _buffer
         _buffer = SlidingWindowBuffer(
-            window_size=TIME_STEPS, 
-            num_features=_model_metadata["features_count"]
+            window_size=TIME_STEPS,
+            num_features=6
         )
         
         logger.info(f"✅ Model loaded successfully!")
@@ -180,6 +219,88 @@ def load_model_and_scaler() -> Tuple[Optional[tf.keras.Model], Optional[any]]:
         logger.error(f"❌ Failed to load AI components: {e}", exc_info=True)
         return None, None
 
+def calculate_features_from_raw(
+    raw_seq: np.ndarray,
+    model_type: Optional[str] = None
+) -> np.ndarray:
+    """
+    Calculate features from raw sensor sequence.
+    Matches training feature engineering exactly.
+    """
+    raw = np.asarray(raw_seq, dtype=np.float32)
+    if raw.ndim != 2 or raw.shape[1] != 6:
+        raise ValueError(f"raw_seq must have shape (N, 6), got {raw.shape}")
+
+    if model_type is None:
+        model_type = _model_metadata.get("type", "enhanced")
+
+    n_samples = raw.shape[0]
+    n_features = 8 if model_type == "basic" else 16
+    features = np.zeros((n_samples, n_features), dtype=np.float32)
+
+    for i in range(n_samples):
+        acc_x, acc_y, acc_z, gx, gy, gz = raw[i]
+        acc_mag = np.sqrt(acc_x**2 + acc_y**2 + acc_z**2)
+        gyro_mag = np.sqrt(gx**2 + gy**2 + gz**2)
+
+        if model_type == "basic":
+            features[i] = np.array([
+                acc_x, acc_y, acc_z,
+                gx, gy, gz,
+                acc_mag, gyro_mag
+            ], dtype=np.float32)
+            continue
+
+        # Rolling window for variance (match training: window=VAR_WINDOW, ddof=1)
+        window_start = max(0, i - VAR_WINDOW + 1)
+        window = raw[window_start:i + 1]
+
+        if window.shape[0] < 2:
+            acc_var = 0.0
+            gyro_var = 0.0
+        else:
+            acc_var = (
+                np.var(window[:, 0], ddof=1) +
+                np.var(window[:, 1], ddof=1) +
+                np.var(window[:, 2], ddof=1)
+            ) / 3
+            gyro_var = (
+                np.var(window[:, 3], ddof=1) +
+                np.var(window[:, 4], ddof=1) +
+                np.var(window[:, 5], ddof=1)
+            ) / 3
+
+        # Energy (current sample)
+        acc_energy = acc_x**2 + acc_y**2 + acc_z**2
+        gyro_energy = gx**2 + gy**2 + gz**2
+
+        # Jerk (difference from previous sample)
+        if i > 0:
+            prev = raw[i - 1]
+            jerk_x = acc_x - prev[0]
+            jerk_y = acc_y - prev[1]
+            jerk_z = acc_z - prev[2]
+        else:
+            jerk_x = jerk_y = jerk_z = 0.0
+        jerk_mag = np.sqrt(jerk_x**2 + jerk_y**2 + jerk_z**2)
+
+        # MAV / SMA / STD (current sample)
+        acc_mav = (abs(acc_x) + abs(acc_y) + abs(acc_z)) / 3
+        acc_sma = abs(acc_x) + abs(acc_y) + abs(acc_z)
+        acc_std = np.std([acc_x, acc_y, acc_z], ddof=1)
+
+        features[i] = np.array([
+            acc_x, acc_y, acc_z,
+            gx, gy, gz,
+            acc_mag, gyro_mag,
+            acc_var, gyro_var,
+            acc_energy, gyro_energy,
+            jerk_mag, acc_mav, acc_sma, acc_std
+        ], dtype=np.float32)
+
+    return features
+
+
 def extract_features_from_raw(
     acc_x: np.ndarray,
     acc_y: np.ndarray,
@@ -190,26 +311,9 @@ def extract_features_from_raw(
 ) -> np.ndarray:
     """
     Extract features from raw sensor data (batch processing).
-    
-    Args:
-        acc_x, acc_y, acc_z: Accelerometer arrays
-        gyro_x, gyro_y, gyro_z: Gyroscope arrays
-    
-    Returns:
-        Feature matrix of shape (n_samples, n_features)
     """
-    n_samples = len(acc_x)
-    features = []
-    
-    for i in range(n_samples):
-        # Get single sample
-        sample_features = extract_single_sample_features(
-            acc_x[i], acc_y[i], acc_z[i],
-            gyro_x[i], gyro_y[i], gyro_z[i]
-        )
-        features.append(sample_features)
-    
-    return np.array(features)
+    raw = np.column_stack([acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z]).astype(np.float32)
+    return calculate_features_from_raw(raw)
 
 def extract_single_sample_features(
     acc_x: float,
@@ -229,81 +333,14 @@ def extract_single_sample_features(
     Returns:
         Feature array
     """
-    # Calculate basic features
-    acc_magnitude = np.sqrt(acc_x**2 + acc_y**2 + acc_z**2)
-    gyro_magnitude = np.sqrt(gyro_x**2 + gyro_y**2 + gyro_z**2)
-    
-    if _model_metadata["type"] == "basic":
-        return np.array([
-            acc_x, acc_y, acc_z,
-            gyro_x, gyro_y, gyro_z,
-            acc_magnitude, gyro_magnitude
-        ], dtype=np.float32)
-    
-    # Enhanced features (16 features)
-    # For single sample, we need temporal context from buffer
+    # Use raw buffer to compute features exactly like training
     global _buffer
-    
-    # Add current sample to buffer for temporal features
-    basic_features = np.array([
-        acc_x, acc_y, acc_z,
-        gyro_x, gyro_y, gyro_z,
-        acc_magnitude, gyro_magnitude
-    ], dtype=np.float32)
-    
-    # Get recent window for temporal features
-    _buffer.add_sample(basic_features)
-    window_data = np.array(_buffer.buffer)
-    
-    if len(window_data) > 1:
-        # Calculate variance using recent samples
-        acc_values = window_data[:, :3]  # First 3 columns are acc_x, acc_y, acc_z
-        gyro_values = window_data[:, 3:6]  # Next 3 columns are gyro_x, gyro_y, gyro_z
-        
-        acc_variance = np.var(acc_values.flatten())
-        gyro_variance = np.var(gyro_values.flatten())
-        
-        # Energy (sum of squares)
-        acc_energy = np.sum(acc_values[-10:]**2) if len(acc_values) >= 10 else np.sum(acc_values**2)
-        gyro_energy = np.sum(gyro_values[-10:]**2) if len(gyro_values) >= 10 else np.sum(gyro_values**2)
-        
-        # Jerk magnitude (rate of change of acceleration)
-        if len(acc_values) >= 2:
-            # Calculate jerk as difference between consecutive acceleration magnitudes
-            acc_mags = np.sqrt(np.sum(acc_values**2, axis=1))
-            jerk = np.diff(acc_mags[-5:]) if len(acc_mags) >= 5 else np.diff(acc_mags)
-            jerk_magnitude = np.mean(np.abs(jerk)) if len(jerk) > 0 else 0.0
-        else:
-            jerk_magnitude = 0.0
-        
-        # MAV (Mean Absolute Value)
-        acc_mav = np.mean(np.abs(acc_values[-10:])) if len(acc_values) >= 10 else np.mean(np.abs(acc_values))
-        
-        # SMA (Signal Magnitude Area)
-        acc_sma = np.sum(np.abs(acc_values[-10:])) if len(acc_values) >= 10 else np.sum(np.abs(acc_values))
-        
-        # Standard deviation
-        acc_std = np.std(acc_values.flatten())
-        
-    else:
-        # Not enough data for temporal features
-        acc_variance = 0.0
-        gyro_variance = 0.0
-        acc_energy = acc_magnitude**2
-        gyro_energy = gyro_magnitude**2
-        jerk_magnitude = 0.0
-        acc_mav = np.mean([abs(acc_x), abs(acc_y), abs(acc_z)])
-        acc_sma = abs(acc_x) + abs(acc_y) + abs(acc_z)
-        acc_std = 0.0
-    
-    return np.array([
-        acc_x, acc_y, acc_z,
-        gyro_x, gyro_y, gyro_z,
-        acc_magnitude, gyro_magnitude,
-        acc_variance, gyro_variance,
-        acc_energy, gyro_energy,
-        jerk_magnitude, acc_mav, acc_sma, acc_std
-    ], dtype=np.float32)
+    raw_sample = np.array([acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z], dtype=np.float32)
+    _buffer.add_sample(raw_sample)
+    window_data = np.array(_buffer.buffer, dtype=np.float32)
+
+    features = calculate_features_from_raw(window_data)[-1]
+    return features
 
 def create_sliding_windows(
     data: np.ndarray,
@@ -387,9 +424,164 @@ def prepare_sensor_data(
         n_features = _model_metadata.get("features_count", 16)
         return np.zeros((1, window_size, n_features))
 
+def preprocess_motion_data(
+    acc_x: float,
+    acc_y: float,
+    acc_z: float,
+    gyro_x: float,
+    gyro_y: float,
+    gyro_z: float,
+    temperature: Optional[float] = None,
+    buffer_key: Optional[str] = None
+) -> np.ndarray:
+    """
+    Convert a single raw sensor sample into feature vector.
+    Uses a rolling raw buffer to match training feature engineering.
+    """
+    if buffer_key:
+        raw_seq = append_raw_sample(buffer_key, acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z)
+        features = calculate_features_from_raw(raw_seq)[-1]
+        return features
+
+    # Fallback to global single-stream buffer
+    return extract_single_sample_features(acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z)
+
+def predict_fall(
+    raw_buffer: np.ndarray,
+    fall_now_threshold: float = FALL_THRESHOLD_NOW,
+    fall_soon_threshold: float = FALL_THRESHOLD_SOON
+) -> Dict[str, Any]:
+    """
+    Predict fall from a raw buffer (shape: N x 6) or precomputed features (N x 16).
+    Returns a consistent response structure for API/DB usage.
+    """
+    prediction_id = f"pred_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
+
+    try:
+        model, scaler = load_model_and_scaler()
+
+        if USE_MOCK_DATA or model is None or scaler is None:
+            logger.warning("⚠️ Using mock prediction mode")
+            mock = get_mock_prediction()
+            return {
+                "success": True,
+                "message": "Mock prediction",
+                "prediction_id": prediction_id,
+                "fall_now_probability": mock["fall_now"]["probability"],
+                "fall_soon_probability": mock["fall_soon"]["probability"],
+                "fall_now_prediction": mock["fall_now"]["prediction"],
+                "fall_soon_prediction": mock["fall_soon"]["prediction"],
+                "confidence_score": mock["confidence"]["score"],
+                "is_mock": True
+            }
+
+        raw = np.asarray(raw_buffer, dtype=np.float32)
+        if raw.ndim != 2 or raw.shape[1] not in (6, 16):
+            raise ValueError(f"raw_buffer must have shape (N,6) or (N,16); got {raw.shape}")
+
+        # If raw has 6 columns -> compute features
+        if raw.shape[1] == 6:
+            features = calculate_features_from_raw(raw)
+        else:
+            # Assume already features
+            features = raw
+
+        expected_features = _model_metadata.get("features_count", features.shape[1])
+        if features.shape[1] != expected_features:
+            raise ValueError(
+                f"Feature count mismatch: got {features.shape[1]}, "
+                f"expected {expected_features} for model type {_model_metadata.get('type')}"
+            )
+
+        warmup = False
+        if features.shape[0] < TIME_STEPS:
+            warmup = True
+            pad = np.zeros((TIME_STEPS - features.shape[0], features.shape[1]), dtype=np.float32)
+            features = np.vstack([pad, features])
+        else:
+            features = features[-TIME_STEPS:]
+
+        X = features.reshape(1, TIME_STEPS, -1)
+
+        # Scale
+        X_2d = X.reshape(-1, X.shape[-1])
+        X_scaled_2d = scaler.transform(X_2d)
+        X_scaled = X_scaled_2d.reshape(X.shape)
+
+        # Predict
+        predictions = model.predict(X_scaled, verbose=0)
+
+        if _model_metadata.get("output_format") == "dual":
+            fall_now_raw = predictions[0][0][0] if len(predictions[0].shape) > 1 else predictions[0][0]
+            fall_soon_raw = predictions[1][0][0] if len(predictions[1].shape) > 1 else predictions[1][0]
+            fall_now_prob = float(np.clip(fall_now_raw, 0.0, 1.0))
+            fall_soon_prob = float(np.clip(fall_soon_raw, 0.0, 1.0))
+        else:
+            fall_now_raw = predictions[0][0] if len(predictions.shape) > 1 else predictions[0]
+            fall_now_prob = float(np.clip(fall_now_raw, 0.0, 1.0))
+            fall_soon_prob = estimate_fall_soon_probability(fall_now_prob)
+
+        fall_now_pred = fall_now_prob >= fall_now_threshold
+        fall_soon_pred = fall_soon_prob >= fall_soon_threshold
+
+        confidence = calculate_prediction_confidence(
+            fall_now_prob, fall_soon_prob, fall_now_pred, fall_soon_pred
+        )
+
+        return {
+            "success": True,
+            "message": "Prediction completed",
+            "prediction_id": prediction_id,
+            "fall_now_probability": round(fall_now_prob, 4),
+            "fall_soon_probability": round(fall_soon_prob, 4),
+            "fall_now_prediction": bool(fall_now_pred),
+            "fall_soon_prediction": bool(fall_soon_pred),
+            "confidence_score": round(confidence, 4),
+            "is_mock": False,
+            "metadata": {
+                "model": _model_metadata.get("name"),
+                "model_type": _model_metadata.get("type"),
+                "features": _model_metadata.get("features_count"),
+                "output_format": _model_metadata.get("output_format"),
+                "timestamp": datetime.utcnow().isoformat(),
+                "warmup": warmup,
+                "samples": int(min(raw.shape[0], TIME_STEPS))
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Prediction failed: {e}", exc_info=True)
+        return {
+            "success": False,
+            "message": "Prediction failed",
+            "prediction_id": prediction_id,
+            "error": str(e),
+            "fall_now_probability": 0.0,
+            "fall_soon_probability": 0.0,
+            "fall_now_prediction": False,
+            "fall_soon_prediction": False,
+            "confidence_score": 0.0,
+            "is_mock": True
+        }
+
+def predict_from_sample(
+    acc_x: float,
+    acc_y: float,
+    acc_z: float,
+    gyro_x: float,
+    gyro_y: float,
+    gyro_z: float,
+    buffer_key: str
+) -> Dict[str, Any]:
+    """
+    Append a single raw sample to a per-stream buffer and run prediction.
+    """
+    raw_seq = append_raw_sample(buffer_key, acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z)
+    return predict_fall(raw_seq)
+
 def predict_from_sensor_data(
     sensor_df: pd.DataFrame,
-    threshold: float = 0.5
+    threshold: float = FALL_THRESHOLD_NOW
 ) -> Dict[str, Any]:
     """
     Main prediction function from sensor DataFrame.
@@ -401,109 +593,53 @@ def predict_from_sensor_data(
     Returns:
         Prediction results
     """
-    prediction_id = f"pred_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
-    
     try:
-        logger.info(f"🎯 Starting prediction {prediction_id}")
-        
-        # Load model and scaler
-        model, scaler = load_model_and_scaler()
-        
-        # Check if we should use mock data
-        if USE_MOCK_DATA or model is None or scaler is None:
-            logger.warning("⚠️ Using mock prediction mode")
-            result = get_mock_prediction()
-            result["prediction_id"] = prediction_id
-            return result
-        
-        # Prepare data
-        X = prepare_sensor_data(sensor_df)
-        
-        # Scale data
-        original_shape = X.shape
-        X_2d = X.reshape(-1, original_shape[-1])
-        X_scaled_2d = scaler.transform(X_2d)
-        X_scaled = X_scaled_2d.reshape(original_shape)
-        
-        # Make prediction
-        logger.info("🤖 Running model inference...")
-        start_time = datetime.now()
-        predictions = model.predict(X_scaled, verbose=0)
-        inference_time = (datetime.now() - start_time).total_seconds() * 1000
-        
-        # Process predictions based on output format
-        if _model_metadata["output_format"] == "dual":
-            # Dual output: [fall_now, fall_soon]
-            fall_now_raw = predictions[0][0][0] if len(predictions[0].shape) > 1 else predictions[0][0]
-            fall_soon_raw = predictions[1][0][0] if len(predictions[1].shape) > 1 else predictions[1][0]
-            
-            fall_now_prob = float(np.clip(fall_now_raw, 0.0, 1.0))
-            fall_soon_prob = float(np.clip(fall_soon_raw, 0.0, 1.0))
-        else:
-            # Single output
-            fall_now_raw = predictions[0][0] if len(predictions.shape) > 1 else predictions[0]
-            fall_now_prob = float(np.clip(fall_now_raw, 0.0, 1.0))
-            # Estimate fall_soon probability
-            fall_soon_prob = estimate_fall_soon_probability(fall_now_prob)
-        
-        # Apply thresholds
-        fall_now_threshold = threshold
-        fall_soon_threshold = threshold * 0.7  # Lower threshold for early warning
-        
-        fall_now_pred = fall_now_prob >= fall_now_threshold
-        fall_soon_pred = fall_soon_prob >= fall_soon_threshold
-        
-        # Calculate confidence
-        confidence = calculate_prediction_confidence(
-            fall_now_prob, fall_soon_prob,
-            fall_now_pred, fall_soon_pred
+        raw = sensor_df[
+            [
+                'accelerometer_x', 'accelerometer_y', 'accelerometer_z',
+                'gyroscope_x', 'gyroscope_y', 'gyroscope_z'
+            ]
+        ].values
+        base = predict_fall(
+            raw_buffer=raw,
+            fall_now_threshold=threshold,
+            fall_soon_threshold=FALL_THRESHOLD_SOON
         )
-        
-        # Build response
-        result = {
+
+        if not base.get("success", False):
+            return create_error_response(base.get("error", "Prediction failed"), base.get("prediction_id", "pred_error"))
+
+        fall_now_pred = base.get("fall_now_prediction", False)
+        fall_soon_pred = base.get("fall_soon_prediction", False)
+        confidence_score = base.get("confidence_score", 0.0)
+
+        return {
             "success": True,
-            "prediction_id": prediction_id,
+            "prediction_id": base.get("prediction_id"),
             "fall_now": {
-                "probability": round(fall_now_prob, 4),
-                "prediction": bool(fall_now_pred),
-                "threshold": round(fall_now_threshold, 3)
+                "probability": base.get("fall_now_probability", 0.0),
+                "prediction": fall_now_pred,
+                "threshold": round(threshold, 3)
             },
             "fall_soon": {
-                "probability": round(fall_soon_prob, 4),
-                "prediction": bool(fall_soon_pred),
-                "threshold": round(fall_soon_threshold, 3)
+                "probability": base.get("fall_soon_probability", 0.0),
+                "prediction": fall_soon_pred,
+                "threshold": round(FALL_THRESHOLD_SOON, 3)
             },
             "confidence": {
-                "score": round(confidence, 4),
-                "level": get_confidence_level(confidence)
+                "score": round(confidence_score, 4),
+                "level": get_confidence_level(confidence_score)
             },
-            "metadata": {
-                "model": _model_metadata["name"],
-                "model_type": _model_metadata["type"],
-                "features": _model_metadata["features_count"],
-                "output_format": _model_metadata["output_format"],
-                "inference_time_ms": round(inference_time, 1),
-                "timestamp": datetime.utcnow().isoformat(),
-                "input_shape": str(X.shape),
-                "is_mock": False
-            },
+            "metadata": base.get("metadata", {}),
             "decision": {
                 "status": "FALL" if fall_now_pred else ("WARNING" if fall_soon_pred else "NORMAL"),
                 "action": "ALERT" if fall_now_pred else ("MONITOR" if fall_soon_pred else "CONTINUE"),
                 "urgency": "HIGH" if fall_now_pred else ("MEDIUM" if fall_soon_pred else "LOW")
             }
         }
-        
-        logger.info(f"📈 Prediction Results:")
-        logger.info(f"   Fall Now: {fall_now_prob:.3f} ({'🚨' if fall_now_pred else '✅'})")
-        logger.info(f"   Fall Soon: {fall_soon_prob:.3f} ({'⚠️' if fall_soon_pred else '○'})")
-        logger.info(f"   Confidence: {confidence:.3f}")
-        
-        return result
-        
     except Exception as e:
         logger.error(f"❌ Prediction failed: {e}", exc_info=True)
-        return create_error_response(str(e), prediction_id)
+        return create_error_response(str(e), f"pred_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}")
 
 def estimate_fall_soon_probability(fall_now_prob: float) -> float:
     """Estimate fall_soon probability from fall_now probability."""
@@ -564,12 +700,12 @@ def create_error_response(error_msg: str, prediction_id: str) -> Dict[str, Any]:
         "fall_now": {
             "probability": 0.0,
             "prediction": False,
-            "threshold": 0.5
+            "threshold": FALL_THRESHOLD_NOW
         },
         "fall_soon": {
             "probability": 0.0,
             "prediction": False,
-            "threshold": 0.35
+            "threshold": FALL_THRESHOLD_SOON
         },
         "confidence": {
             "score": 0.0,
@@ -625,12 +761,12 @@ def get_mock_prediction() -> Dict[str, Any]:
         "fall_now": {
             "probability": round(fall_now_prob, 4),
             "prediction": fall_now_pred,
-            "threshold": 0.5
+            "threshold": FALL_THRESHOLD_NOW
         },
         "fall_soon": {
             "probability": round(fall_soon_prob, 4),
             "prediction": fall_soon_pred,
-            "threshold": 0.35
+            "threshold": FALL_THRESHOLD_SOON
         },
         "confidence": {
             "score": round(confidence, 4),
@@ -666,48 +802,17 @@ def real_time_prediction(
         Prediction results
     """
     try:
-        # Extract features from single reading
         acc_x, acc_y, acc_z = accelerometer_data
         gyro_x, gyro_y, gyro_z = gyroscope_data
-        
-        features = extract_single_sample_features(acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z)
-        
-        # Add to sliding window buffer
-        _buffer.add_sample(features)
-        
-        # Get current window
-        if _buffer.is_full():
-            window = _buffer.get_window()
-            
-            # Create DataFrame for prediction
-            # This simulates having enough data for a window
-            n_samples = len(window)
-            
-            # For demonstration, create a DataFrame with repeated data
-            # In production, you would accumulate real-time data
-            sensor_data = {
-                'accelerometer_x': [window[-1][0]] * n_samples,
-                'accelerometer_y': [window[-1][1]] * n_samples,
-                'accelerometer_z': [window[-1][2]] * n_samples,
-                'gyroscope_x': [window[-1][3]] * n_samples,
-                'gyroscope_y': [window[-1][4]] * n_samples,
-                'gyroscope_z': [window[-1][5]] * n_samples
-            }
-            
-            sensor_df = pd.DataFrame(sensor_data)
-            
-            # Run prediction
-            return predict_from_sensor_data(sensor_df)
-        else:
-            # Not enough data yet
-            return {
-                "success": True,
-                "message": "Collecting data...",
-                "samples_collected": _buffer.size(),
-                "samples_needed": TIME_STEPS,
-                "status": "COLLECTING"
-            }
-            
+        return predict_from_sample(
+            acc_x=acc_x,
+            acc_y=acc_y,
+            acc_z=acc_z,
+            gyro_x=gyro_x,
+            gyro_y=gyro_y,
+            gyro_z=gyro_z,
+            buffer_key="realtime_stream"
+        )
     except Exception as e:
         logger.error(f"❌ Real-time prediction error: {e}")
         return create_error_response(str(e), "realtime_error")

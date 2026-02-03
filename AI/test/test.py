@@ -19,6 +19,7 @@ import json
 from datetime import datetime
 import warnings
 warnings.filterwarnings('ignore')
+import argparse
 
 # ======================================
 # CONFIGURATION - MATCH TRAINING EXACTLY
@@ -169,7 +170,10 @@ def prepare_data(num_samples=5000):
     
     # Load data
     try:
-        df = pd.read_csv(DATASET_PATH, nrows=num_samples + TIME_STEPS, low_memory=False)
+        if num_samples is None:
+            df = pd.read_csv(DATASET_PATH, low_memory=False)
+        else:
+            df = pd.read_csv(DATASET_PATH, nrows=num_samples + TIME_STEPS, low_memory=False)
         print(f"   ✓ Loaded {len(df)} rows")
     except Exception as e:
         print(f"❌ Error loading data: {e}")
@@ -343,6 +347,20 @@ def evaluate_model(model, X_test, y_now_true, y_soon_true):
 # ======================================
 def main():
     """Main test function"""
+    parser = argparse.ArgumentParser(description="Fall detection model test")
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        help="Run evaluation on the full dataset"
+    )
+    parser.add_argument(
+        "--num-samples",
+        type=int,
+        default=5000,
+        help="Number of rows to sample (default: 5000). Ignored if --full is set."
+    )
+    args = parser.parse_args()
+
     print(f"\n{'='*60}")
     print("🧪 FALL DETECTION MODEL TEST")
     print("MATCHING TRAINING PIPELINE EXACTLY")
@@ -357,7 +375,8 @@ def main():
             return
         
         # 2. Prepare data (EXACTLY like training)
-        X_test, y_now, y_soon = prepare_data(num_samples=5000)
+        sample_size = None if args.full else args.num_samples
+        X_test, y_now, y_soon = prepare_data(num_samples=sample_size)
         if X_test is None:
             print("❌ Failed to prepare test data")
             return

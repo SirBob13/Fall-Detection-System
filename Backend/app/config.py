@@ -16,6 +16,12 @@ SCALER_PATH = AI_DIR / "scaler" / "scaler_final.save"
 
 # MUST match the trained model (100 time steps)
 TIME_STEPS = 100
+# Feature engineering window (must match training)
+VAR_WINDOW = 10
+
+# Thresholds (must match training)
+FALL_THRESHOLD_NOW = 0.35
+FALL_THRESHOLD_SOON = 0.30
 
 print(f"🔍 AI Model Path: {MODEL_PATH}")
 print(f"🔍 AI Scaler Path: {SCALER_PATH}")

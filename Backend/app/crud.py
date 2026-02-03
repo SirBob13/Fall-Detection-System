@@ -11,7 +11,8 @@ from sqlalchemy.exc import SQLAlchemyError, IntegrityError, OperationalError
 import numpy as np
 
 from . import models, schemas
-from .services.ai_model import predict_fall, preprocess_motion_data
+from .config import TIME_STEPS
+from .services.ai_model import predict_fall
 from .double_verification import DoubleVerificationSystem
 
 logger = logging.getLogger(__name__)
@@ -422,24 +423,18 @@ def process_motion_and_predict(
                 "motion_id": stored_motion.id
             }
         
-        # 3. Prepare buffer for AI model with enhanced features if needed
-        motion_buffer = []
-        for motion in recent_motions[-50:]:  # Use last 50 readings
-            features = preprocess_motion_data(
-                acc_x=motion.acc_x,
-                acc_y=motion.acc_y,
-                acc_z=motion.acc_z,
-                gyro_x=motion.gyro_x,
-                gyro_y=motion.gyro_y,
-                gyro_z=motion.gyro_z,
-                temperature=motion.temperature or 36.5
-            )
-            motion_buffer.append(features)
+        # 3. Prepare raw buffer for AI model (match training pipeline)
+        raw_buffer = []
+        for motion in recent_motions[-TIME_STEPS:]:
+            raw_buffer.append([
+                motion.acc_x, motion.acc_y, motion.acc_z,
+                motion.gyro_x, motion.gyro_y, motion.gyro_z
+            ])
         
-        motion_buffer = np.array(motion_buffer)
+        raw_buffer = np.array(raw_buffer, dtype=np.float32)
         
         # 4. Make AI prediction with dual output
-        ai_prediction = predict_fall(motion_buffer)
+        ai_prediction = predict_fall(raw_buffer)
         
         # Log the dual output
         logger.info(f"🎯 AI Prediction:")
