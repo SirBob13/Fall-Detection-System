@@ -7,7 +7,8 @@ node_modules/
 .expo/
 dist/
 web-build/
-expo-env.d.ts
+build/
+coverage/
 
 # Native
 .kotlin/
@@ -17,6 +18,8 @@ expo-env.d.ts
 *.p12
 *.key
 *.mobileprovision
+*.log
+*.d.ts
 
 # Metro
 .metro-health-check*
@@ -39,3 +42,9 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+
+
+babel.config.js
+metro.config.js
+jest.config.js

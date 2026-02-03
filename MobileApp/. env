@@ -1,0 +1,7 @@
+# .env
+API_URL=http://192.168.1.11:8000/api/v1
+ENCRYPTION_KEY=your-encryption-key-here
+SESSION_TIMEOUT=1800
+ENABLE_BIOMETRICS=true
+USE_MOCK_DATA=false
+LOG_LEVEL=debug

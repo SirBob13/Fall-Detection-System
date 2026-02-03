@@ -1,9 +1,7 @@
-// src/screens/auth/RegisterScreen.tsx
 import React, { useState } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
   TextInput,
   TouchableOpacity,
   ScrollView,
@@ -12,7 +10,6 @@ import {
   Platform,
   ActivityIndicator,
   SafeAreaView,
-  Image,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Formik } from 'formik';
@@ -20,10 +17,8 @@ import * as Yup from 'yup';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 
-import { AUTH_CONFIG } from '../../constants/auth';
 import { authService } from '../../services/auth.service';
 import { RegisterData } from '../../types/auth';
-import { COLORS } from '../../utils/constants';
 
 type AuthStackParamList = {
   Login: { prefilledEmail?: string };
@@ -155,47 +150,51 @@ export const RegisterScreen: React.FC = () => {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView className="flex-1 bg-white">
       <KeyboardAvoidingView
-        style={styles.container}
+        className="flex-1"
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <ScrollView
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={{ flexGrow: 1, paddingBottom: 30 }}
           showsVerticalScrollIndicator={false}
         >
           {/* Enhanced Header */}
-          <View style={styles.header}>
+          <View className="bg-blue-50 pt-5 pb-8 rounded-b-3xl">
             <TouchableOpacity
-              style={styles.backButton}
+              className="p-3 ml-2 mb-2"
               onPress={() => navigation.goBack()}
+              activeOpacity={0.7}
             >
-              <MaterialIcons name="arrow-back" size={24} color="#333" />
+              <MaterialIcons name="arrow-back" size={24} color="#212121" />
             </TouchableOpacity>
             
-            <View style={styles.headerContent}>
-              <View style={styles.logoContainer}>
-                <MaterialIcons name="shield" size={40} color={COLORS.primary} />
-                <Text style={styles.logoText}>SafeGuard</Text>
+            <View className="items-center px-5">
+              <View className="flex-row items-center mb-4">
+                <View className="w-14 h-14 rounded-full bg-white shadow-md justify-center items-center mr-3">
+                  <MaterialIcons name="shield" size={30} color="#2196F3" />
+                </View>
+                <Text className="text-3xl font-bold text-primary">SafeGuard</Text>
               </View>
               
-              <Text style={styles.title}>Join Us</Text>
-              <Text style={styles.subtitle}>
-                Create an account to start using the smart fall detection system
+              <Text className="text-2xl font-bold text-dark mb-3">Join Our Community</Text>
+              <Text className="text-base text-gray text-center leading-6 max-w-md mb-6">
+                Create an account to access smart fall detection and emergency response features
               </Text>
               
-              <View style={styles.benefitsContainer}>
-                <View style={styles.benefitItem}>
-                  <MaterialIcons name="security" size={16} color={COLORS.success} />
-                  <Text style={styles.benefitText}>24/7 Protection</Text>
+              {/* Benefits Badges */}
+              <View className="flex-row flex-wrap justify-center gap-2">
+                <View className="flex-row items-center bg-white px-4 py-2 rounded-full shadow-sm">
+                  <MaterialIcons name="security" size={16} color="#4CAF50" />
+                  <Text className="text-sm text-dark ml-2 font-medium">24/7 Protection</Text>
                 </View>
-                <View style={styles.benefitItem}>
-                  <MaterialIcons name="notifications-active" size={16} color={COLORS.primary} />
-                  <Text style={styles.benefitText}>Instant Alerts</Text>
+                <View className="flex-row items-center bg-white px-4 py-2 rounded-full shadow-sm">
+                  <MaterialIcons name="notifications-active" size={16} color="#2196F3" />
+                  <Text className="text-sm text-dark ml-2 font-medium">Instant Alerts</Text>
                 </View>
-                <View style={styles.benefitItem}>
-                  <MaterialIcons name="support-agent" size={16} color={COLORS.info} />
-                  <Text style={styles.benefitText}>Continuous Support</Text>
+                <View className="flex-row items-center bg-white px-4 py-2 rounded-full shadow-sm">
+                  <MaterialIcons name="support-agent" size={16} color="#00BCD4" />
+                  <Text className="text-sm text-dark ml-2 font-medium">Continuous Support</Text>
                 </View>
               </View>
             </View>
@@ -231,41 +230,35 @@ export const RegisterScreen: React.FC = () => {
               isValid,
               dirty,
             }) => (
-              <View style={styles.formContainer}>
-                {/* Basic Information */}
-                <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>Basic Information</Text>
+              <View className="px-5 mt-6">
+                {/* Basic Information Section */}
+                <View className="card mb-4">
+                  <Text className="section-title mb-6">Basic Information</Text>
                   
                   {/* Name Field */}
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Full Name</Text>
+                  <View className="mb-5">
+                    <Text className="input-label">Full Name</Text>
                     <TextInput
-                      style={[
-                        styles.input,
-                        errors.name && touched.name && styles.inputError,
-                      ]}
+                      className={`input-field ${errors.name && touched.name ? 'border-danger' : ''}`}
                       placeholder="Enter your full name"
-                      placeholderTextColor="#999"
+                      placeholderTextColor="#BDBDBD"
                       value={values.name}
                       onChangeText={handleChange('name')}
                       onBlur={handleBlur('name')}
                       editable={!loading}
                     />
                     {errors.name && touched.name && (
-                      <Text style={styles.errorText}>{errors.name}</Text>
+                      <Text className="error-text">{errors.name}</Text>
                     )}
                   </View>
 
                   {/* Email Field */}
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Email</Text>
+                  <View className="mb-5">
+                    <Text className="input-label">Email Address</Text>
                     <TextInput
-                      style={[
-                        styles.input,
-                        errors.email && touched.email && styles.inputError,
-                      ]}
+                      className={`input-field ${errors.email && touched.email ? 'border-danger' : ''}`}
                       placeholder="example@email.com"
-                      placeholderTextColor="#999"
+                      placeholderTextColor="#BDBDBD"
                       value={values.email}
                       onChangeText={handleChange('email')}
                       onBlur={handleBlur('email')}
@@ -274,20 +267,17 @@ export const RegisterScreen: React.FC = () => {
                       editable={!loading}
                     />
                     {errors.email && touched.email && (
-                      <Text style={styles.errorText}>{errors.email}</Text>
+                      <Text className="error-text">{errors.email}</Text>
                     )}
                   </View>
 
                   {/* Phone Field */}
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Phone Number</Text>
+                  <View className="mb-5">
+                    <Text className="input-label">Phone Number</Text>
                     <TextInput
-                      style={[
-                        styles.input,
-                        errors.phone && touched.phone && styles.inputError,
-                      ]}
+                      className={`input-field ${errors.phone && touched.phone ? 'border-danger' : ''}`}
                       placeholder="01012345678"
-                      placeholderTextColor="#999"
+                      placeholderTextColor="#BDBDBD"
                       value={values.phone}
                       onChangeText={handleChange('phone')}
                       onBlur={handleBlur('phone')}
@@ -295,24 +285,21 @@ export const RegisterScreen: React.FC = () => {
                       editable={!loading}
                     />
                     {errors.phone && touched.phone && (
-                      <Text style={styles.errorText}>{errors.phone}</Text>
+                      <Text className="error-text">{errors.phone}</Text>
                     )}
-                    <Text style={styles.inputHint}>
-                      📱 Enter your phone number (starts with 010, 011, 012, or 015)
+                    <Text className="text-xs text-gray mt-2">
+                      📱 Egyptian number (starts with 010, 011, 012, or 015)
                     </Text>
                   </View>
 
-                  {/* Age and Gender in one row */}
-                  <View style={styles.row}>
-                    <View style={[styles.inputGroup, { flex: 1, marginRight: 10 }]}>
-                      <Text style={styles.inputLabel}>Age</Text>
+                  {/* Age and Gender Row */}
+                  <View className="flex-row mb-5">
+                    <View className="flex-1 mr-2">
+                      <Text className="input-label">Age</Text>
                       <TextInput
-                        style={[
-                          styles.input,
-                          errors.age && touched.age && styles.inputError,
-                        ]}
+                        className={`input-field ${errors.age && touched.age ? 'border-danger' : ''}`}
                         placeholder="30"
-                        placeholderTextColor="#999"
+                        placeholderTextColor="#BDBDBD"
                         value={values.age}
                         onChangeText={handleChange('age')}
                         onBlur={handleBlur('age')}
@@ -320,59 +307,59 @@ export const RegisterScreen: React.FC = () => {
                         editable={!loading}
                       />
                       {errors.age && touched.age && (
-                        <Text style={styles.errorText}>{errors.age}</Text>
+                        <Text className="error-text">{errors.age}</Text>
                       )}
                     </View>
 
-                    <View style={[styles.inputGroup, { flex: 1 }]}>
-                      <Text style={styles.inputLabel}>Gender</Text>
-                      <View style={styles.genderButtons}>
+                    <View className="flex-1 ml-2">
+                      <Text className="input-label">Gender</Text>
+                      <View className="flex-row">
                         {genderOptions.map((gender) => (
                           <TouchableOpacity
                             key={gender.value}
-                            style={[
-                              styles.genderButton,
-                              values.gender === gender.value && styles.genderButtonActive,
-                            ]}
+                            className={`flex-1 flex-row items-center justify-center py-3 mx-1 rounded-lg border ${
+                              values.gender === gender.value
+                                ? 'bg-primary border-primary'
+                                : 'bg-light border-lightGray'
+                            }`}
                             onPress={() => setFieldValue('gender', gender.value)}
                             disabled={loading}
+                            activeOpacity={0.7}
                           >
                             <MaterialIcons 
                               name={gender.icon as any} 
                               size={16} 
-                              color={values.gender === gender.value ? '#FFF' : COLORS.gray} 
+                              color={values.gender === gender.value ? '#FFFFFF' : '#757575'} 
                             />
-                            <Text style={[
-                              styles.genderButtonText,
-                              values.gender === gender.value && styles.genderButtonTextActive,
-                            ]}>
+                            <Text className={`ml-2 text-sm font-medium ${
+                              values.gender === gender.value ? 'text-white' : 'text-dark'
+                            }`}>
                               {gender.label}
                             </Text>
                           </TouchableOpacity>
                         ))}
                       </View>
                       {errors.gender && touched.gender && (
-                        <Text style={styles.errorText}>{errors.gender}</Text>
+                        <Text className="error-text">{errors.gender}</Text>
                       )}
                     </View>
                   </View>
                 </View>
 
-                {/* Password */}
-                <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>Password</Text>
+                {/* Password Section */}
+                <View className="card mb-4">
+                  <Text className="section-title mb-6">Password</Text>
                   
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Password</Text>
-                    <View style={styles.passwordWrapper}>
+                  {/* Password Field */}
+                  <View className="mb-5">
+                    <Text className="input-label">Create Password</Text>
+                    <View className="relative">
                       <TextInput
-                        style={[
-                          styles.input,
-                          styles.passwordInput,
-                          errors.password && touched.password && styles.inputError,
-                        ]}
+                        className={`input-field pr-12 ${
+                          errors.password && touched.password ? 'border-danger' : ''
+                        }`}
                         placeholder="••••••••"
-                        placeholderTextColor="#999"
+                        placeholderTextColor="#BDBDBD"
                         value={values.password}
                         onChangeText={handleChange('password')}
                         onBlur={handleBlur('password')}
@@ -380,35 +367,35 @@ export const RegisterScreen: React.FC = () => {
                         editable={!loading}
                       />
                       <TouchableOpacity
-                        style={styles.eyeButton}
+                        className="absolute right-4 top-4"
                         onPress={() => setShowPassword(!showPassword)}
+                        activeOpacity={0.7}
                       >
                         <MaterialIcons
                           name={showPassword ? 'visibility-off' : 'visibility'}
-                          size={20}
+                          size={22}
                           color="#666"
                         />
                       </TouchableOpacity>
                     </View>
                     {errors.password && touched.password && (
-                      <Text style={styles.errorText}>{errors.password}</Text>
+                      <Text className="error-text">{errors.password}</Text>
                     )}
-                    <Text style={styles.inputHint}>
-                      🔒 Must contain at least 8 characters, uppercase, lowercase and number
+                    <Text className="text-xs text-gray mt-2">
+                      🔒 Must contain 8+ characters, uppercase, lowercase and number
                     </Text>
                   </View>
 
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Confirm Password</Text>
-                    <View style={styles.passwordWrapper}>
+                  {/* Confirm Password Field */}
+                  <View className="mb-2">
+                    <Text className="input-label">Confirm Password</Text>
+                    <View className="relative">
                       <TextInput
-                        style={[
-                          styles.input,
-                          styles.passwordInput,
-                          errors.confirm_password && touched.confirm_password && styles.inputError,
-                        ]}
+                        className={`input-field pr-12 ${
+                          errors.confirm_password && touched.confirm_password ? 'border-danger' : ''
+                        }`}
                         placeholder="••••••••"
-                        placeholderTextColor="#999"
+                        placeholderTextColor="#BDBDBD"
                         value={values.confirm_password}
                         onChangeText={handleChange('confirm_password')}
                         onBlur={handleBlur('confirm_password')}
@@ -416,40 +403,62 @@ export const RegisterScreen: React.FC = () => {
                         editable={!loading}
                       />
                       <TouchableOpacity
-                        style={styles.eyeButton}
+                        className="absolute right-4 top-4"
                         onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                        activeOpacity={0.7}
                       >
                         <MaterialIcons
                           name={showConfirmPassword ? 'visibility-off' : 'visibility'}
-                          size={20}
+                          size={22}
                           color="#666"
                         />
                       </TouchableOpacity>
                     </View>
                     {errors.confirm_password && touched.confirm_password && (
-                      <Text style={styles.errorText}>{errors.confirm_password}</Text>
+                      <Text className="error-text">{errors.confirm_password}</Text>
+                    )}
+                    
+                    {/* Password Match Indicator */}
+                    {values.confirm_password.length > 0 && (
+                      <View className="mt-3 flex-row items-center">
+                        <MaterialIcons
+                          name={values.password === values.confirm_password ? 'check-circle' : 'cancel'}
+                          size={18}
+                          color={values.password === values.confirm_password ? "#4CAF50" : "#F44336"}
+                        />
+                        <Text className={`text-sm ml-2 ${
+                          values.password === values.confirm_password ? 'text-success' : 'text-danger'
+                        }`}>
+                          {values.password === values.confirm_password 
+                            ? 'Passwords match' 
+                            : 'Passwords do not match'}
+                        </Text>
+                      </View>
                     )}
                   </View>
                 </View>
 
                 {/* Additional Information */}
-                <View style={styles.section}>
-                  <View style={styles.sectionHeader}>
-                    <Text style={styles.sectionTitle}>Additional Information</Text>
-                    <Text style={styles.optionalBadge}>Optional</Text>
+                <View className="card mb-4">
+                  <View className="flex-row items-center justify-between mb-4">
+                    <Text className="section-title">Additional Information</Text>
+                    <View className="px-3 py-1 bg-lightGray/30 rounded-full">
+                      <Text className="text-xs text-gray">Optional</Text>
+                    </View>
                   </View>
                   
-                  <Text style={styles.sectionDescription}>
-                    This information helps us provide better service for you
+                  <Text className="text-sm text-gray mb-6 leading-5">
+                    This information helps us provide better personalized service for you
                   </Text>
                   
-                  <View style={styles.row}>
-                    <View style={[styles.inputGroup, { flex: 1, marginRight: 10 }]}>
-                      <Text style={styles.inputLabel}>Height (cm)</Text>
+                  {/* Height and Weight Row */}
+                  <View className="flex-row mb-5">
+                    <View className="flex-1 mr-2">
+                      <Text className="input-label">Height (cm)</Text>
                       <TextInput
-                        style={styles.input}
+                        className="input-field"
                         placeholder="170"
-                        placeholderTextColor="#999"
+                        placeholderTextColor="#BDBDBD"
                         value={values.height}
                         onChangeText={handleChange('height')}
                         onBlur={handleBlur('height')}
@@ -458,12 +467,12 @@ export const RegisterScreen: React.FC = () => {
                       />
                     </View>
                     
-                    <View style={[styles.inputGroup, { flex: 1 }]}>
-                      <Text style={styles.inputLabel}>Weight (kg)</Text>
+                    <View className="flex-1 ml-2">
+                      <Text className="input-label">Weight (kg)</Text>
                       <TextInput
-                        style={styles.input}
+                        className="input-field"
                         placeholder="70"
-                        placeholderTextColor="#999"
+                        placeholderTextColor="#BDBDBD"
                         value={values.weight}
                         onChangeText={handleChange('weight')}
                         onBlur={handleBlur('weight')}
@@ -473,107 +482,131 @@ export const RegisterScreen: React.FC = () => {
                     </View>
                   </View>
                   
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Emergency Contact</Text>
+                  {/* Emergency Contact */}
+                  <View className="mb-5">
+                    <Text className="input-label">Emergency Contact</Text>
                     <TextInput
-                      style={styles.input}
+                      className="input-field"
                       placeholder="Emergency phone number"
-                      placeholderTextColor="#999"
+                      placeholderTextColor="#BDBDBD"
                       value={values.emergency_contact}
                       onChangeText={handleChange('emergency_contact')}
                       onBlur={handleBlur('emergency_contact')}
                       keyboardType="phone-pad"
                       editable={!loading}
                     />
-                    <Text style={styles.inputHint}>
+                    <Text className="text-xs text-gray mt-2">
                       👨‍👩‍👧‍👦 This number will be contacted in case of emergency
                     </Text>
                   </View>
                   
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Medical Conditions</Text>
+                  {/* Medical Conditions */}
+                  <View className="mb-2">
+                    <Text className="input-label">Medical Conditions</Text>
                     <TextInput
-                      style={[styles.input, styles.textArea]}
+                      className="input-field h-28 text-align-top"
                       placeholder="High blood pressure, diabetes, etc..."
-                      placeholderTextColor="#999"
+                      placeholderTextColor="#BDBDBD"
                       value={values.medical_conditions}
                       onChangeText={handleChange('medical_conditions')}
                       onBlur={handleBlur('medical_conditions')}
                       editable={!loading}
                       multiline
                       numberOfLines={3}
+                      textAlignVertical="top"
                     />
                   </View>
                 </View>
 
-                {/* Terms */}
-                <View style={styles.termsContainer}>
+                {/* Terms and Conditions */}
+                <View className="bg-light p-4 rounded-2xl mb-6">
                   <TouchableOpacity
-                    style={styles.checkboxContainer}
+                    className="flex-row"
                     onPress={() => setFieldValue('accept_terms', !values.accept_terms)}
                     disabled={loading}
+                    activeOpacity={0.7}
                   >
-                    <View style={[
-                      styles.checkbox,
-                      values.accept_terms && styles.checkboxChecked
-                    ]}>
+                    <View className={`
+                      w-6 h-6 rounded-md border-2 flex items-center justify-center mr-3 mt-1
+                      ${values.accept_terms 
+                        ? 'bg-primary border-primary' 
+                        : 'border-gray bg-white'
+                      }
+                    `}>
                       {values.accept_terms && (
-                        <MaterialIcons name="check" size={14} color="#FFF" />
+                        <MaterialIcons name="check" size={14} color="#FFFFFF" />
                       )}
                     </View>
-                    <View style={styles.termsTextContainer}>
-                      <Text style={styles.termsText}>
+                    <View className="flex-1">
+                      <Text className="text-sm text-gray leading-5">
                         I agree to the{' '}
-                        <Text style={styles.termsLink} onPress={openTerms}>
+                        <Text 
+                          className="text-primary font-semibold" 
+                          onPress={openTerms}
+                        >
                           Terms and Conditions
                         </Text>{' '}
                         and{' '}
-                        <Text style={styles.termsLink} onPress={openPrivacyPolicy}>
+                        <Text 
+                          className="text-primary font-semibold" 
+                          onPress={openPrivacyPolicy}
+                        >
                           Privacy Policy
                         </Text>
                       </Text>
                     </View>
                   </TouchableOpacity>
                   {errors.accept_terms && touched.accept_terms && (
-                    <Text style={styles.errorText}>{errors.accept_terms}</Text>
+                    <Text className="error-text mt-2">{errors.accept_terms}</Text>
                   )}
                 </View>
 
                 {/* Register Button */}
                 <TouchableOpacity
-                  style={[
-                    styles.registerButton,
-                    (!isValid || !dirty || loading) && styles.registerButtonDisabled,
-                  ]}
+                  className={`
+                    btn-primary flex-row justify-center items-center py-4 mb-4
+                    ${(!isValid || !dirty || loading) ? 'opacity-50' : ''}
+                  `}
                   onPress={() => handleSubmit()}
                   disabled={!isValid || !dirty || loading}
+                  activeOpacity={0.7}
                 >
                   {loading ? (
                     <ActivityIndicator color="#FFF" size="small" />
                   ) : (
                     <>
                       <MaterialIcons name="person-add" size={24} color="#FFF" />
-                      <Text style={styles.registerButtonText}>Create New Account</Text>
+                      <Text className="text-white font-bold text-lg ml-3">
+                        Create My Account
+                      </Text>
                     </>
                   )}
                 </TouchableOpacity>
 
-                {/* Security Info */}
-                <View style={styles.securityInfo}>
-                  <MaterialIcons name="verified-user" size={20} color={COLORS.success} />
-                  <Text style={styles.securityText}>
-                    All your data is protected and encrypted with highest security standards
-                  </Text>
+                {/* Security Assurance */}
+                <View className="flex-row items-center p-4 bg-green-50 rounded-xl border border-green-200 mb-6">
+                  <MaterialIcons name="verified-user" size={24} color="#4CAF50" />
+                  <View className="ml-3 flex-1">
+                    <Text className="text-sm font-medium text-dark mb-1">
+                      Your Data is Protected
+                    </Text>
+                    <Text className="text-xs text-gray">
+                      All your information is encrypted and secured with the highest security standards
+                    </Text>
+                  </View>
                 </View>
               </View>
             )}
           </Formik>
 
           {/* Login Link */}
-          <View style={styles.footer}>
-            <Text style={styles.footerText}>Already have an account?</Text>
-            <TouchableOpacity onPress={() => navigation.navigate('Login')}>
-              <Text style={styles.footerLink}>Login</Text>
+          <View className="flex-row justify-center items-center py-6 border-t border-lightGray mx-5">
+            <Text className="text-base text-gray mr-2">Already have an account?</Text>
+            <TouchableOpacity 
+              onPress={() => navigation.navigate('Login')}
+              activeOpacity={0.7}
+            >
+              <Text className="text-primary font-bold text-base">Login Here</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
@@ -581,295 +614,3 @@ export const RegisterScreen: React.FC = () => {
     </SafeAreaView>
   );
 };
-
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#FFF',
-  },
-  container: {
-    flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-    paddingBottom: 30,
-  },
-  header: {
-    backgroundColor: '#F8FAFF',
-    paddingTop: 20,
-    paddingBottom: 30,
-    borderBottomLeftRadius: 30,
-    borderBottomRightRadius: 30,
-    marginBottom: 20,
-  },
-  backButton: {
-    padding: 10,
-    marginLeft: 10,
-    marginBottom: 10,
-  },
-  headerContent: {
-    alignItems: 'center',
-    paddingHorizontal: 20,
-  },
-  logoContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 15,
-  },
-  logoText: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: COLORS.primary,
-    marginLeft: 10,
-  },
-  title: {
-    fontSize: 26,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    lineHeight: 24,
-    marginBottom: 20,
-  },
-  benefitsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    flexWrap: 'wrap',
-    marginTop: 10,
-  },
-  benefitItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    paddingHorizontal: 15,
-    paddingVertical: 8,
-    borderRadius: 20,
-    marginHorizontal: 5,
-    marginVertical: 3,
-  },
-  benefitText: {
-    fontSize: 12,
-    color: '#333',
-    marginLeft: 6,
-    fontWeight: '500',
-  },
-  formContainer: {
-    paddingHorizontal: 20,
-  },
-  section: {
-    backgroundColor: '#FFF',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  optionalBadge: {
-    fontSize: 12,
-    color: COLORS.gray,
-    backgroundColor: '#F5F5F5',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  sectionDescription: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 20,
-    lineHeight: 20,
-  },
-  inputGroup: {
-    marginBottom: 20,
-  },
-  inputLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 8,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    borderRadius: 12,
-    padding: 16,
-    fontSize: 16,
-    color: '#333',
-    backgroundColor: '#FAFAFA',
-  },
-  inputError: {
-    borderColor: COLORS.danger,
-  },
-  errorText: {
-    color: COLORS.danger,
-    fontSize: 14,
-    marginTop: 6,
-  },
-  inputHint: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 6,
-    fontStyle: 'italic',
-  },
-  row: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  genderButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  genderButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    marginHorizontal: 4,
-    backgroundColor: '#FAFAFA',
-  },
-  genderButtonActive: {
-    backgroundColor: COLORS.primary,
-    borderColor: COLORS.primary,
-  },
-  genderButtonText: {
-    fontSize: 14,
-    color: '#666',
-    marginLeft: 6,
-  },
-  genderButtonTextActive: {
-    color: '#FFF',
-    fontWeight: '600',
-  },
-  passwordWrapper: {
-    position: 'relative',
-  },
-  passwordInput: {
-    paddingRight: 50,
-  },
-  eyeButton: {
-    position: 'absolute',
-    right: 16,
-    top: 16,
-    padding: 4,
-  },
-  textArea: {
-    height: 100,
-    textAlignVertical: 'top',
-  },
-  termsContainer: {
-    backgroundColor: '#F8F9FA',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 20,
-  },
-  checkboxContainer: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-  },
-  checkbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: COLORS.primary,
-    marginRight: 12,
-    marginTop: 2,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  checkboxChecked: {
-    backgroundColor: COLORS.primary,
-  },
-  termsTextContainer: {
-    flex: 1,
-  },
-  termsText: {
-    fontSize: 14,
-    color: '#666',
-    lineHeight: 20,
-  },
-  termsLink: {
-    color: COLORS.primary,
-    fontWeight: '600',
-  },
-  registerButton: {
-    backgroundColor: COLORS.primary,
-    borderRadius: 14,
-    padding: 18,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  registerButtonDisabled: {
-    backgroundColor: '#CCC',
-    opacity: 0.7,
-  },
-  registerButtonText: {
-    color: '#FFF',
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginLeft: 10,
-  },
-  securityInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(76, 175, 80, 0.1)',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 20,
-  },
-  securityText: {
-    flex: 1,
-    fontSize: 14,
-    color: '#333',
-    marginLeft: 12,
-    fontWeight: '500',
-  },
-  footer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 20,
-    borderTopWidth: 1,
-    borderTopColor: '#EEE',
-    marginTop: 10,
-  },
-  footerText: {
-    fontSize: 16,
-    color: '#666',
-    marginRight: 8,
-  },
-  footerLink: {
-    fontSize: 16,
-    color: COLORS.primary,
-    fontWeight: 'bold',
-  },
-});

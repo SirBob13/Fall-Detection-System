@@ -1,4 +1,3 @@
-# Backend/app/double_verification.py
 """
 Double Verification System for Fall Detection.
 Combines motion-based prediction with vital signs verification.
@@ -6,7 +5,7 @@ Combines motion-based prediction with vital signs verification.
 
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple 
 from sqlalchemy.orm import Session
 
 from . import models
@@ -177,7 +176,7 @@ class DoubleVerificationSystem:
         prediction_id: int,
         verification_result: Dict
     ) -> Optional[models.Alert]:
-        """Create alert if fall is verified."""
+        """Create alert if fall is verified with flood protection."""
         
         if verification_result.get("final_verdict"):
             # Get user info
@@ -186,26 +185,70 @@ class DoubleVerificationSystem:
                 logger.error(f"User {user_id} not found for alert creation")
                 return None
             
-            # Check if there's a recent alert for this user
+            # Enhanced flood protection - check for alerts in last 10 minutes
+            ten_minutes_ago = datetime.utcnow() - timedelta(minutes=10)
+            
+            recent_alerts_count = self.db.query(models.Alert)\
+                .filter(models.Alert.user_id == user_id)\
+                .filter(models.Alert.alert_type == "fall")\
+                .filter(models.Alert.timestamp >= ten_minutes_ago)\
+                .filter(models.Alert.status.in_(['pending', 'sent', 'acknowledged']))\
+                .count()
+            
+            # Allow maximum 3 alerts in 10 minutes
+            if recent_alerts_count >= 3:
+                logger.warning(f"Alert flood detected for user {user_id}. Skipping new alert.")
+                return None
+            
+            # Check for very recent alert (last 2 minutes)
+            two_minutes_ago = datetime.utcnow() - timedelta(minutes=2)
+            
             recent_alert = self.db.query(models.Alert)\
                 .filter(models.Alert.user_id == user_id)\
+                .filter(models.Alert.alert_type == "fall")\
+                .filter(models.Alert.timestamp >= two_minutes_ago)\
                 .filter(models.Alert.status.in_(['pending', 'sent']))\
-                .filter(models.Alert.timestamp >= datetime.utcnow() - timedelta(minutes=5))\
                 .first()
             
             if recent_alert:
-                logger.info(f"Recent alert already exists for user {user_id}")
+                # Update existing alert instead of creating new one
+                logger.info(f"Updating existing alert {recent_alert.id} for user {user_id}")
+                
+                # Update confidence score if higher
+                new_confidence = verification_result.get("confidence_score", 0)
+                
+                # Extract current confidence from message or use 0
+                current_confidence = 0
+                if recent_alert.message:
+                    try:
+                        # Extract confidence from message
+                        import re
+                        match = re.search(r'Confidence:\s*([\d.]+)%', recent_alert.message)
+                        if match:
+                            current_confidence = float(match.group(1)) / 100
+                    except:
+                        pass
+                
+                if new_confidence > current_confidence:
+                    # Update the alert
+                    recent_alert.severity = "critical" if new_confidence > 0.7 else "high"
+                    recent_alert.message = f"Fall detected for {user.name}. Confidence: {new_confidence:.2%}"
+                    recent_alert.timestamp = datetime.utcnow()
+                    self.db.commit()
+                
                 return recent_alert
             
             # Create new alert
+            confidence = verification_result.get("confidence_score", 0)
             alert = models.Alert(
                 user_id=user_id,
                 prediction_id=prediction_id,
                 alert_type="fall",
-                severity="critical" if verification_result.get("confidence_score", 0) > 0.7 else "high",
-                message=f"Fall detected for {user.name}. Confidence: {verification_result.get('confidence_score', 0):.2%}",
+                severity="critical" if confidence > 0.7 else "high",
+                message=f"Fall detected for {user.name}. Confidence: {confidence:.2%}",
                 status="pending",
-                sent_to=user.emergency_contact
+                sent_to=user.emergency_contact,
+                timestamp=datetime.utcnow()
             )
             
             self.db.add(alert)
@@ -216,3 +259,131 @@ class DoubleVerificationSystem:
             return alert
         
         return None
+    
+    def check_vital_patterns(self, user_id: int, hours: int = 24) -> Dict:
+        """Analyze vital sign patterns over time for anomaly detection."""
+        
+        try:
+            time_threshold = datetime.utcnow() - timedelta(hours=hours)
+            
+            # Get vital data for the specified period
+            vitals = self.db.query(models.VitalSensorData)\
+                .filter(models.VitalSensorData.user_id == user_id)\
+                .filter(models.VitalSensorData.timestamp >= time_threshold)\
+                .order_by(models.VitalSensorData.timestamp)\
+                .all()
+            
+            if not vitals or len(vitals) < 5:
+                return {"success": False, "message": "Insufficient data"}
+            
+            # Extract vital values
+            heart_rates = [v.heart_rate for v in vitals if v.heart_rate is not None]
+            oxygen_levels = [v.oxygen_saturation for v in vitals if v.oxygen_saturation is not None]
+            bp_systolic = [v.blood_pressure_systolic for v in vitals if v.blood_pressure_systolic is not None]
+            
+            # Calculate statistics
+            stats = {
+                "heart_rate": {
+                    "mean": sum(heart_rates) / len(heart_rates) if heart_rates else None,
+                    "min": min(heart_rates) if heart_rates else None,
+                    "max": max(heart_rates) if heart_rates else None,
+                    "count": len(heart_rates)
+                },
+                "oxygen_saturation": {
+                    "mean": sum(oxygen_levels) / len(oxygen_levels) if oxygen_levels else None,
+                    "min": min(oxygen_levels) if oxygen_levels else None,
+                    "max": max(oxygen_levels) if oxygen_levels else None,
+                    "count": len(oxygen_levels)
+                },
+                "blood_pressure": {
+                    "mean": sum(bp_systolic) / len(bp_systolic) if bp_systolic else None,
+                    "min": min(bp_systolic) if bp_systolic else None,
+                    "max": max(bp_systolic) if bp_systolic else None,
+                    "count": len(bp_systolic)
+                },
+                "total_readings": len(vitals),
+                "abnormal_readings": sum(1 for v in vitals if v.is_abnormal)
+            }
+            
+            # Check for trends
+            trends = self._detect_vital_trends(vitals)
+            
+            return {
+                "success": True,
+                "stats": stats,
+                "trends": trends,
+                "time_period_hours": hours
+            }
+            
+        except Exception as e:
+            logger.error(f"Error analyzing vital patterns: {e}")
+            return {"success": False, "error": str(e)}
+    
+    def _detect_vital_trends(self, vitals: List[models.VitalSensorData]) -> Dict:
+        """Detect trends in vital signs."""
+        
+        if len(vitals) < 3:
+            return {"detected": False, "message": "Insufficient data"}
+        
+        trends = {
+            "heart_rate_increasing": False,
+            "heart_rate_decreasing": False,
+            "oxygen_decreasing": False,
+            "blood_pressure_increasing": False
+        }
+        
+        # Simple trend detection based on last 3 readings
+        last_three = vitals[-3:]
+        
+        # Check heart rate trend
+        hr_values = [v.heart_rate for v in last_three if v.heart_rate is not None]
+        if len(hr_values) == 3:
+            if hr_values[0] < hr_values[1] < hr_values[2]:
+                trends["heart_rate_increasing"] = True
+            elif hr_values[0] > hr_values[1] > hr_values[2]:
+                trends["heart_rate_decreasing"] = True
+        
+        # Check oxygen saturation trend
+        oxygen_values = [v.oxygen_saturation for v in last_three if v.oxygen_saturation is not None]
+        if len(oxygen_values) == 3:
+            if oxygen_values[0] > oxygen_values[1] > oxygen_values[2]:
+                trends["oxygen_decreasing"] = True
+        
+        # Check blood pressure trend
+        bp_values = [v.blood_pressure_systolic for v in last_three if v.blood_pressure_systolic is not None]
+        if len(bp_values) == 3:
+            if bp_values[0] < bp_values[1] < bp_values[2]:
+                trends["blood_pressure_increasing"] = True
+        
+        return trends
+    
+    def get_verification_history(self, user_id: int, days: int = 7) -> List[Dict]:
+        """Get verification history for a user."""
+        
+        try:
+            time_threshold = datetime.utcnow() - timedelta(days=days)
+            
+            predictions = self.db.query(models.Prediction)\
+                .filter(models.Prediction.user_id == user_id)\
+                .filter(models.Prediction.timestamp >= time_threshold)\
+                .filter(models.Prediction.vital_check_performed == True)\
+                .order_by(desc(models.Prediction.timestamp))\
+                .all()
+            
+            history = []
+            for pred in predictions:
+                history.append({
+                    "timestamp": pred.timestamp.isoformat(),
+                    "fall_now_detected": pred.fall_now_prediction,
+                    "fall_soon_warning": pred.fall_soon_prediction,
+                    "vital_check_result": pred.vital_check_result,
+                    "final_verdict": pred.final_verdict,
+                    "confidence": pred.confidence_score,
+                    "motion_data_id": pred.motion_data_id
+                })
+            
+            return history
+            
+        except Exception as e:
+            logger.error(f"Error getting verification history: {e}")
+            return []

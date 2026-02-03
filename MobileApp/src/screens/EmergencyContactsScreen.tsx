@@ -2,18 +2,17 @@ import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
   ScrollView,
   TouchableOpacity,
   Alert,
   Switch,
   TextInput,
   Modal,
+  ActivityIndicator,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { emergencyService } from '../services/emergency.service';
 import { EmergencyContact } from '../services/emergency.types';
-import { COLORS } from '../utils/constants';
 
 export const EmergencyContactsScreen: React.FC = () => {
   const [contacts, setContacts] = useState<EmergencyContact[]>([]);
@@ -167,10 +166,19 @@ export const EmergencyContactsScreen: React.FC = () => {
 
   const getPriorityColor = (priority: number) => {
     switch (priority) {
-      case 1: return '#F44336';
-      case 2: return '#FF9800';
-      case 3: return '#4CAF50';
-      default: return '#9E9E9E';
+      case 1: return '#F44336'; // High - Red
+      case 2: return '#FF9800'; // Medium - Orange
+      case 3: return '#4CAF50'; // Low - Green
+      default: return '#9E9E9E'; // Default - Gray
+    }
+  };
+
+  const getPriorityText = (priority: number) => {
+    switch (priority) {
+      case 1: return 'High';
+      case 2: return 'Medium';
+      case 3: return 'Low';
+      default: return 'Normal';
     }
   };
 
@@ -184,111 +192,208 @@ export const EmergencyContactsScreen: React.FC = () => {
     }
   };
 
+  const getRelationshipText = (relationship: string) => {
+    switch (relationship) {
+      case 'family': return 'Family';
+      case 'doctor': return 'Doctor';
+      case 'friend': return 'Friend';
+      case 'neighbor': return 'Neighbor';
+      default: return 'Contact';
+    }
+  };
+
   if (isLoading) {
     return (
-      <View style={styles.loadingContainer}>
-        <MaterialCommunityIcons name="account-group" size={60} color={COLORS.primary} />
-        <Text style={styles.loadingText}>Loading contacts...</Text>
+      <View className="flex-1 justify-center items-center bg-white">
+        <MaterialCommunityIcons name="account-group" size={60} color="#2196F3" />
+        <Text className="mt-4 text-base text-gray">Loading contacts...</Text>
+        <ActivityIndicator color="#2196F3" size="large" className="mt-4" />
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Emergency Contacts</Text>
-        <Text style={styles.subtitle}>
-          These numbers will be contacted in case of emergency
-        </Text>
+    <View className="flex-1 bg-light">
+      {/* Header */}
+      <View className="bg-white pb-4 border-b border-lightGray">
+        <View className="pt-8 px-5">
+          <Text className="text-2xl font-bold text-dark">Emergency Contacts</Text>
+          <Text className="text-sm text-gray mt-1">
+            These numbers will be contacted in case of emergency
+          </Text>
+        </View>
+        
+        {/* Quick Stats */}
+        <View className="flex-row justify-between mt-4 px-5">
+          <View className="items-center">
+            <Text className="text-2xl font-bold text-dark">{contacts.length}</Text>
+            <Text className="text-xs text-gray">Total Contacts</Text>
+          </View>
+          
+          <View className="items-center">
+            <Text className="text-2xl font-bold text-dark">
+              {contacts.filter(c => c.is_active).length}
+            </Text>
+            <Text className="text-xs text-gray">Active</Text>
+          </View>
+          
+          <View className="items-center">
+            <Text className="text-2xl font-bold text-dark">
+              {contacts.filter(c => c.priority === 1).length}
+            </Text>
+            <Text className="text-xs text-gray">High Priority</Text>
+          </View>
+        </View>
       </View>
 
-      <ScrollView style={styles.contactsList}>
+      {/* Contacts List */}
+      <ScrollView className="flex-1 p-4" showsVerticalScrollIndicator={false}>
         {contacts.length === 0 ? (
-          <View style={styles.emptyState}>
-            <MaterialCommunityIcons name="account-alert" size={80} color={COLORS.gray} />
-            <Text style={styles.emptyStateText}>No contacts</Text>
-            <Text style={styles.emptyStateSubtext}>
-              Add contacts for use in emergency situations
+          <View className="items-center justify-center py-20">
+            <View className="w-24 h-24 rounded-full bg-gray-100 justify-center items-center mb-6">
+              <MaterialCommunityIcons name="account-alert" size={40} color="#BDBDBD" />
+            </View>
+            <Text className="text-lg text-gray font-medium">No emergency contacts</Text>
+            <Text className="text-sm text-lightGray text-center mt-2 px-8">
+              Add contacts that will be notified in emergency situations
             </Text>
+            
+            <TouchableOpacity
+              className="mt-8 px-6 py-3 bg-primary rounded-full"
+              onPress={handleAddContact}
+              activeOpacity={0.7}
+            >
+              <Text className="text-white font-semibold">Add First Contact</Text>
+            </TouchableOpacity>
           </View>
         ) : (
           contacts.map(contact => (
-            <View key={contact.id} style={styles.contactCard}>
-              <View style={styles.contactHeader}>
-                <View style={styles.contactInfo}>
-                  <View style={[
-                    styles.priorityBadge,
-                    { backgroundColor: getPriorityColor(contact.priority) }
-                  ]}>
-                    <Text style={styles.priorityText}>
-                      {contact.priority === 1 ? 'High' : 
-                       contact.priority === 2 ? 'Medium' : 'Low'}
+            <View
+              key={contact.id}
+              className={`bg-white rounded-2xl shadow-card p-4 mb-3 border ${
+                contact.is_active 
+                  ? contact.priority === 1 
+                    ? 'border-danger/30' 
+                    : contact.priority === 2
+                    ? 'border-warning/30'
+                    : 'border-success/30'
+                  : 'border-lightGray'
+              } ${!contact.is_active && 'opacity-60'}`}
+            >
+              {/* Contact Header */}
+              <View className="flex-row justify-between items-start mb-3">
+                <View className="flex-row items-center flex-1">
+                  {/* Priority Badge */}
+                  <View 
+                    className={`px-2 py-1 rounded-full mr-3 ${
+                      contact.priority === 1 ? 'bg-danger' :
+                      contact.priority === 2 ? 'bg-warning' :
+                      'bg-success'
+                    }`}
+                  >
+                    <Text className="text-xs text-white font-bold">
+                      {getPriorityText(contact.priority)}
                     </Text>
                   </View>
-                  <MaterialCommunityIcons
-                    name={getRelationshipIcon(contact.relationship)}
-                    size={24}
-                    color={COLORS.primary}
-                    style={styles.relationshipIcon}
-                  />
-                  <View>
-                    <Text style={styles.contactName}>{contact.name}</Text>
-                    <Text style={styles.contactPhone}>{contact.phone}</Text>
-                    <Text style={styles.contactRelationship}>
-                      {contact.relationship === 'family' && 'Family'}
-                      {contact.relationship === 'doctor' && 'Doctor'}
-                      {contact.relationship === 'friend' && 'Friend'}
-                      {contact.relationship === 'neighbor' && 'Neighbor'}
-                    </Text>
+                  
+                  {/* Relationship Icon */}
+                  <View className="w-10 h-10 rounded-full bg-blue-50 justify-center items-center mr-3">
+                    <MaterialCommunityIcons
+                      name={getRelationshipIcon(contact.relationship)}
+                      size={20}
+                      color="#2196F3"
+                    />
+                  </View>
+                  
+                  {/* Contact Info */}
+                  <View className="flex-1">
+                    <Text className="text-base font-semibold text-dark">{contact.name}</Text>
+                    <Text className="text-sm text-primary mt-1">{contact.phone}</Text>
+                    <View className="flex-row items-center mt-1">
+                      <Text className="text-xs text-gray">
+                        {getRelationshipText(contact.relationship)}
+                      </Text>
+                      <View className="w-1 h-1 rounded-full bg-gray mx-2" />
+                      <Text className={`text-xs ${
+                        contact.is_active ? 'text-success' : 'text-gray'
+                      }`}>
+                        {contact.is_active ? 'Active' : 'Inactive'}
+                      </Text>
+                    </View>
                   </View>
                 </View>
                 
+                {/* Active Toggle */}
                 <Switch
                   value={contact.is_active}
                   onValueChange={() => handleToggleActive(contact.id, contact.is_active)}
-                  trackColor={{ false: '#767577', true: COLORS.primary }}
+                  trackColor={{ false: '#E0E0E0', true: '#2196F3' }}
+                  thumbColor={contact.is_active ? '#FFFFFF' : '#F4F3F4'}
                 />
               </View>
 
-              <View style={styles.contactActions}>
+              {/* Contact Actions */}
+              <View className="flex-row justify-end border-t border-lightGray pt-3">
                 <TouchableOpacity
-                  style={styles.actionButton}
+                  className="flex-row items-center px-3 py-1.5 bg-blue-50 rounded-lg mr-2"
                   onPress={() => handleEditContact(contact)}
+                  activeOpacity={0.7}
                 >
-                  <MaterialCommunityIcons name="pencil" size={20} color={COLORS.primary} />
-                  <Text style={styles.actionText}>Edit</Text>
+                  <MaterialCommunityIcons name="pencil" size={16} color="#2196F3" />
+                  <Text className="text-sm font-medium text-primary ml-1">Edit</Text>
                 </TouchableOpacity>
                 
                 <TouchableOpacity
-                  style={[styles.actionButton, styles.deleteButton]}
+                  className="flex-row items-center px-3 py-1.5 bg-red-50 rounded-lg"
                   onPress={() => handleDeleteContact(contact.id)}
+                  activeOpacity={0.7}
                 >
-                  <MaterialCommunityIcons name="delete" size={20} color={COLORS.danger} />
-                  <Text style={[styles.actionText, { color: COLORS.danger }]}>
-                    Delete
-                  </Text>
+                  <MaterialCommunityIcons name="delete" size={16} color="#F44336" />
+                  <Text className="text-sm font-medium text-danger ml-1">Delete</Text>
                 </TouchableOpacity>
               </View>
             </View>
           ))
         )}
+        
+        {/* Tips Section */}
+        {contacts.length > 0 && (
+          <View className="mt-6 mb-4 p-4 bg-blue-50 rounded-2xl border border-blue-200">
+            <View className="flex-row items-center mb-2">
+              <MaterialCommunityIcons name="lightbulb" size={20} color="#2196F3" />
+              <Text className="text-base font-semibold text-dark ml-2">Tips</Text>
+            </View>
+            <Text className="text-sm text-gray">
+              • High priority contacts are called first in emergencies
+            </Text>
+            <Text className="text-sm text-gray mt-1">
+              • Keep at least 2-3 active contacts
+            </Text>
+            <Text className="text-sm text-gray mt-1">
+              • Inform your contacts about their emergency role
+            </Text>
+          </View>
+        )}
       </ScrollView>
 
-      <View style={styles.footer}>
+      {/* Footer Actions */}
+      <View className="bg-white border-t border-lightGray p-4">
         <TouchableOpacity
-          style={styles.importButton}
+          className="flex-row items-center justify-center py-3 px-4 bg-info rounded-xl mb-3"
           onPress={handleImportContacts}
+          activeOpacity={0.7}
         >
-          <MaterialCommunityIcons name="import" size={20} color="#FFF" />
-          <Text style={styles.importButtonText}>Import from phone</Text>
+          <MaterialCommunityIcons name="import" size={20} color="#FFFFFF" />
+          <Text className="text-white font-semibold ml-2">Import from Phone</Text>
         </TouchableOpacity>
         
         <TouchableOpacity
-          style={styles.addButton}
+          className="flex-row items-center justify-center py-4 px-4 bg-primary rounded-xl shadow-button"
           onPress={handleAddContact}
+          activeOpacity={0.7}
         >
-          <MaterialCommunityIcons name="plus" size={24} color="#FFF" />
-          <Text style={styles.addButtonText}>Add Contact</Text>
+          <MaterialCommunityIcons name="plus" size={24} color="#FFFFFF" />
+          <Text className="text-white font-bold text-lg ml-2">Add New Contact</Text>
         </TouchableOpacity>
       </View>
 
@@ -299,318 +404,154 @@ export const EmergencyContactsScreen: React.FC = () => {
         visible={modalVisible}
         onRequestClose={() => setModalVisible(false)}
       >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>
-              {editingContact ? 'Edit Contact' : 'Add New Contact'}
-            </Text>
+        <View className="flex-1 justify-center items-center bg-black/50">
+          <View className="bg-white rounded-2xl w-11/12 max-w-md p-6">
+            <View className="items-center mb-6">
+              <View className="w-16 h-16 rounded-full bg-blue-50 justify-center items-center mb-3">
+                <MaterialCommunityIcons 
+                  name={editingContact ? "account-edit" : "account-plus"} 
+                  size={30} 
+                  color="#2196F3" 
+                />
+              </View>
+              <Text className="text-xl font-bold text-dark">
+                {editingContact ? 'Edit Contact' : 'Add New Contact'}
+              </Text>
+            </View>
 
             <TextInput
-              style={styles.input}
-              placeholder="Name"
+              className="input-field mb-4"
+              placeholder="Full Name"
               value={formData.name}
               onChangeText={text => setFormData({ ...formData, name: text })}
+              placeholderTextColor="#BDBDBD"
             />
 
             <TextInput
-              style={styles.input}
-              placeholder="Phone Number"
+              className="input-field mb-4"
+              placeholder="Phone Number (e.g., +201234567890)"
               value={formData.phone}
               onChangeText={text => setFormData({ ...formData, phone: text })}
               keyboardType="phone-pad"
+              placeholderTextColor="#BDBDBD"
             />
 
-            <View style={styles.priorityContainer}>
-              <Text style={styles.label}>Priority:</Text>
-              <View style={styles.priorityButtons}>
-                {[1, 2, 3].map(priority => (
+            {/* Priority Selection */}
+            <View className="mb-6">
+              <Text className="text-base font-medium text-dark mb-3">Priority Level</Text>
+              <View className="flex-row justify-between">
+                {[
+                  { value: 1, label: 'High', color: 'bg-danger', textColor: 'text-danger' },
+                  { value: 2, label: 'Medium', color: 'bg-warning', textColor: 'text-warning' },
+                  { value: 3, label: 'Low', color: 'bg-success', textColor: 'text-success' },
+                ].map((priority) => (
                   <TouchableOpacity
-                    key={priority}
-                    style={[
-                      styles.priorityButton,
-                      formData.priority === priority && styles.priorityButtonActive
-                    ]}
-                    onPress={() => setFormData({ ...formData, priority })}
+                    key={priority.value}
+                    className={`flex-1 items-center py-3 rounded-lg mx-1 border ${
+                      formData.priority === priority.value
+                        ? `${priority.color} border-transparent`
+                        : 'bg-white border-lightGray'
+                    }`}
+                    onPress={() => setFormData({ ...formData, priority: priority.value })}
+                    activeOpacity={0.7}
                   >
-                    <Text style={[
-                      styles.priorityButtonText,
-                      formData.priority === priority && styles.priorityButtonTextActive
-                    ]}>
-                      {priority === 1 ? 'High' : 
-                       priority === 2 ? 'Medium' : 'Low'}
+                    <Text className={`
+                      font-semibold
+                      ${formData.priority === priority.value 
+                        ? 'text-white' 
+                        : priority.textColor
+                      }
+                    `}>
+                      {priority.label}
+                    </Text>
+                    {formData.priority === priority.value && (
+                      <MaterialCommunityIcons 
+                        name="check" 
+                        size={16} 
+                        color="#FFFFFF" 
+                        className="mt-1"
+                      />
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </View>
+              
+              {/* Priority Description */}
+              <Text className="text-xs text-gray mt-2">
+                {formData.priority === 1 && 'High: Called first in emergencies'}
+                {formData.priority === 2 && 'Medium: Called if high priority fails'}
+                {formData.priority === 3 && 'Low: Called as last resort'}
+              </Text>
+            </View>
+
+            {/* Relationship Selection */}
+            <View className="mb-6">
+              <Text className="text-base font-medium text-dark mb-3">Relationship</Text>
+              <View className="flex-row flex-wrap justify-between">
+                {[
+                  { value: 'family', label: 'Family', icon: 'account-group' },
+                  { value: 'doctor', label: 'Doctor', icon: 'doctor' },
+                  { value: 'friend', label: 'Friend', icon: 'account' },
+                  { value: 'neighbor', label: 'Neighbor', icon: 'home' },
+                ].map((rel) => (
+                  <TouchableOpacity
+                    key={rel.value}
+                    className={`w-1/2 p-3 mb-2 flex-row items-center rounded-lg ${
+                      formData.relationship === rel.value
+                        ? 'bg-blue-50 border border-primary'
+                        : 'bg-lightGray/20 border border-lightGray'
+                    }`}
+                    onPress={() => setFormData({ ...formData, relationship: rel.value })}
+                    activeOpacity={0.7}
+                  >
+                    <MaterialCommunityIcons 
+                      name={rel.icon} 
+                      size={20} 
+                      color={formData.relationship === rel.value ? "#2196F3" : "#757575"} 
+                    />
+                    <Text className={`ml-2 ${
+                      formData.relationship === rel.value
+                        ? 'text-primary font-semibold'
+                        : 'text-gray'
+                    }`}>
+                      {rel.label}
                     </Text>
                   </TouchableOpacity>
                 ))}
               </View>
             </View>
 
-            <View style={styles.buttonRow}>
+            {/* Action Buttons */}
+            <View className="flex-row justify-between">
               <TouchableOpacity
-                style={[styles.modalButton, styles.cancelButton]}
+                className="flex-1 bg-lightGray py-3 rounded-lg mr-2 items-center"
                 onPress={() => setModalVisible(false)}
+                activeOpacity={0.7}
               >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
+                <Text className="text-dark font-semibold">Cancel</Text>
               </TouchableOpacity>
               
               <TouchableOpacity
-                style={[styles.modalButton, styles.saveButton]}
+                className="flex-1 bg-primary py-3 rounded-lg ml-2 flex-row items-center justify-center"
                 onPress={handleSaveContact}
+                activeOpacity={0.7}
               >
-                <Text style={styles.saveButtonText}>Save</Text>
+                <MaterialCommunityIcons 
+                  name="content-save" 
+                  size={20} 
+                  color="#FFFFFF" 
+                />
+                <Text className="text-white font-bold ml-2">Save</Text>
               </TouchableOpacity>
             </View>
+            
+            {/* Footer Note */}
+            <Text className="text-xs text-center text-gray mt-4">
+              This contact will be notified during emergency situations
+            </Text>
           </View>
         </View>
       </Modal>
     </View>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.light,
-  },
-  header: {
-    padding: 20,
-    backgroundColor: COLORS.white,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.lightGray,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: COLORS.dark,
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: COLORS.gray,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: COLORS.white,
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: COLORS.gray,
-  },
-  contactsList: {
-    flex: 1,
-    padding: 16,
-  },
-  emptyState: {
-    alignItems: 'center',
-    padding: 40,
-  },
-  emptyStateText: {
-    fontSize: 18,
-    color: COLORS.gray,
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  emptyStateSubtext: {
-    fontSize: 14,
-    color: COLORS.lightGray,
-    textAlign: 'center',
-  },
-  contactCard: {
-    backgroundColor: COLORS.white,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    shadowColor: COLORS.black,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  contactHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  contactInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  priorityBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginRight: 12,
-  },
-  priorityText: {
-    color: '#FFF',
-    fontSize: 10,
-    fontWeight: 'bold',
-  },
-  relationshipIcon: {
-    marginRight: 12,
-  },
-  contactName: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: COLORS.dark,
-    marginBottom: 2,
-  },
-  contactPhone: {
-    fontSize: 14,
-    color: COLORS.primary,
-    marginBottom: 2,
-  },
-  contactRelationship: {
-    fontSize: 12,
-    color: COLORS.gray,
-  },
-  contactActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    borderTopWidth: 1,
-    borderTopColor: COLORS.lightGray,
-    paddingTop: 12,
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginLeft: 16,
-  },
-  deleteButton: {
-    marginLeft: 16,
-  },
-  actionText: {
-    marginLeft: 4,
-    fontSize: 14,
-    color: COLORS.primary,
-  },
-  footer: {
-    padding: 16,
-    backgroundColor: COLORS.white,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.lightGray,
-  },
-  importButton: {
-    backgroundColor: COLORS.info,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 12,
-  },
-  importButtonText: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: '600',
-    marginLeft: 8,
-  },
-  addButton: {
-    backgroundColor: COLORS.primary,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
-    borderRadius: 8,
-  },
-  addButtonText: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginLeft: 8,
-  },
-  modalContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-  },
-  modalContent: {
-    backgroundColor: COLORS.white,
-    borderRadius: 16,
-    padding: 24,
-    width: '90%',
-    maxWidth: 400,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: COLORS.dark,
-    marginBottom: 20,
-    textAlign: 'center',
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: COLORS.lightGray,
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    color: COLORS.dark,
-    marginBottom: 16,
-  },
-  priorityContainer: {
-    marginBottom: 20,
-  },
-  label: {
-    fontSize: 16,
-    color: COLORS.dark,
-    marginBottom: 8,
-  },
-  priorityButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  priorityButton: {
-    flex: 1,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: COLORS.lightGray,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginHorizontal: 4,
-  },
-  priorityButtonActive: {
-    backgroundColor: COLORS.primary,
-    borderColor: COLORS.primary,
-  },
-  priorityButtonText: {
-    color: COLORS.dark,
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  priorityButtonTextActive: {
-    color: '#FFF',
-  },
-  buttonRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  modalButton: {
-    flex: 1,
-    padding: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  cancelButton: {
-    backgroundColor: COLORS.lightGray,
-    marginRight: 8,
-  },
-  cancelButtonText: {
-    color: COLORS.dark,
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  saveButton: {
-    backgroundColor: COLORS.primary,
-    marginLeft: 8,
-  },
-  saveButtonText: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-});

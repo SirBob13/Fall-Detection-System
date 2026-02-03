@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
   TextInput,
   TouchableOpacity,
   ScrollView,
@@ -18,7 +17,6 @@ import * as Yup from 'yup';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 
-import { AUTH_CONFIG } from '../../constants/auth';
 import { authService } from '../../services/auth.service';
 import { ResetPasswordData } from '../../types/auth';
 
@@ -51,12 +49,19 @@ export const ResetPasswordScreen: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [token, setToken] = useState('');
+  const [passwordStrength, setPasswordStrength] = useState({
+    length: false,
+    uppercase: false,
+    lowercase: false,
+    number: false,
+    special: false,
+    score: 0,
+  });
 
   useEffect(() => {
     if (route.params?.token) {
       setToken(route.params.token);
     } else {
-      // In real app, token might be in the link
       Alert.alert('Error', 'Invalid link');
       navigation.navigate('Login');
     }
@@ -95,21 +100,66 @@ export const ResetPasswordScreen: React.FC = () => {
     }
   };
 
+  const checkPasswordStrength = (password: string) => {
+    const checks = {
+      length: password.length >= 8,
+      uppercase: /[A-Z]/.test(password),
+      lowercase: /[a-z]/.test(password),
+      number: /\d/.test(password),
+      special: /[@$!%*?&]/.test(password),
+    };
+    
+    const score = Object.values(checks).filter(Boolean).length;
+    
+    setPasswordStrength({
+      ...checks,
+      score,
+    });
+  };
+
+  const getPasswordStrengthColor = () => {
+    switch (passwordStrength.score) {
+      case 0: return '#9E9E9E';
+      case 1: return '#F44336'; // Red
+      case 2: return '#FF9800'; // Orange
+      case 3: return '#FFC107'; // Yellow
+      case 4: return '#4CAF50'; // Green
+      case 5: return '#2196F3'; // Blue (Strong)
+      default: return '#9E9E9E';
+    }
+  };
+
+  const getPasswordStrengthText = () => {
+    switch (passwordStrength.score) {
+      case 0: return 'Very Weak';
+      case 1: return 'Very Weak';
+      case 2: return 'Weak';
+      case 3: return 'Fair';
+      case 4: return 'Good';
+      case 5: return 'Strong';
+      default: return '';
+    }
+  };
+
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView className="flex-1 bg-white">
       <KeyboardAvoidingView
-        style={styles.container}
+        className="flex-1"
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <ScrollView
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={{ flexGrow: 1, padding: 24 }}
           showsVerticalScrollIndicator={false}
         >
           {/* Header */}
-          <View style={styles.header}>
-            <MaterialIcons name="lock" size={80} color={AUTH_CONFIG.COLORS.primary} />
-            <Text style={styles.title}>Set New Password</Text>
-            <Text style={styles.subtitle}>
+          <View className="items-center mb-10 mt-5">
+            <View className="w-24 h-24 rounded-full bg-blue-50 justify-center items-center mb-6">
+              <MaterialIcons name="lock" size={50} color="#2196F3" />
+            </View>
+            <Text className="text-2xl font-bold text-dark text-center mb-3">
+              Set New Password
+            </Text>
+            <Text className="text-base text-gray text-center leading-6 max-w-xs">
               Choose a strong password to protect your account
             </Text>
           </View>
@@ -132,61 +182,91 @@ export const ResetPasswordScreen: React.FC = () => {
               touched,
               isValid,
               dirty,
+              setFieldValue,
             }) => (
-              <View style={styles.formContainer}>
+              <View className="mb-8">
                 {/* New Password Field */}
-                <View style={styles.inputContainer}>
-                  <Text style={styles.label}>
+                <View className="mb-6">
+                  <Text className="text-base font-semibold text-dark mb-2">
                     <MaterialIcons name="lock" size={16} color="#666" /> New Password
                   </Text>
-                  <View style={styles.passwordContainer}>
+                  <View className="relative">
                     <TextInput
-                      style={[
-                        styles.input,
-                        styles.passwordInput,
-                        errors.password && touched.password && styles.inputError,
-                      ]}
+                      className={`
+                        input-field
+                        ${errors.password && touched.password ? 'border-danger' : ''}
+                        pr-12
+                      `}
                       placeholder="••••••••"
-                      placeholderTextColor="#999"
+                      placeholderTextColor="#BDBDBD"
                       value={values.password}
-                      onChangeText={handleChange('password')}
+                      onChangeText={(text) => {
+                        handleChange('password')(text);
+                        checkPasswordStrength(text);
+                      }}
                       onBlur={handleBlur('password')}
                       secureTextEntry={!showPassword}
                       editable={!loading}
                     />
                     <TouchableOpacity
-                      style={styles.eyeButton}
+                      className="absolute right-4 top-4"
                       onPress={() => setShowPassword(!showPassword)}
+                      activeOpacity={0.7}
                     >
                       <MaterialIcons
                         name={showPassword ? 'visibility-off' : 'visibility'}
-                        size={20}
+                        size={22}
                         color="#666"
                       />
                     </TouchableOpacity>
                   </View>
                   {errors.password && touched.password && (
-                    <Text style={styles.errorText}>{errors.password}</Text>
+                    <Text className="text-sm text-danger mt-2">{errors.password}</Text>
                   )}
-                  <Text style={styles.passwordHint}>
-                    Must contain at least 8 characters, uppercase, lowercase, number and special character
-                  </Text>
+                  
+                  {/* Password Strength Indicator */}
+                  {values.password.length > 0 && (
+                    <View className="mt-4">
+                      <View className="flex-row justify-between items-center mb-2">
+                        <Text className="text-sm text-dark font-medium">
+                          Password Strength:
+                        </Text>
+                        <Text 
+                          className="text-sm font-bold"
+                          style={{ color: getPasswordStrengthColor() }}
+                        >
+                          {getPasswordStrengthText()}
+                        </Text>
+                      </View>
+                      
+                      {/* Strength Bar */}
+                      <View className="h-2 bg-lightGray rounded-full overflow-hidden">
+                        <View 
+                          className="h-full rounded-full transition-all duration-300"
+                          style={{ 
+                            width: `${(passwordStrength.score / 5) * 100}%`,
+                            backgroundColor: getPasswordStrengthColor()
+                          }}
+                        />
+                      </View>
+                    </View>
+                  )}
                 </View>
 
                 {/* Confirm Password Field */}
-                <View style={styles.inputContainer}>
-                  <Text style={styles.label}>
+                <View className="mb-8">
+                  <Text className="text-base font-semibold text-dark mb-2">
                     <MaterialIcons name="lock" size={16} color="#666" /> Confirm Password
                   </Text>
-                  <View style={styles.passwordContainer}>
+                  <View className="relative">
                     <TextInput
-                      style={[
-                        styles.input,
-                        styles.passwordInput,
-                        errors.confirm_password && touched.confirm_password && styles.inputError,
-                      ]}
+                      className={`
+                        input-field
+                        ${errors.confirm_password && touched.confirm_password ? 'border-danger' : ''}
+                        pr-12
+                      `}
                       placeholder="••••••••"
-                      placeholderTextColor="#999"
+                      placeholderTextColor="#BDBDBD"
                       value={values.confirm_password}
                       onChangeText={handleChange('confirm_password')}
                       onBlur={handleBlur('confirm_password')}
@@ -194,239 +274,147 @@ export const ResetPasswordScreen: React.FC = () => {
                       editable={!loading}
                     />
                     <TouchableOpacity
-                      style={styles.eyeButton}
+                      className="absolute right-4 top-4"
                       onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                      activeOpacity={0.7}
                     >
                       <MaterialIcons
                         name={showConfirmPassword ? 'visibility-off' : 'visibility'}
-                        size={20}
+                        size={22}
                         color="#666"
                       />
                     </TouchableOpacity>
                   </View>
                   {errors.confirm_password && touched.confirm_password && (
-                    <Text style={styles.errorText}>{errors.confirm_password}</Text>
+                    <Text className="text-sm text-danger mt-2">{errors.confirm_password}</Text>
+                  )}
+                  
+                  {/* Password Match Indicator */}
+                  {values.confirm_password.length > 0 && (
+                    <View className="mt-3">
+                      <View className="flex-row items-center">
+                        <MaterialIcons
+                          name={values.password === values.confirm_password ? 'check-circle' : 'cancel'}
+                          size={18}
+                          color={values.password === values.confirm_password ? "#4CAF50" : "#F44336"}
+                        />
+                        <Text className={`text-sm ml-2 ${
+                          values.password === values.confirm_password ? 'text-success' : 'text-danger'
+                        }`}>
+                          {values.password === values.confirm_password 
+                            ? 'Passwords match' 
+                            : 'Passwords do not match'}
+                        </Text>
+                      </View>
+                    </View>
                   )}
                 </View>
 
                 {/* Security Requirements */}
-                <View style={styles.requirementsContainer}>
-                  <Text style={styles.requirementsTitle}>Security Requirements:</Text>
-                  <View style={styles.requirementItem}>
-                    <MaterialIcons
-                      name={values.password.length >= 8 ? 'check-circle' : 'radio-button-unchecked'}
-                      size={16}
-                      color={values.password.length >= 8 ? AUTH_CONFIG.COLORS.success : '#999'}
-                    />
-                    <Text style={[
-                      styles.requirementText,
-                      values.password.length >= 8 && styles.requirementMet
-                    ]}>
-                      At least 8 characters
-                    </Text>
-                  </View>
-                  <View style={styles.requirementItem}>
-                    <MaterialIcons
-                      name={/[A-Z]/.test(values.password) ? 'check-circle' : 'radio-button-unchecked'}
-                      size={16}
-                      color={/[A-Z]/.test(values.password) ? AUTH_CONFIG.COLORS.success : '#999'}
-                    />
-                    <Text style={[
-                      styles.requirementText,
-                      /[A-Z]/.test(values.password) && styles.requirementMet
-                    ]}>
-                      At least one uppercase letter
-                    </Text>
-                  </View>
-                  <View style={styles.requirementItem}>
-                    <MaterialIcons
-                      name={/[a-z]/.test(values.password) ? 'check-circle' : 'radio-button-unchecked'}
-                      size={16}
-                      color={/[a-z]/.test(values.password) ? AUTH_CONFIG.COLORS.success : '#999'}
-                    />
-                    <Text style={[
-                      styles.requirementText,
-                      /[a-z]/.test(values.password) && styles.requirementMet
-                    ]}>
-                      At least one lowercase letter
-                    </Text>
-                  </View>
-                  <View style={styles.requirementItem}>
-                    <MaterialIcons
-                      name={/\d/.test(values.password) ? 'check-circle' : 'radio-button-unchecked'}
-                      size={16}
-                      color={/\d/.test(values.password) ? AUTH_CONFIG.COLORS.success : '#999'}
-                    />
-                    <Text style={[
-                      styles.requirementText,
-                      /\d/.test(values.password) && styles.requirementMet
-                    ]}>
-                      At least one number
-                    </Text>
-                  </View>
-                  <View style={styles.requirementItem}>
-                    <MaterialIcons
-                      name={/[@$!%*?&]/.test(values.password) ? 'check-circle' : 'radio-button-unchecked'}
-                      size={16}
-                      color={/[@$!%*?&]/.test(values.password) ? AUTH_CONFIG.COLORS.success : '#999'}
-                    />
-                    <Text style={[
-                      styles.requirementText,
-                      /[@$!%*?&]/.test(values.password) && styles.requirementMet
-                    ]}>
-                      At least one special character (@$!%*?&)
-                    </Text>
-                  </View>
+                <View className="bg-light p-5 rounded-2xl mb-8 border border-lightGray">
+                  <Text className="text-base font-bold text-dark mb-4">
+                    Password Requirements
+                  </Text>
+                  
+                  {[
+                    {
+                      id: 'length',
+                      text: 'At least 8 characters',
+                      check: values.password.length >= 8,
+                    },
+                    {
+                      id: 'uppercase',
+                      text: 'At least one uppercase letter (A-Z)',
+                      check: /[A-Z]/.test(values.password),
+                    },
+                    {
+                      id: 'lowercase',
+                      text: 'At least one lowercase letter (a-z)',
+                      check: /[a-z]/.test(values.password),
+                    },
+                    {
+                      id: 'number',
+                      text: 'At least one number (0-9)',
+                      check: /\d/.test(values.password),
+                    },
+                    {
+                      id: 'special',
+                      text: 'At least one special character (@$!%*?&)',
+                      check: /[@$!%*?&]/.test(values.password),
+                    },
+                  ].map((requirement) => (
+                    <View key={requirement.id} className="flex-row items-center mb-3">
+                      <MaterialIcons
+                        name={requirement.check ? 'check-circle' : 'radio-button-unchecked'}
+                        size={18}
+                        color={requirement.check ? "#4CAF50" : "#9E9E9E"}
+                      />
+                      <Text className={`text-sm ml-3 flex-1 ${
+                        requirement.check ? 'text-success font-medium' : 'text-gray'
+                      }`}>
+                        {requirement.text}
+                      </Text>
+                    </View>
+                  ))}
                 </View>
 
                 {/* Reset Button */}
                 <TouchableOpacity
-                  style={[
-                    styles.resetButton,
-                    (!isValid || !dirty || loading) && styles.resetButtonDisabled,
-                  ]}
+                  className={`
+                    btn-primary flex-row justify-center items-center py-5
+                    ${(!isValid || !dirty || loading) ? 'opacity-50' : ''}
+                  `}
                   onPress={() => handleSubmit()}
                   disabled={!isValid || !dirty || loading}
+                  activeOpacity={0.7}
                 >
                   {loading ? (
                     <ActivityIndicator color="#FFF" size="small" />
                   ) : (
                     <>
                       <MaterialIcons name="lock" size={24} color="#FFF" />
-                      <Text style={styles.resetButtonText}>Set Password</Text>
+                      <Text className="text-white font-bold text-lg ml-3">
+                        Set New Password
+                      </Text>
                     </>
                   )}
+                </TouchableOpacity>
+
+                {/* Back to Login Link */}
+                <TouchableOpacity
+                  className="mt-6 flex-row justify-center items-center"
+                  onPress={() => navigation.navigate('Login')}
+                  activeOpacity={0.7}
+                >
+                  <MaterialIcons name="arrow-back" size={18} color="#2196F3" />
+                  <Text className="text-primary font-semibold ml-2">
+                    Back to Login
+                  </Text>
                 </TouchableOpacity>
               </View>
             )}
           </Formik>
+          
+          {/* Security Tips */}
+          <View className="mt-8 p-4 bg-yellow-50 rounded-xl border border-yellow-200">
+            <View className="flex-row items-center mb-2">
+              <MaterialIcons name="security" size={20} color="#FF9800" />
+              <Text className="text-base font-semibold text-dark ml-2">
+                Security Tips
+              </Text>
+            </View>
+            <Text className="text-sm text-gray mb-1">
+              • Don't reuse passwords from other sites
+            </Text>
+            <Text className="text-sm text-gray mb-1">
+              • Use a password manager for strong, unique passwords
+            </Text>
+            <Text className="text-sm text-gray">
+              • Change your password regularly for better security
+            </Text>
+          </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 };
-
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#FFF',
-  },
-  container: {
-    flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-    padding: 24,
-  },
-  header: {
-    alignItems: 'center',
-    marginBottom: 40,
-    marginTop: 20,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#333',
-    textAlign: 'center',
-    marginTop: 20,
-    marginBottom: 12,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    lineHeight: 24,
-  },
-  formContainer: {
-    marginBottom: 24,
-  },
-  inputContainer: {
-    marginBottom: 25,
-  },
-  label: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 8,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#DDD',
-    borderRadius: 12,
-    padding: 16,
-    fontSize: 16,
-    color: '#333',
-    backgroundColor: '#FAFAFA',
-  },
-  inputError: {
-    borderColor: AUTH_CONFIG.COLORS.error,
-  },
-  errorText: {
-    color: AUTH_CONFIG.COLORS.error,
-    fontSize: 14,
-    marginTop: 4,
-  },
-  passwordContainer: {
-    position: 'relative',
-  },
-  passwordInput: {
-    paddingRight: 50,
-  },
-  eyeButton: {
-    position: 'absolute',
-    right: 16,
-    top: 16,
-  },
-  passwordHint: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 4,
-    fontStyle: 'italic',
-  },
-  requirementsContainer: {
-    backgroundColor: '#F8F9FA',
-    borderRadius: 12,
-    padding: 20,
-    marginBottom: 30,
-  },
-  requirementsTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 12,
-  },
-  requirementItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  requirementText: {
-    flex: 1,
-    fontSize: 14,
-    color: '#666',
-    marginLeft: 10,
-  },
-  requirementMet: {
-    color: AUTH_CONFIG.COLORS.success,
-    fontWeight: '600',
-  },
-  resetButton: {
-    backgroundColor: AUTH_CONFIG.COLORS.primary,
-    borderRadius: 12,
-    padding: 18,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  resetButtonDisabled: {
-    backgroundColor: '#CCC',
-    opacity: 0.7,
-  },
-  resetButtonText: {
-    color: '#FFF',
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginLeft: 8,
-  },
-});

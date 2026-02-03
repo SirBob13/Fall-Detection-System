@@ -1,352 +1,431 @@
 // App.tsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { Provider } from 'react-redux';
+import { PersistGate } from 'redux-persist/integration/react';
+import { store, persistor } from './src/store/store';
 import {
   ActivityIndicator,
   View,
   Text,
-  StyleSheet,
   StatusBar,
   Platform,
-  TouchableOpacity,
-  Alert,
   I18nManager,
+  LogBox,
+  AppState,
+  BackHandler,
+  Alert,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import * as SplashScreen from 'expo-splash-screen';
+import * as Font from 'expo-font';
 import { LanguageProvider } from './src/components/LanguageProvider';
 import { AppNavigator } from './src/navigation/AppNavigator';
 import { initI18n, getCurrentLanguage, isArabic } from './src/i18n';
 import { notificationService } from './src/services/notifications';
 import { authService } from './src/services/auth.service';
-import { COLORS } from './src/utils/constants';
-import { API_CONFIG } from './src/utils/constants';
+import { networkService } from './src/services/network.service';
+import { analyticsService } from './src/services/analytics.service';
+import { emergencyService } from './src/services/emergency.service';
+import { NetworkStatusBar } from './src/components/NetworkStatusBar';
+import { OfflineIndicator } from './src/components/OfflineIndicator';
+import { SessionTimeout } from './src/components/SessionTimeout';
+import { ErrorBoundary } from './src/components/ErrorBoundary';
+import { LoadingScreen } from './src/components/LoadingScreen';
+import { API_CONFIG } from './src/config/app.config';
+import './global.css';
+
+// الخطوط المخصصة للتطبيق
+const customFonts = {
+  // يمكنك إضافة خطوطك هنا
+  // 'Roboto-Bold': require('./assets/fonts/Roboto-Bold.ttf'),
+  // 'Roboto-Regular': require('./assets/fonts/Roboto-Regular.ttf'),
+};
+
+// تجاهل تحذيرات معينة
+LogBox.ignoreLogs([
+  'Non-serializable values were found in the navigation state',
+  'AsyncStorage has been extracted from react-native core',
+  'EventEmitter.removeListener',
+  'new NativeEventEmitter',
+  'SplashScreen.show is deprecated',
+  'Cannot connect to the Metro server',
+]);
+
+// منع إخفاء شاشة البداية تلقائياً
+SplashScreen.preventAutoHideAsync();
 
 export default function App() {
   const [appIsReady, setAppIsReady] = useState(false);
-  const [backendStatus, setBackendStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
-  const [currentLanguage, setCurrentLanguage] = useState<'ar' | 'en'>('ar');
-  const [connectionCheckInProgress, setConnectionCheckInProgress] = useState(false);
+  const [fontsLoaded, setFontsLoaded] = useState(false);
+  const [initializing, setInitializing] = useState(true);
+  const [initializationError, setInitializationError] = useState<string | null>(null);
+  const [networkStatus, setNetworkStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
+  const [appState, setAppState] = useState(AppState.currentState);
+  const appStateRef = useRef(AppState.currentState);
+  const lastBackPress = useRef<number>(0);
+  const isInitializedRef = useRef(false);
 
-  useEffect(() => {
-    prepareApp();
-    
-    // فحص اتصال دوري كل 5 دقائق فقط (بدلاً من كل دقيقة)
-    const connectionInterval = setInterval(() => {
-      if (!connectionCheckInProgress) {
-        checkServerConnection();
-      }
-    }, 300000); // كل 5 دقائق
-
-    return () => clearInterval(connectionInterval);
-  }, [connectionCheckInProgress]);
-
-  const prepareApp = async () => {
+  // تحميل الخطوط
+  const loadFonts = useCallback(async () => {
     try {
-      console.log('🚀 [App] Preparing application...');
+      console.log('🔤 [App] Loading custom fonts...');
       
-      // 1. Initialize i18n for translation
-      await initI18n();
-      
-      // Get current language from i18n after initialization
-      const lang = getCurrentLanguage();
-      setCurrentLanguage(lang as 'ar' | 'en');
-      
-      // Force RTL/LTR settings based on language
-      I18nManager.forceRTL(isArabic());
-      I18nManager.allowRTL(true);
-      
-      // For Android, swap left and right in RTL
-      if (Platform.OS === 'android') {
-        I18nManager.swapLeftAndRightInRTL(isArabic());
+      // إذا كان لديك خطوط مخصصة
+      if (Object.keys(customFonts).length > 0) {
+        await Font.loadAsync(customFonts);
       }
       
-      console.log(`🌐 [App] Language: ${lang}, RTL: ${isArabic()}`);
-      
-      // 2. Load user session if exists (في الخلفية، لا ننتظر)
-      authService.loadSession().then(session => {
-        if (session) {
-          console.log(`📱 [App] Found session for: ${session.user?.email || 'unknown user'}`);
-        }
-      }).catch(() => {
-        // تجاهل الأخطاء في تحميل الجلسة
+      // تحميل خطوط النظام (اختياري)
+      await Font.loadAsync({
+        // يمكنك تحميل خطوط أيقونات إذا كنت بحاجة إليها
+        // 'MaterialIcons': require('@expo/vector-icons/fonts/MaterialIcons.ttf'),
       });
       
-      // 3. Setup notifications (في الخلفية)
-      setupNotifications();
-      
-      // 4. فحص الاتصال مرة واحدة فقط عند البدء
-      setTimeout(() => {
-        checkServerConnection().catch(() => {
-          // تجاهل الأخطاء في الفحص الأولي
-        });
-      }, 500);
-      
+      setFontsLoaded(true);
+      console.log('✅ [App] Fonts loaded successfully');
     } catch (error) {
-      console.error('❌ [App] Preparation error:', error);
-      // لا نعرض Alert هنا - نترك التطبيق يعمل في الوضع المحلي
-    } finally {
-      setTimeout(() => {
-        setAppIsReady(true);
-        console.log('✅ [App] Ready for use');
-      }, 500);
+      console.warn('⚠️ [App] Error loading fonts:', error);
+      setFontsLoaded(true); // نستمر حتى لو فشل تحميل الخطوط
     }
-  };
+  }, []);
 
-  const setupNotifications = async () => {
-    try {
-      console.log('🔔 [App] Setting up notifications...');
-      const hasPermission = await notificationService.requestPermissions();
-      if (!hasPermission) {
-        console.warn('⚠️ [App] Notification permissions not granted');
-      }
-    } catch (error) {
-      console.warn('⚠️ [App] Notifications setup warning:', error);
-    }
-  };
-
-  const checkServerConnection = async () => {
-    if (connectionCheckInProgress) {
-      console.log('⏳ [App] Connection check already in progress, skipping...');
-      return;
-    }
-
-    setConnectionCheckInProgress(true);
+  // التعامل مع تغييرات حالة التطبيق
+  const handleAppStateChange = useCallback((nextAppState: any) => {
+    console.log(`📱 [App] State changed: ${appStateRef.current} -> ${nextAppState}`);
     
-    try {
-      console.log('🌐 [App] Starting single connection check...');
+    if (appStateRef.current.match(/inactive|background/) && nextAppState === 'active') {
+      // التطبيق عاد للمقدمة
+      console.log('📱 [App] App returned to foreground');
+      analyticsService.track('app_foreground');
       
-      const isConnected = await authService.testDatabaseConnection();
+      // تحديث نشاط المستخدم
+      authService.updateLastActivity();
       
-      if (isConnected) {
-        console.log('✅ [App] Database connected');
-        setBackendStatus('connected');
-      } else {
-        console.log('❌ [App] Database disconnected');
-        setBackendStatus('disconnected');
-        
-        // فقط عرض Alert إذا كان التطبيق جاهزاً وهناك مشكلة جديدة
-        if (appIsReady && backendStatus !== 'disconnected') {
-          Alert.alert(
-            'Connection Issue',
-            'Cannot connect to server. Some features may not work properly.\n\n' +
-            'You can still use the app in offline mode.',
-            [{ text: 'OK' }]
-          );
-        }
-      }
-    } catch (error) {
-      console.warn('⚠️ [App] Connection check warning:', error);
-      setBackendStatus('disconnected');
-    } finally {
-      setConnectionCheckInProgress(false);
+      // تحديث حالة الشبكة
+      networkService.checkConnectivity().then(status => {
+        setNetworkStatus(status.isConnected ? 'connected' : 'disconnected');
+      });
+    } else if (appStateRef.current === 'active' && nextAppState.match(/inactive|background/)) {
+      // التطبيق يذهب للخلفية
+      console.log('📱 [App] App going to background');
+      analyticsService.track('app_background');
     }
-  };
+    
+    appStateRef.current = nextAppState;
+    setAppState(nextAppState);
+  }, []);
 
-  const handleRetryConnection = async () => {
+  // التعامل مع زر الرجوع (أندرويد)
+  const handleBackPress = useCallback(() => {
+    const now = Date.now();
+    
+    if (now - lastBackPress.current < 2000) {
+      // الضغط مرتين للخروج
+      analyticsService.track('app_exit_double_tap');
+      BackHandler.exitApp();
+      return true;
+    }
+    
+    lastBackPress.current = now;
+    
     Alert.alert(
-      'Retry Connection',
-      'Do you want to retry connecting to the server?',
+      'Exit App',
+      'Are you sure you want to exit?',
       [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Retry',
-          onPress: async () => {
-            await checkServerConnection();
-          },
+        { 
+          text: 'Cancel', 
+          style: 'cancel', 
+          onPress: () => {
+            analyticsService.track('app_exit_cancelled');
+          } 
+        },
+        { 
+          text: 'Exit', 
+          style: 'destructive', 
+          onPress: () => {
+            analyticsService.track('app_exit_confirmed');
+            BackHandler.exitApp();
+          } 
         },
       ]
     );
-  };
+    
+    return true;
+  }, []);
 
-  const handleLanguageInfo = () => {
-    Alert.alert(
-      'Language Information',
-      `Current Language: ${currentLanguage === 'ar' ? 'Arabic (العربية)' : 'English'}\n\n` +
-      `You can change the language from:\n` +
-      '1. Login screen (top right)\n' +
-      '2. Settings → Language',
-      [{ text: 'OK' }]
+  // تهيئة التطبيق
+  const initializeApp = useCallback(async () => {
+    if (isInitializedRef.current) return;
+    isInitializedRef.current = true;
+
+    try {
+      console.log('🚀 [App] Starting application initialization...');
+
+      // 1. تهيئة الخطوط أولاً
+      await loadFonts();
+
+      // 2. تهيئة الترجمة
+      console.log('🌐 [App] Initializing i18n...');
+      await initI18n();
+      const lang = getCurrentLanguage();
+      
+      // تكوين RTL/LTR بناءً على اللغة
+      const isRTL = isArabic();
+      I18nManager.forceRTL(isRTL);
+      I18nManager.allowRTL(true);
+      
+      if (Platform.OS === 'android') {
+        I18nManager.swapLeftAndRightInRTL(isRTL);
+      }
+
+      console.log(`🌐 [App] Language set to: ${lang}, RTL: ${isRTL}`);
+
+      // 3. تهيئة خدمة الشبكة
+      console.log('📡 [App] Initializing network service...');
+      const networkStatus = await networkService.initialize();
+      setNetworkStatus(
+        networkStatus.isConnected && networkStatus.isInternetReachable
+          ? 'connected'
+          : 'disconnected'
+      );
+
+      // 4. تهيئة التحليلات
+      console.log('📊 [App] Initializing analytics...');
+      await analyticsService.initialize();
+
+      // 5. التحقق من جلسة المستخدم وتحميلها (عملية في الخلفية)
+      console.log('🔐 [App] Checking user session...');
+      authService.loadSession().then(async (session) => {
+        if (session?.user?.id) {
+          analyticsService.setUserId(session.user.id);
+          analyticsService.setUserProperties({
+            email: session.user.email,
+            language: lang,
+          });
+          
+          // بدء مراقبة الجلسة
+          authService.startSessionMonitor();
+          
+          console.log(`✅ [App] User session loaded: ${session.user.email}`);
+        }
+      }).catch((error) => {
+        console.warn('⚠️ [App] Session loading warning:', error);
+      });
+
+      // 6. إعداد الإشعارات
+      console.log('🔔 [App] Setting up notifications...');
+      const notificationPermission = await notificationService.requestPermissions();
+      analyticsService.track('notification_permission_requested', { 
+        granted: notificationPermission,
+        platform: Platform.OS,
+      });
+
+      // 7. تهيئة خدمة الطوارئ
+      console.log('🚨 [App] Initializing emergency service...');
+      await emergencyService.getEmergencySettings();
+      await emergencyService.getEmergencyContacts();
+
+      // 8. تتبع تهيئة التطبيق
+      analyticsService.track('app_initialized', {
+        platform: Platform.OS,
+        version: API_CONFIG.version,
+        buildNumber: API_CONFIG.buildNumber,
+        language: lang,
+        rtl: isRTL,
+        networkStatus: networkStatus,
+      });
+
+      console.log('✅ [App] Initialization completed successfully');
+
+    } catch (error) {
+      console.error('❌ [App] Initialization error:', error);
+      setInitializationError(error instanceof Error ? error.message : 'Unknown initialization error');
+      analyticsService.track('app_initialization_error', {
+        error: error instanceof Error ? error.message : 'Unknown',
+      });
+    } finally {
+      setInitializing(false);
+    }
+  }, [loadFonts]);
+
+  // التعامل مع انتهاء الجلسة
+  const handleSessionTimeout = useCallback(async () => {
+    console.log('⏰ [App] Session timeout triggered');
+    analyticsService.track('session_timeout');
+    
+    const session = await authService.loadSession();
+    if (session) {
+      Alert.alert(
+        'Session Expired',
+        'Your session has expired due to inactivity. Please login again.',
+        [
+          { 
+            text: 'OK', 
+            onPress: async () => {
+              await authService.logout();
+              analyticsService.track('session_logout_timeout');
+            }
+          }
+        ]
+      );
+    }
+  }, []);
+
+  // التعامل مع تغييرات حالة الشبكة
+  const handleNetworkStatusChange = useCallback((status: any) => {
+    setNetworkStatus(
+      status.isConnected && status.isInternetReachable
+        ? 'connected'
+        : 'disconnected'
     );
-  };
+  }, []);
 
-  // Loading screen
+  // إعداد مستمعي دورة حياة التطبيق
+  useEffect(() => {
+    const appStateSubscription = AppState.addEventListener('change', handleAppStateChange);
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', handleBackPress);
+    
+    // مستمع حالة الشبكة
+    const unsubscribeNetwork = networkService.addListener(handleNetworkStatusChange);
+    
+    // فحص صحة دوري (كل 10 دقائق)
+    const healthCheckInterval = setInterval(() => {
+      if (appStateRef.current === 'active') {
+        networkService.checkConnectivity();
+      }
+    }, 600000);
+
+    return () => {
+      clearInterval(healthCheckInterval);
+      appStateSubscription.remove();
+      backHandler.remove();
+      unsubscribeNetwork();
+      networkService.stop();
+      analyticsService.destroy();
+      emergencyService.cleanup();
+    };
+  }, [handleAppStateChange, handleBackPress, handleNetworkStatusChange]);
+
+  // تهيئة التطبيق عند البدء
+  useEffect(() => {
+    const prepare = async () => {
+      try {
+        // انتظار تحميل الخطوط
+        await loadFonts();
+        
+        // تهيئة التطبيق
+        await initializeApp();
+        
+        // تأخير صغير لتجربة مستخدم أفضل
+        await new Promise(resolve => setTimeout(resolve, 800));
+        
+        // إخفاء شاشة البداية
+        await SplashScreen.hideAsync();
+        
+        // تحديث حالة الجاهزية
+        setAppIsReady(true);
+        console.log('✅ [App] App is ready');
+      } catch (error) {
+        console.error('❌ [App] Preparation error:', error);
+        setInitializationError(error instanceof Error ? error.message : 'Unknown preparation error');
+        setAppIsReady(true); // نستمر في عرض التطبيق حتى مع وجود خطأ
+      }
+    };
+
+    prepare();
+  }, [loadFonts, initializeApp]);
+
+  // عرض شاشة التحميل أثناء التهيئة
   if (!appIsReady) {
     return (
       <SafeAreaProvider>
-        <SafeAreaView style={styles.loadingContainer}>
-          <View style={styles.loadingContent}>
-            <View style={styles.logoContainer}>
-              <Text style={styles.logoIcon}>🛡️</Text>
-              <Text style={styles.logoText}>Fall Detection</Text>
-            </View>
-            
-            <ActivityIndicator size="large" color={COLORS.primary} />
-            
-            <Text style={styles.loadingText}>
-              {currentLanguage === 'ar' ? 'جاري تحميل التطبيق...' : 'Loading application...'}
-            </Text>
-            
-            <View style={styles.loadingInfo}>
-              <Text style={styles.loadingInfoText}>
-                Language: {currentLanguage}
-              </Text>
-              <Text style={styles.loadingInfoText}>
-                RTL: {isArabic() ? 'Yes' : 'No'}
-              </Text>
-            </View>
-          </View>
-        </SafeAreaView>
+        <View className="flex-1 justify-center items-center bg-gradient-to-b from-blue-50 to-white">
+          <LoadingScreen 
+            initializing={initializing}
+            error={initializationError}
+            networkStatus={networkStatus}
+            currentLanguage={getCurrentLanguage()}
+          />
+        </View>
       </SafeAreaProvider>
     );
   }
 
-  // Main app
+  // المكون الرئيسي للتطبيق
   return (
-    <SafeAreaProvider>
-      <LanguageProvider>
-        <StatusBar
-          barStyle={isArabic() ? "light-content" : "dark-content"}
-          backgroundColor={COLORS.primary}
-        />
-        
-        {/* Connection status indicator - فقط اظهر عند الفشل */}
-        {backendStatus !== 'connected' && (
-          <View style={[
-            styles.connectionStatus,
-            backendStatus === 'disconnected' && styles.connectionStatusDisconnected,
-          ]}>
-            <View style={styles.connectionContent}>
-              <View style={styles.statusInfo}>
-                <View style={[
-                  styles.statusDot,
-                  { backgroundColor: COLORS.danger }
-                ]} />
-                <Text style={styles.statusText}>
-                  ❌ No connection - Using offline mode
-                </Text>
+    <ErrorBoundary>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <Provider store={store}>
+          <PersistGate 
+            loading={
+              <View className="flex-1 justify-center items-center bg-white">
+                <ActivityIndicator size="large" color="#2196F3" />
               </View>
-              
-              <View style={styles.statusActions}>
-                <TouchableOpacity 
-                  onPress={handleRetryConnection} 
-                  style={styles.statusButton}
-                >
-                  <Text style={styles.statusButtonText}>⟳ Retry</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        )}
-        
-        <AppNavigator />
-      </LanguageProvider>
-    </SafeAreaProvider>
+            } 
+            persistor={persistor}
+          >
+            <SafeAreaProvider>
+              <LanguageProvider>
+                <StatusBar
+                  barStyle={isArabic() ? "light-content" : "dark-content"}
+                  backgroundColor="#2196F3"
+                  translucent={Platform.OS === 'android'}
+                />
+                
+                {/* شريط حالة الشبكة */}
+                <NetworkStatusBar 
+                  status={networkStatus}
+                  onRetry={() => networkService.checkConnectivity()}
+                />
+                
+                {/* مؤشر عدم الاتصال */}
+                {networkStatus === 'disconnected' && (
+                  <OfflineIndicator 
+                    onRetry={() => networkService.checkConnectivity()}
+                  />
+                )}
+                
+                {/* معالج انتهاء الجلسة */}
+                <SessionTimeout 
+                  timeoutMinutes={30}
+                  onTimeout={handleSessionTimeout}
+                  warningMinutes={5}
+                  onWarning={() => {
+                    console.log('⚠️ [App] Session timeout warning');
+                    analyticsService.track('session_timeout_warning');
+                  }}
+                />
+                
+                {/* التنقل الرئيسي للتطبيق */}
+                <View className="flex-1 bg-light">
+                  <AppNavigator />
+                </View>
+                
+                {/* عرض الأخطاء العام (اختياري) */}
+                {initializationError && (
+                  <View className="absolute bottom-4 left-4 right-4 bg-danger/90 p-3 rounded-lg shadow-lg">
+                    <Text className="text-white text-sm text-center">
+                      Warning: {initializationError}
+                    </Text>
+                  </View>
+                )}
+                
+                {/* مؤشر حالة التطبيق (للتنمية فقط) */}
+                {__DEV__ && (
+                  <View className="absolute bottom-4 left-4 z-40">
+                    <View className="bg-dark/70 px-2 py-1 rounded-full">
+                      <Text className="text-white text-xs font-mono">
+                        {appState.toUpperCase()}
+                      </Text>
+                    </View>
+                  </View>
+                )}
+              </LanguageProvider>
+            </SafeAreaProvider>
+          </PersistGate>
+        </Provider>
+      </GestureHandlerRootView>
+    </ErrorBoundary>
   );
 }
-
-const styles = StyleSheet.create({
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: COLORS.white,
-  },
-  loadingContent: {
-    alignItems: 'center',
-    padding: 30,
-  },
-  logoContainer: {
-    alignItems: 'center',
-    marginBottom: 40,
-  },
-  logoIcon: {
-    fontSize: 60,
-    marginBottom: 10,
-  },
-  logoText: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: COLORS.primary,
-    textAlign: 'center',
-  },
-  loadingText: {
-    marginTop: 20,
-    fontSize: 16,
-    color: COLORS.dark,
-    fontWeight: '600',
-    marginBottom: 5,
-  },
-  loadingInfo: {
-    marginTop: 30,
-    padding: 15,
-    backgroundColor: 'rgba(33, 150, 243, 0.1)',
-    borderRadius: 10,
-    width: '100%',
-    alignItems: 'center',
-  },
-  loadingInfoText: {
-    fontSize: 12,
-    color: COLORS.primary,
-    marginBottom: 3,
-  },
-  connectionStatus: {
-    position: 'absolute',
-    top: Platform.OS === 'ios' ? 45 : 10,
-    left: 10,
-    right: 10,
-    zIndex: 1000,
-    backgroundColor: COLORS.white,
-    borderRadius: 15,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-    borderWidth: 1,
-    padding: 12,
-  },
-  connectionStatusDisconnected: {
-    borderColor: COLORS.danger,
-    backgroundColor: 'rgba(244, 67, 54, 0.1)',
-  },
-  connectionContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  statusInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  statusDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    marginRight: 10,
-  },
-  statusText: {
-    flex: 1,
-    fontSize: 13,
-    fontWeight: '600',
-    color: COLORS.dark,
-  },
-  statusActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  statusButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 15,
-    backgroundColor: 'rgba(0, 0, 0, 0.05)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: 8,
-  },
-  statusButtonText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: COLORS.dark,
-  },
-});

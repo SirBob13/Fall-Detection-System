@@ -1,0 +1,152 @@
+{
+    "test_time": "2026-02-02T20:05:17.630592",
+    "model_path": "/Users/AyshaKassem/Desktop/graduating project/App/AI/models/fall_detection_final.keras",
+    "model_type": "<class 'keras.src.models.functional.Functional'>",
+    "num_features": 16,
+    "test_samples": 3000,
+    "positive_samples": 2032,
+    "scaler_used": true,
+    "thresholds": {
+        "fall_now": 0.35,
+        "fall_soon": 0.3
+    },
+    "sample_predictions": [
+        {
+            "sample": 0,
+            "fall_now": 0.8071461915969849,
+            "fall_soon": 0.8485973477363586,
+            "actual": 0.0
+        },
+        {
+            "sample": 1,
+            "fall_now": 0.8260219097137451,
+            "fall_soon": 0.8216859102249146,
+            "actual": 0.0
+        },
+        {
+            "sample": 2,
+            "fall_now": 0.8801367878913879,
+            "fall_soon": 0.8801538944244385,
+            "actual": 0.0
+        },
+        {
+            "sample": 3,
+            "fall_now": 0.9234936237335205,
+            "fall_soon": 0.9066938161849976,
+            "actual": 0.0
+        },
+        {
+            "sample": 4,
+            "fall_now": 0.942911684513092,
+            "fall_soon": 0.9185792207717896,
+            "actual": 0.0
+        },
+        {
+            "sample": 5,
+            "fall_now": 0.9290502071380615,
+            "fall_soon": 0.8882151246070862,
+            "actual": 0.0
+        },
+        {
+            "sample": 6,
+            "fall_now": 0.85801100730896,
+            "fall_soon": 0.8358603119850159,
+            "actual": 0.0
+        },
+        {
+            "sample": 7,
+            "fall_now": 0.2115021049976349,
+            "fall_soon": 0.33590251207351685,
+            "actual": 0.0
+        },
+        {
+            "sample": 8,
+            "fall_now": 0.04974560812115669,
+            "fall_soon": 0.10236113518476486,
+            "actual": 0.0
+        },
+        {
+            "sample": 9,
+            "fall_now": 0.01958720199763775,
+            "fall_soon": 0.04234113544225693,
+            "actual": 0.0
+        },
+        {
+            "sample": 10,
+            "fall_now": 0.005726261530071497,
+            "fall_soon": 0.00993838720023632,
+            "actual": 0.0
+        },
+        {
+            "sample": 11,
+            "fall_now": 0.0028224040288478136,
+            "fall_soon": 0.0045097023248672485,
+            "actual": 0.0
+        },
+        {
+            "sample": 12,
+            "fall_now": 0.002608903683722019,
+            "fall_soon": 0.0039039929397404194,
+            "actual": 0.0
+        },
+        {
+            "sample": 13,
+            "fall_now": 0.0031678045634180307,
+            "fall_soon": 0.0046118018217384815,
+            "actual": 0.0
+        },
+        {
+            "sample": 14,
+            "fall_now": 0.003933984786272049,
+            "fall_soon": 0.006073157303035259,
+            "actual": 1.0
+        },
+        {
+            "sample": 15,
+            "fall_now": 0.004801962058991194,
+            "fall_soon": 0.007915814407169819,
+            "actual": 1.0
+        },
+        {
+            "sample": 16,
+            "fall_now": 0.005654432345181704,
+            "fall_soon": 0.009502820670604706,
+            "actual": 1.0
+        },
+        {
+            "sample": 17,
+            "fall_now": 0.010817369446158409,
+            "fall_soon": 0.018636640161275864,
+            "actual": 1.0
+        },
+        {
+            "sample": 18,
+            "fall_now": 0.024528488516807556,
+            "fall_soon": 0.04673049598932266,
+            "actual": 1.0
+        },
+        {
+            "sample": 19,
+            "fall_now": 0.0528889037668705,
+            "fall_soon": 0.11547849327325821,
+            "actual": 1.0
+        }
+    ],
+    "statistics": {
+        "fall_now": {
+            "mean": 0.32822781801223755,
+            "std": 0.40903809666633606,
+            "min": 0.002608903683722019,
+            "max": 0.942911684513092,
+            "above_threshold": 7
+        },
+        "fall_soon": {
+            "mean": 0.3403845727443695,
+            "std": 0.3967055380344391,
+            "min": 0.0039039929397404194,
+            "max": 0.9185792207717896,
+            "above_threshold": 8
+        }
+    },
+    "model_outputs": 2
+}

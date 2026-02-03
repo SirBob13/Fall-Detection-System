@@ -2,16 +2,13 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
   TouchableOpacity,
   Alert,
   ScrollView,
-  Platform,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useLanguage } from '../components/LanguageProvider';
 import { ScreenWrapper } from '../components/ScreenWrapper';
-import { COLORS } from '../utils/constants';
 import { useNavigation } from '@react-navigation/native';
 
 export const LanguageSettingsScreen: React.FC = () => {
@@ -26,7 +23,7 @@ export const LanguageSettingsScreen: React.FC = () => {
       nativeName: 'العربية',
       flag: '🇸🇦', 
       direction: 'rtl',
-      description: t('language.arabic')
+      description: t('language.arabicDesc')
     },
     { 
       code: 'en', 
@@ -34,7 +31,7 @@ export const LanguageSettingsScreen: React.FC = () => {
       nativeName: 'English',
       flag: '🇺🇸', 
       direction: 'ltr',
-      description: t('language.english')
+      description: t('language.englishDesc')
     },
   ];
 
@@ -60,9 +57,10 @@ export const LanguageSettingsScreen: React.FC = () => {
               const success = await changeLanguage(langCode);
               
               if (success) {
+                // لا نعيد تحميل الشاشة، التغيير فوري
                 Alert.alert(
                   t('success.updated'),
-                  t('language.restartMessage'),
+                  t('language.successMessage'),
                   [
                     { 
                       text: t('common.ok'),
@@ -71,7 +69,7 @@ export const LanguageSettingsScreen: React.FC = () => {
                   ]
                 );
               } else {
-                Alert.alert(t('common.error'), t('errors.unknown'));
+                Alert.alert(t('common.error'), t('errors.languageChangeFailed'));
                 setSelectedLang(language);
               }
             } catch (error) {
@@ -86,143 +84,101 @@ export const LanguageSettingsScreen: React.FC = () => {
 
   return (
     <ScreenWrapper>
-      <ScrollView contentContainerStyle={styles.container}>
-        <View style={styles.header}>
-          <MaterialIcons name="language" size={60} color={COLORS.primary} />
-          <Text style={styles.title}>{t('language.title')}</Text>
-          <Text style={styles.subtitle}>
+      <ScrollView contentContainerStyle={{ padding: 20 }}>
+        <View className="items-center mb-8">
+          <View className="w-20 h-20 rounded-full bg-blue-50 justify-center items-center mb-4">
+            <MaterialIcons name="language" size={40} color="#2196F3" />
+          </View>
+          <Text className="text-2xl font-bold text-dark mb-2">
+            {t('language.title')}
+          </Text>
+          <Text className="text-base text-gray text-center">
             {t('language.selectLanguage')}
           </Text>
         </View>
 
-        <View style={styles.languagesList}>
+        <View className="mb-8">
           {languages.map((lang) => (
             <TouchableOpacity
               key={lang.code}
-              style={[
-                styles.languageItem,
-                selectedLang === lang.code && styles.languageItemActive,
-                isChanging && styles.languageItemDisabled,
-              ]}
+              className={`
+                bg-white rounded-xl p-5 mb-4 border-2
+                ${selectedLang === lang.code 
+                  ? 'border-primary bg-blue-50' 
+                  : 'border-lightGray'
+                }
+                ${(isChanging || language === lang.code) ? 'opacity-60' : 'active:opacity-80'}
+              `}
               onPress={() => handleLanguageSelect(lang.code as 'ar' | 'en')}
-              disabled={isChanging || language === lang.code}
+              disabled={isChanging}
+              activeOpacity={0.7}
             >
-              <View style={styles.languageContent}>
-                <Text style={styles.flag}>{lang.flag}</Text>
-                <View style={styles.languageInfo}>
-                  <Text style={styles.languageName}>{lang.name}</Text>
-                  <Text style={styles.languageNativeName}>{lang.nativeName}</Text>
-                  <Text style={styles.languageDirection}>
-                    {lang.direction === 'rtl' ? '← ' + lang.description : lang.description + ' →'}
+              <View className="flex-row items-center">
+                <View className="mr-4">
+                  <Text className="text-4xl">{lang.flag}</Text>
+                </View>
+                <View className="flex-1">
+                  <View className="flex-row items-center justify-between mb-1">
+                    <Text className="text-lg font-semibold text-dark">
+                      {lang.name}
+                    </Text>
+                    {language === lang.code && (
+                      <View className="flex-row items-center bg-primary/10 py-1 px-2 rounded-full">
+                        <MaterialIcons name="check" size={14} color="#2196F3" />
+                        <Text className="text-xs text-primary ml-1">
+                          {t('common.current')}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text className="text-sm text-primary mb-2">
+                    {lang.nativeName}
+                  </Text>
+                  <Text className="text-xs text-gray">
+                    {lang.description}
                   </Text>
                 </View>
-                {language === lang.code ? (
-                  <MaterialIcons 
-                    name="check-circle" 
-                    size={24} 
-                    color={COLORS.primary} 
-                  />
-                ) : (
-                  <MaterialIcons 
-                    name="radio-button-unchecked" 
-                    size={24} 
-                    color={COLORS.gray} 
-                  />
-                )}
+                <MaterialIcons 
+                  name={language === lang.code ? "radio-button-checked" : "radio-button-unchecked"} 
+                  size={24} 
+                  color={language === lang.code ? "#2196F3" : "#BDBDBD"} 
+                />
               </View>
             </TouchableOpacity>
           ))}
         </View>
 
-        <View style={styles.infoCard}>
-          <MaterialIcons name="info" size={24} color={COLORS.info} />
-          <Text style={styles.infoText}>
-            {t('language.restartMessage')}
-          </Text>
+        <View className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6">
+          <View className="flex-row items-start">
+            <MaterialIcons name="info" size={20} color="#2196F3" className="mt-0.5" />
+            <View className="ml-3 flex-1">
+              <Text className="text-sm font-medium text-dark mb-1">
+                {t('language.note')}
+              </Text>
+              <Text className="text-xs text-gray leading-5">
+                {t('language.languageChangeInfo')}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        <View className="bg-green-50 border border-green-200 rounded-xl p-4">
+          <View className="flex-row items-start">
+            <MaterialIcons name="translate" size={20} color="#4CAF50" className="mt-0.5" />
+            <View className="ml-3 flex-1">
+              <Text className="text-sm font-medium text-dark mb-1">
+                {t('language.currentLanguage')}
+              </Text>
+              <Text className="text-xs text-gray leading-5">
+                {language === 'ar' 
+                  ? t('language.arabicSelected')
+                  : t('language.englishSelected')
+                }
+              </Text>
+            </View>
+          </View>
         </View>
       </ScrollView>
     </ScreenWrapper>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    padding: 20,
-  },
-  header: {
-    alignItems: 'center',
-    marginBottom: 30,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: COLORS.dark,
-    marginTop: 20,
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: COLORS.gray,
-    textAlign: 'center',
-  },
-  languagesList: {
-    marginBottom: 30,
-  },
-  languageItem: {
-    backgroundColor: COLORS.white,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: COLORS.lightGray,
-  },
-  languageItemActive: {
-    borderColor: COLORS.primary,
-    backgroundColor: 'rgba(33, 150, 243, 0.05)',
-  },
-  languageItemDisabled: {
-    opacity: 0.5,
-  },
-  languageContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  flag: {
-    fontSize: 30,
-    marginRight: 15,
-  },
-  languageInfo: {
-    flex: 1,
-  },
-  languageName: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: COLORS.dark,
-    marginBottom: 2,
-  },
-  languageNativeName: {
-    fontSize: 14,
-    color: COLORS.primary,
-    marginBottom: 4,
-  },
-  languageDirection: {
-    fontSize: 12,
-    color: COLORS.gray,
-  },
-  infoCard: {
-    flexDirection: 'row',
-    backgroundColor: 'rgba(33, 150, 243, 0.1)',
-    borderColor: COLORS.info,
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-  },
-  infoText: {
-    flex: 1,
-    fontSize: 14,
-    color: COLORS.dark,
-    marginLeft: 12,
-    lineHeight: 20,
-  },
-});

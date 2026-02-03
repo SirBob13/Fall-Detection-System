@@ -17,15 +17,15 @@ class AuthService:
     def __init__(self, db: Session):
         self.db = db
     
-    # ==================== التحقق من البريد الإلكتروني ====================
+    # ==================== Email Verification ====================
     
     def check_email_exists(self, email: str) -> bool:
-        """التحقق من وجود البريد الإلكتروني في قاعدة البيانات"""
+        """Check if email exists in the database"""
         try:
             email_clean = email.lower().strip()
             logger.info(f"🔍 Checking email existence: {email_clean}")
             
-            # التحقق من قاعدة البيانات مباشرة - بدون await
+            # Check database directly
             user_auth = self.db.query(UserAuth).filter(
                 UserAuth.email == email_clean
             ).first()
@@ -39,32 +39,32 @@ class AuthService:
             logger.error(f"❌ Error checking email existence: {e}")
             return False
     
-    # ==================== تسجيل مستخدم جديد ====================
+    # ==================== User Registration ====================
     
-    async def register_user(self, user_data: Dict[str, Any]) -> Dict[str, Any]:
-        """تسجيل مستخدم جديد مع التحقق الشامل"""
+    def register_user(self, user_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Register a new user with comprehensive validation"""
         try:
             email = user_data.get('email', '').lower().strip()
             
             if not email:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="البريد الإلكتروني مطلوب"
+                    detail="Email is required"
                 )
             
-            # التحقق من وجود البريد أولاً
-            email_exists = await self.check_email_exists(email)
+            # Check if email exists first
+            email_exists = self.check_email_exists(email)
             if email_exists:
                 logger.warning(f"❌ Email already exists: {email}")
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="البريد الإلكتروني مسجل بالفعل"
+                    detail="Email is already registered"
                 )
             
-            # بدء المعاملة
+            # Start transaction
             logger.info(f"📝 Starting registration for: {email}")
             
-            # إنشاء المستخدم
+            # Create user
             user = User(
                 name=user_data.get('name', ''),
                 age=user_data.get('age'),
@@ -77,11 +77,11 @@ class AuthService:
                 is_active=True
             )
             self.db.add(user)
-            self.db.flush()  # للحصول على ID
+            self.db.flush()  # Get ID
             
             logger.info(f"✅ User created with ID: {user.id}")
             
-            # إنشاء مصادقة المستخدم
+            # Create user authentication
             user_auth = UserAuth(
                 user_id=user.id,
                 email=email,
@@ -93,16 +93,16 @@ class AuthService:
             )
             self.db.add(user_auth)
             
-            # حفظ التغييرات
+            # Save changes
             self.db.commit()
             self.db.refresh(user)
             
             logger.info(f"✅ User registered successfully: {email}")
             
-            # إرجاع النتيجة
+            # Return result
             return {
                 "success": True,
-                "message": "تم إنشاء الحساب بنجاح",
+                "message": "Account created successfully",
                 "user_id": user.id,
                 "email": email,
                 "name": user.name
@@ -113,28 +113,28 @@ class AuthService:
             logger.error(f"❌ Registration failed: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"فشل إنشاء الحساب: {str(e)}"
+                detail=f"Account creation failed: {str(e)}"
             )
     
-    # ==================== تسجيل الدخول ====================
+    # ==================== User Login ====================
     
-    async def login_user(self, email: str, password: str, device_info: str = None) -> Dict[str, Any]:
-        """تسجيل دخول المستخدم من قاعدة البيانات"""
+    def login_user(self, email: str, password: str, device_info: str = None) -> Dict[str, Any]:
+        """Login user from database"""
         try:
             email_clean = email.lower().strip()
             
             logger.info(f"🔐 Login attempt for: {email_clean}")
             
-            # التحقق من وجود البريد
-            email_exists = await self.check_email_exists(email_clean)
+            # Check if email exists
+            email_exists = self.check_email_exists(email_clean)
             if not email_exists:
                 logger.warning(f"❌ Email not found: {email_clean}")
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail="المستخدم غير موجود"
+                    detail="User not found"
                 )
             
-            # البحث عن مصادقة المستخدم
+            # Find user authentication
             user_auth = self.db.query(UserAuth).filter(
                 UserAuth.email == email_clean
             ).first()
@@ -143,20 +143,20 @@ class AuthService:
                 logger.error(f"❌ UserAuth not found for: {email_clean}")
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail="بيانات المصادقة غير موجودة"
+                    detail="Authentication data not found"
                 )
             
-            # التحقق من حالة الحساب
+            # Check account status
             if user_auth.locked_until and user_auth.locked_until > datetime.utcnow():
                 logger.warning(f"🔒 Account locked: {email_clean}")
                 raise HTTPException(
                     status_code=status.HTTP_423_LOCKED,
-                    detail="الحساب مؤقتاً. يرجى المحاولة لاحقاً"
+                    detail="Account temporarily locked. Please try again later"
                 )
             
-            # التحقق من كلمة المرور
+            # Verify password
             if not self.verify_password(password, user_auth.password_hash):
-                # زيادة محاولات الدخول الفاشلة
+                # Increment failed login attempts
                 user_auth.login_attempts += 1
                 
                 if user_auth.login_attempts >= 5:
@@ -168,43 +168,43 @@ class AuthService:
                 logger.warning(f"❌ Wrong password for: {email_clean}")
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="كلمة المرور غير صحيحة"
+                    detail="Incorrect password"
                 )
             
-            # جلب بيانات المستخدم
+            # Get user data
             user = self.db.query(User).filter(User.id == user_auth.user_id).first()
             if not user:
                 logger.error(f"❌ User not found in users table: {user_auth.user_id}")
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail="بيانات المستخدم غير موجودة"
+                    detail="User data not found"
                 )
             
             if not user.is_active:
                 logger.warning(f"❌ User inactive: {email_clean}")
                 raise HTTPException(
                     status_code=status.HTTP_423_LOCKED,
-                    detail="الحساب غير نشط"
+                    detail="Account is not active"
                 )
             
-            # إعادة تعيين محاولات الدخول
+            # Reset login attempts
             user_auth.login_attempts = 0
             user_auth.locked_until = None
             user_auth.last_login = datetime.utcnow()
             
-            # إنشاء التوكنات
-            access_token, refresh_token = self.create_tokens(
+            # Create tokens
+            access_token, refresh_token, refresh_expires = self.create_tokens(
                 user_auth.user_id, user_auth.email
             )
             
-            # إنشاء جلسة جديدة
+            # Create new session
             session = UserSession(
                 id=secrets.token_urlsafe(32),
                 user_id=user_auth.user_id,
                 token=access_token,
                 refresh_token=refresh_token,
                 device_info=device_info or "Unknown device",
-                expires_at=datetime.utcnow() + timedelta(days=30),  # 30 يوم
+                expires_at=refresh_expires,
                 created_at=datetime.utcnow()
             )
             self.db.add(session)
@@ -216,6 +216,8 @@ class AuthService:
                 "success": True,
                 "access_token": access_token,
                 "refresh_token": refresh_token,
+                "token_type": "bearer",
+                "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60,
                 "user": {
                     "id": user.id,
                     "name": user.name,
@@ -235,16 +237,16 @@ class AuthService:
             logger.error(f"❌ Login failed: {e}")
             raise
     
-    # ==================== أدوات مساعدة ====================
+    # ==================== Helper Tools ====================
     
     def hash_password(self, password: str) -> str:
-        """تشفير كلمة المرور"""
+        """Hash password"""
         salt = bcrypt.gensalt()
         hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
         return hashed.decode('utf-8')
     
     def verify_password(self, plain_password: str, hashed_password: str) -> bool:
-        """التحقق من كلمة المرور"""
+        """Verify password"""
         try:
             return bcrypt.checkpw(
                 plain_password.encode('utf-8'),
@@ -253,11 +255,12 @@ class AuthService:
         except Exception:
             return False
     
-    def create_tokens(self, user_id: int, email: str) -> Tuple[str, str]:
-        """إنشاء JWT tokens"""
+    def create_tokens(self, user_id: int, email: str) -> Tuple[str, str, datetime]:
+        """Create JWT access and refresh tokens"""
         access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
         refresh_token_expires = timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
         
+        # Access token
         access_payload = {
             "sub": str(user_id),
             "email": email,
@@ -265,22 +268,99 @@ class AuthService:
             "exp": datetime.utcnow() + access_token_expires
         }
         
+        # Refresh token
         refresh_payload = {
             "sub": str(user_id),
             "email": email,
             "type": "refresh",
-            "exp": datetime.utcnow() + refresh_token_expires
+            "exp": datetime.utcnow() + refresh_token_expires,
+            "jti": secrets.token_hex(16)  # Unique ID for token
         }
         
         access_token = jwt.encode(access_payload, SECRET_KEY, algorithm=ALGORITHM)
         refresh_token = jwt.encode(refresh_payload, SECRET_KEY, algorithm=ALGORITHM)
         
-        return access_token, refresh_token
+        return access_token, refresh_token, datetime.utcnow() + refresh_token_expires
     
-    async def load_session(self, token: str) -> Optional[Dict[str, Any]]:
-        """تحميل الجلسة من التوكن"""
+    def refresh_token(self, refresh_token: str) -> Dict[str, Any]:
+        """Refresh access token using refresh token"""
         try:
-            # فك التوكن والتحقق منه
+            # Decode refresh token
+            payload = jwt.decode(refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
+            
+            if payload.get("type") != "refresh":
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid token type"
+                )
+            
+            user_id = int(payload.get("sub"))
+            email = payload.get("email")
+            
+            # Check if user exists and is active
+            user_auth = self.db.query(UserAuth).filter(
+                UserAuth.user_id == user_id,
+                UserAuth.email == email
+            ).first()
+            
+            if not user_auth:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="User not found"
+                )
+            
+            # Check if user is active
+            user = self.db.query(User).filter(User.id == user_id).first()
+            if not user or not user.is_active:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="User account is not active"
+                )
+            
+            # Create new tokens
+            access_token, new_refresh_token, expires_at = self.create_tokens(user_id, email)
+            
+            # Update session with new tokens
+            session = self.db.query(UserSession).filter(
+                UserSession.refresh_token == refresh_token,
+                UserSession.expires_at > datetime.utcnow()
+            ).first()
+            
+            if session:
+                session.token = access_token
+                session.refresh_token = new_refresh_token
+                session.expires_at = expires_at
+                self.db.commit()
+            
+            return {
+                "success": True,
+                "access_token": access_token,
+                "refresh_token": new_refresh_token,
+                "token_type": "bearer",
+                "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60
+            }
+            
+        except jwt.ExpiredSignatureError:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Refresh token expired"
+            )
+        except jwt.InvalidTokenError:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid refresh token"
+            )
+        except Exception as e:
+            logger.error(f"❌ Token refresh failed: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Token refresh failed: {str(e)}"
+            )
+    
+    def load_session(self, token: str) -> Optional[Dict[str, Any]]:
+        """Load session from token"""
+        try:
+            # Decode and verify token
             payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
             user_id = int(payload.get("sub"))
             token_type = payload.get("type")
@@ -288,7 +368,7 @@ class AuthService:
             if token_type != "access":
                 return None
             
-            # البحث عن الجلسة في قاعدة البيانات
+            # Find session in database
             session = self.db.query(UserSession).filter(
                 UserSession.token == token,
                 UserSession.expires_at > datetime.utcnow()
@@ -297,7 +377,7 @@ class AuthService:
             if not session:
                 return None
             
-            # جلب بيانات المستخدم
+            # Get user data
             user_auth = self.db.query(UserAuth).filter(
                 UserAuth.user_id == user_id
             ).first()
@@ -334,14 +414,135 @@ class AuthService:
             logger.error(f"❌ Error loading session: {e}")
             return None
     
-    async def verify_token(self, token: str) -> Optional[Dict[str, Any]]:
-        """التحقق من صحة التوكن"""
-        return await self.load_session(token)
+    def verify_token(self, token: str) -> Optional[Dict[str, Any]]:
+        """Verify token validity"""
+        return self.load_session(token)
     
-    async def check_database_connection(self) -> Dict[str, Any]:
-        """التحقق من اتصال قاعدة البيانات"""
+    def logout(self, access_token: str, refresh_token: str) -> Dict[str, Any]:
+        """Logout user by invalidating tokens"""
         try:
-            # محاولة تنفيذ استعلام بسيط
+            # Remove session from database
+            session_deleted = self.db.query(UserSession).filter(
+                UserSession.token == access_token,
+                UserSession.refresh_token == refresh_token
+            ).delete(synchronize_session=False)
+            
+            self.db.commit()
+            
+            if session_deleted > 0:
+                logger.info("✅ User logged out successfully")
+                return {
+                    "success": True,
+                    "message": "Logged out successfully"
+                }
+            else:
+                logger.warning("⚠️ No active session found for logout")
+                return {
+                    "success": False,
+                    "message": "No active session found"
+                }
+                
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"❌ Logout failed: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Logout failed: {str(e)}"
+            )
+    
+    def validate_password_strength(self, password: str) -> Dict[str, Any]:
+        """Validate password strength"""
+        errors = []
+        
+        if len(password) < 8:
+            errors.append("Password must be at least 8 characters long")
+        
+        if not any(c.isupper() for c in password):
+            errors.append("Password must contain at least one uppercase letter")
+        
+        if not any(c.islower() for c in password):
+            errors.append("Password must contain at least one lowercase letter")
+        
+        if not any(c.isdigit() for c in password):
+            errors.append("Password must contain at least one digit")
+        
+        if not any(c in "!@#$%^&*()-_=+[]{}|;:,.<>?" for c in password):
+            errors.append("Password must contain at least one special character")
+        
+        if errors:
+            return {
+                "valid": False,
+                "errors": errors
+            }
+        else:
+            return {
+                "valid": True,
+                "strength": "strong"
+            }
+    
+    def change_password(self, user_id: int, current_password: str, new_password: str) -> Dict[str, Any]:
+        """Change user password"""
+        try:
+            # Get user auth
+            user_auth = self.db.query(UserAuth).filter(
+                UserAuth.user_id == user_id
+            ).first()
+            
+            if not user_auth:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="User authentication not found"
+                )
+            
+            # Verify current password
+            if not self.verify_password(current_password, user_auth.password_hash):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Current password is incorrect"
+                )
+            
+            # Validate new password strength
+            validation = self.validate_password_strength(new_password)
+            if not validation["valid"]:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"New password is weak: {', '.join(validation.get('errors', []))}"
+                )
+            
+            # Hash and update password
+            user_auth.password_hash = self.hash_password(new_password)
+            user_auth.reset_token = None
+            user_auth.reset_token_expiry = None
+            
+            self.db.commit()
+            
+            # Invalidate all existing sessions
+            self.db.query(UserSession).filter(
+                UserSession.user_id == user_id
+            ).delete(synchronize_session=False)
+            self.db.commit()
+            
+            logger.info(f"✅ Password changed for user {user_id}")
+            
+            return {
+                "success": True,
+                "message": "Password changed successfully. Please login again."
+            }
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"❌ Password change failed for user {user_id}: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Password change failed: {str(e)}"
+            )
+    
+    def check_database_connection(self) -> Dict[str, Any]:
+        """Check database connection"""
+        try:
+            # Try simple query
             count = self.db.query(User).count()
             return {
                 "connected": True,

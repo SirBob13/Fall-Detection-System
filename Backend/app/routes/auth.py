@@ -1,10 +1,11 @@
 """
-Authentication API Routes - FIXED VERSION
+Authentication API Routes - FIXED VERSION WITH PROPER HTTP STATUS CODES
 """
 
 import logging
 from typing import Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 import re
 import bcrypt
@@ -18,16 +19,16 @@ from ..config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# ==================== وظائف مساعدة ====================
+# ==================== Helper Functions ====================
 
 def hash_password(password: str) -> str:
-    """تشفير كلمة المرور"""
+    """Hash password using bcrypt"""
     salt = bcrypt.gensalt()
     hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
     return hashed.decode('utf-8')
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """التحقق من كلمة المرور"""
+    """Verify password against hash"""
     try:
         return bcrypt.checkpw(
             plain_password.encode('utf-8'),
@@ -37,7 +38,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         return False
 
 def create_access_token(data: dict, expires_delta: timedelta = None):
-    """إنشاء توكن JWT"""
+    """Create JWT token"""
     to_encode = data.copy()
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
@@ -48,7 +49,7 @@ def create_access_token(data: dict, expires_delta: timedelta = None):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-# ==================== نماذج البيانات (Pydantic) ====================
+# ==================== Pydantic Models ====================
 
 from pydantic import BaseModel
 
@@ -72,422 +73,501 @@ class RegisterRequest(BaseModel):
     medical_conditions: str = ""
     emergency_contact: str = ""
 
-# ==================== التحقق من البريد الإلكتروني ====================
+# ==================== Email Verification ====================
 
-@router.post("/check-email")
+@router.post("/check-email", response_model=Dict[str, Any])
 async def check_email(
     email_data: EmailCheckRequest,
     db: Session = Depends(get_db)
 ):
-    """فحص وجود البريد الإلكتروني في قاعدة البيانات"""
+    """Check if email exists in database"""
     try:
         email = email_data.email.lower().strip()
         
         if not email:
-            return {
-                "success": False,
-                "message": "البريد الإلكتروني مطلوب",
-                "exists": False
-            }
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={
+                    "success": False,
+                    "message": "Email is required",
+                    "exists": False
+                }
+            )
         
-        # التحقق من صحة البريد
+        # Validate email format
         email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
         if not re.match(email_regex, email):
-            return {
-                "success": False,
-                "message": "بريد إلكتروني غير صالح",
-                "exists": False
-            }
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={
+                    "success": False,
+                    "message": "Invalid email format",
+                    "exists": False
+                }
+            )
         
-        # التحقق من قاعدة البيانات - استخدم Session مباشرة
+        # Check database
         user_auth = db.query(UserAuth).filter(UserAuth.email == email).first()
         exists = user_auth is not None
         
-        return {
-            "success": True,
-            "exists": exists,
-            "message": "البريد موجود" if exists else "البريد غير موجود"
-        }
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "exists": exists,
+                "message": "Email exists" if exists else "Email not found"
+            }
+        )
         
     except Exception as e:
-        logger.error(f"❌ Error in check-email: {e}")
-        return {
-            "success": False,
-            "exists": False,
-            "message": f"خطأ في التحقق: {str(e)}"
-        }
-        
-                  
-# ==================== التحقق من اتصال قاعدة البيانات ====================
+        logger.error(f"Error in check-email: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "success": False,
+                "error": f"Email verification failed: {str(e)}"
+            }
+        )
 
-@router.get("/database-status")
+# ==================== Database Status Check ====================
+
+@router.get("/database-status", response_model=Dict[str, Any])
 async def database_status(
     db: Session = Depends(get_db)
 ):
-    """التحقق من اتصال قاعدة البيانات"""
+    """Check database connection status"""
     try:
-        # محاولة تنفيذ استعلام بسيط
+        # Try to execute a simple query
         count = db.query(User).count()
-        return {
-            "success": True,
-            "connected": True,
-            "user_count": count,
-            "timestamp": datetime.utcnow().isoformat()
-        }
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "connected": True,
+                "user_count": count,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
     except Exception as e:
-        logger.error(f"❌ Database connection error: {e}")
-        return {
-            "success": False,
-            "connected": False,
-            "error": str(e),
-            "timestamp": datetime.utcnow().isoformat()
-        }
+        logger.error(f"Database connection error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "success": False,
+                "error": f"Database connection failed: {str(e)}",
+                "connected": False
+            }
+        )
 
-# ==================== تسجيل مستخدم جديد ====================
+# ==================== User Registration ====================
 
-@router.post("/register")
+@router.post("/register", response_model=Dict[str, Any])
 async def register_user(
     register_data: RegisterRequest,
     db: Session = Depends(get_db)
 ):
-    """تسجيل مستخدم جديد في قاعدة البيانات"""
+    """Register new user in database"""
     try:
         email = register_data.email.lower().strip()
         password = register_data.password
         confirm_password = register_data.confirm_password
         name = register_data.name
         
-        print(f"📝 Registration attempt for: {email}")
-        print(f"📦 Register data received")
+        logger.info(f"Registration attempt for: {email}")
         
-        # التحقق من البيانات المطلوبة
+        # Validate required fields
         if not email or not password or not name:
-            print(f"❌ Missing required fields")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="البريد الإلكتروني وكلمة المرور والاسم مطلوبة"
+                detail={
+                    "success": False,
+                    "error": "Email, password, and name are required"
+                }
             )
         
         if password != confirm_password:
-            print(f"❌ Passwords don't match")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="كلمتا المرور غير متطابقتين"
+                detail={
+                    "success": False,
+                    "error": "Passwords do not match"
+                }
             )
         
-        # التحقق من صحة البريد
+        # Validate email format
         email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
         if not re.match(email_regex, email):
-            print(f"❌ Invalid email format: {email}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="بريد إلكتروني غير صالح"
+                detail={
+                    "success": False,
+                    "error": "Invalid email format"
+                }
             )
         
-        print(f"🔍 Checking if email exists in database: {email}")
-        
-        # التحقق من وجود البريد - باستخدام قاعدة البيانات مباشرة
+        # Check if email already exists
         existing_user = db.query(UserAuth).filter(UserAuth.email == email).first()
-        
-        print(f"📊 Email exists check result: {existing_user is not None}")
-        
         if existing_user:
-            print(f"❌ Email already registered: {email}")
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="البريد الإلكتروني مسجل بالفعل"
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "success": False,
+                    "error": "Email already registered"
+                }
             )
         
-        # بدء المعاملة
-        print(f"✅ Email not found, creating new user...")
+        # Start transaction
+        try:
+            # Create user
+            user = User(
+                name=name,
+                age=register_data.age,
+                gender=register_data.gender,
+                weight=register_data.weight,
+                height=register_data.height,
+                medical_conditions=register_data.medical_conditions,
+                emergency_contact=register_data.emergency_contact,
+                created_at=datetime.utcnow(),
+                is_active=True
+            )
+            db.add(user)
+            db.flush()  # Get ID
+            
+            # Create user authentication
+            user_auth = UserAuth(
+                user_id=user.id,
+                email=email,
+                password_hash=hash_password(password),
+                email_verified=False,
+                phone_verified=False,
+                created_at=datetime.utcnow()
+            )
+            db.add(user_auth)
+            
+            # Commit changes
+            db.commit()
+            
+            # Create access token
+            access_token = create_access_token(
+                data={"sub": str(user.id), "email": email}
+            )
+            
+            return JSONResponse(
+                status_code=status.HTTP_201_CREATED,
+                content={
+                    "success": True,
+                    "message": "Account created successfully",
+                    "user_id": user.id,
+                    "access_token": access_token,
+                    "token_type": "bearer",
+                    "user": {
+                        "id": user.id,
+                        "name": user.name,
+                        "email": email,
+                        "age": user.age,
+                        "gender": user.gender,
+                        "emergency_contact": user.emergency_contact,
+                        "created_at": user.created_at.isoformat() if user.created_at else None
+                    }
+                }
+            )
+            
+        except Exception as e:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={
+                    "success": False,
+                    "error": f"Database transaction failed: {str(e)}"
+                }
+            )
         
-        # إنشاء المستخدم
-        user = User(
-            name=name,
-            age=register_data.age,
-            gender=register_data.gender,
-            weight=register_data.weight,
-            height=register_data.height,
-            medical_conditions=register_data.medical_conditions,
-            emergency_contact=register_data.emergency_contact,
-            created_at=datetime.utcnow(),
-            is_active=True
-        )
-        db.add(user)
-        db.flush()  # للحصول على ID
-        
-        print(f"✅ User created with ID: {user.id}")
-        
-        # إنشاء مصادقة المستخدم
-        user_auth = UserAuth(
-            user_id=user.id,
-            email=email,
-            password_hash=hash_password(password),
-            email_verified=False,
-            phone_verified=False,
-            created_at=datetime.utcnow()
-        )
-        db.add(user_auth)
-        
-        # حفظ التغييرات
-        db.commit()
-        print(f"✅ Database changes committed")
-        
-        # إنشاء توكن
-        access_token = create_access_token(
-            data={"sub": str(user.id), "email": email}
-        )
-        
-        print(f"✅ User registered successfully: {email}")
-        
-        return {
-            "success": True,
-            "message": "تم إنشاء الحساب بنجاح",
-            "user_id": user.id,
-            "access_token": access_token,
-            "user": {
-                "id": user.id,
-                "name": user.name,
-                "email": email,
-                "age": user.age,
-                "gender": user.gender,
-                "emergency_contact": user.emergency_contact,
-                "created_at": user.created_at.isoformat() if user.created_at else None
-            }
-        }
-        
-    except HTTPException as http_err:
-        print(f"❌ HTTP Exception: {http_err.detail}")
-        raise http_err
+    except HTTPException:
+        raise
     except Exception as e:
-        print(f"❌ General Exception: {e}")
-        db.rollback()
-        logger.error(f"❌ Registration failed: {e}", exc_info=True)
+        logger.error(f"Registration failed: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"فشل إنشاء الحساب: {str(e)}"
+            detail={
+                "success": False,
+                "error": f"Registration failed: {str(e)}"
+            }
         )
 
-# ==================== تسجيل الدخول ====================
+# ==================== User Login ====================
 
-@router.post("/login")
+@router.post("/login", response_model=Dict[str, Any])
 async def login_user(
     login_data: LoginRequest,
     request: Request,
     db: Session = Depends(get_db)
 ):
-    """تسجيل دخول المستخدم من قاعدة البيانات"""
+    """User login with database validation"""
     try:
         email = login_data.email.lower().strip()
         password = login_data.password
         
-        logger.info(f"🔐 Login attempt for: {email}")
+        logger.info(f"Login attempt for: {email}")
         
         if not email or not password:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="البريد الإلكتروني وكلمة المرور مطلوبتان"
+                detail={
+                    "success": False,
+                    "error": "Email and password are required"
+                }
             )
         
-        # البحث عن مصادقة المستخدم
+        # Find user authentication
         user_auth = db.query(UserAuth).filter(
             UserAuth.email == email
         ).first()
         
         if not user_auth:
-            logger.warning(f"❌ Email not found: {email}")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="المستخدم غير موجود"
+                detail={
+                    "success": False,
+                    "error": "User not found"
+                }
             )
         
-        # التحقق من كلمة المرور
+        # Verify password
         if not verify_password(password, user_auth.password_hash):
-            logger.warning(f"❌ Wrong password for: {email}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="كلمة المرور غير صحيحة"
+                detail={
+                    "success": False,
+                    "error": "Incorrect password"
+                }
             )
         
-        # جلب بيانات المستخدم
+        # Get user data
         user = db.query(User).filter(User.id == user_auth.user_id).first()
         if not user:
-            logger.error(f"❌ User not found in users table: {user_auth.user_id}")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="بيانات المستخدم غير موجودة"
+                detail={
+                    "success": False,
+                    "error": "User data not found"
+                }
             )
         
         if not user.is_active:
-            logger.warning(f"❌ User inactive: {email}")
             raise HTTPException(
                 status_code=status.HTTP_423_LOCKED,
-                detail="الحساب غير نشط"
+                detail={
+                    "success": False,
+                    "error": "Account is inactive"
+                }
             )
         
-        # إنشاء التوكن
+        # Create token
         access_token = create_access_token(
             data={"sub": str(user.id), "email": email}
         )
         
-        # تحديث آخر تسجيل دخول
+        # Update last login
         user_auth.last_login = datetime.utcnow()
         db.commit()
         
-        logger.info(f"✅ Login successful: {email}")
-        
-        return {
-            "success": True,
-            "access_token": access_token,
-            "token_type": "bearer",
-            "user": {
-                "id": user.id,
-                "name": user.name,
-                "email": email,
-                "age": user.age,
-                "gender": user.gender,
-                "emergency_contact": user.emergency_contact,
-                "medical_conditions": user.medical_conditions,
-                "email_verified": user_auth.email_verified,
-                "phone_verified": user_auth.phone_verified,
-                "created_at": user.created_at.isoformat() if user.created_at else None,
-                "is_active": user.is_active
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "access_token": access_token,
+                "token_type": "bearer",
+                "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+                "user": {
+                    "id": user.id,
+                    "name": user.name,
+                    "email": email,
+                    "age": user.age,
+                    "gender": user.gender,
+                    "emergency_contact": user.emergency_contact,
+                    "medical_conditions": user.medical_conditions,
+                    "email_verified": user_auth.email_verified,
+                    "phone_verified": user_auth.phone_verified,
+                    "created_at": user.created_at.isoformat() if user.created_at else None,
+                    "is_active": user.is_active
+                }
             }
-        }
+        )
         
-    except HTTPException as http_err:
-        raise http_err
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"❌ Login failed: {e}")
+        logger.error(f"Login failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"فشل تسجيل الدخول: {str(e)}"
+            detail={
+                "success": False,
+                "error": f"Login failed: {str(e)}"
+            }
         )
 
-# ==================== تحديث نشاط المستخدم ====================
+# ==================== User Activity Update ====================
 
-@router.post("/update-activity")
+@router.post("/update-activity", response_model=Dict[str, Any])
 async def update_activity(
     activity_data: Dict[str, Any],
     db: Session = Depends(get_db)
 ):
-    """تحديث آخر نشاط للمستخدم"""
+    """Update user's last activity timestamp"""
     try:
         user_id = activity_data.get("user_id")
         
         if not user_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="معرف المستخدم مطلوب"
+                detail={
+                    "success": False,
+                    "error": "User ID is required"
+                }
             )
         
-        # تحديث آخر نشاط في قاعدة البيانات
+        # Update last activity in database
         user_auth = db.query(UserAuth).filter(UserAuth.user_id == user_id).first()
         if user_auth:
             user_auth.last_login = datetime.utcnow()
             db.commit()
         
-        return {
-            "success": True,
-            "message": "تم تحديث النشاط"
-        }
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "message": "Activity updated successfully",
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
         
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"❌ Error updating activity: {e}")
+        logger.error(f"Error updating activity: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"فشل تحديث النشاط: {str(e)}"
+            detail={
+                "success": False,
+                "error": f"Failed to update activity: {str(e)}"
+            }
         )
 
-# ==================== التحقق من صحة التوكن ====================
+# ==================== Token Validation ====================
 
-@router.post("/validate-token")
+@router.post("/validate-token", response_model=Dict[str, Any])
 async def validate_token(
     token_data: Dict[str, Any],
     db: Session = Depends(get_db)
 ):
-    """التحقق من صحة التوكن"""
+    """Validate JWT token"""
     try:
         token = token_data.get("token")
         
         if not token:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="التوكن مطلوب"
+                detail={
+                    "success": False,
+                    "error": "Token is required"
+                }
             )
         
         try:
-            # فك التوكن
+            # Decode token
             payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
             user_id = int(payload.get("sub"))
             email = payload.get("email")
             
-            # التحقق من وجود المستخدم
+            # Verify user exists
             user = db.query(User).filter(User.id == user_id).first()
             user_auth = db.query(UserAuth).filter(UserAuth.user_id == user_id).first()
             
             if not user or not user_auth:
-                return {
-                    "success": False,
-                    "valid": False,
-                    "message": "المستخدم غير موجود"
-                }
+                return JSONResponse(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    content={
+                        "success": False,
+                        "valid": False,
+                        "error": "User not found"
+                    }
+                )
             
-            return {
-                "success": True,
-                "valid": True,
-                "user": {
-                    "id": user.id,
-                    "name": user.name,
-                    "email": user_auth.email,
-                    "age": user.age,
-                    "gender": user.gender,
-                    "emergency_contact": user.emergency_contact,
-                    "created_at": user.created_at.isoformat() if user.created_at else None
-                },
-                "expires_at": datetime.fromtimestamp(payload["exp"]).isoformat()
-            }
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                content={
+                    "success": True,
+                    "valid": True,
+                    "user": {
+                        "id": user.id,
+                        "name": user.name,
+                        "email": user_auth.email,
+                        "age": user.age,
+                        "gender": user.gender,
+                        "emergency_contact": user.emergency_contact,
+                        "created_at": user.created_at.isoformat() if user.created_at else None
+                    },
+                    "expires_at": datetime.fromtimestamp(payload["exp"]).isoformat()
+                }
+            )
             
         except jwt.ExpiredSignatureError:
-            return {
-                "success": False,
-                "valid": False,
-                "message": "التوكن منتهي الصلاحية"
-            }
+            return JSONResponse(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                content={
+                    "success": False,
+                    "valid": False,
+                    "error": "Token has expired"
+                }
+            )
         except jwt.InvalidTokenError:
-            return {
-                "success": False,
-                "valid": False,
-                "message": "التوكن غير صالح"
-            }
+            return JSONResponse(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                content={
+                    "success": False,
+                    "valid": False,
+                    "error": "Invalid token"
+                }
+            )
         
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"❌ Token validation error: {e}")
-        return {
-            "success": False,
-            "valid": False,
-            "message": f"خطأ في التحقق: {str(e)}"
-        }
+        logger.error(f"Token validation error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "success": False,
+                "error": f"Token validation failed: {str(e)}"
+            }
+        )
 
-# ==================== تسجيل الخروج ====================
+# ==================== User Logout ====================
 
-@router.post("/logout")
+@router.post("/logout", response_model=Dict[str, Any])
 async def logout_user(
     logout_data: Dict[str, Any],
     db: Session = Depends(get_db)
 ):
-    """تسجيل خروج المستخدم"""
+    """User logout (token invalidation)"""
     try:
-        # في الخدمة الحقيقية، قد تقوم بحذف التوكن من قائمة التوكنات السوداء
-        # لكن حالياً نكتفي بإرجاع نجاح
-        return {
-            "success": True,
-            "message": "تم تسجيل الخروج بنجاح"
-        }
+        # In a real implementation, you would add the token to a blacklist
+        # For now, just return success
+        
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "message": "Logged out successfully"
+            }
+        )
         
     except Exception as e:
-        logger.error(f"❌ Logout error: {e}")
+        logger.error(f"Logout error: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"فشل تسجيل الخروج: {str(e)}"
+            detail={
+                "success": False,
+                "error": f"Logout failed: {str(e)}"
+            }
         )

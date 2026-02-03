@@ -5,68 +5,25 @@ import {
   StyleSheet,
   Alert,
   View,
-  Platform,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useLanguage } from './LanguageProvider';
 import { useNavigation } from '@react-navigation/native';
 
-export const LanguageSwitcher: React.FC = () => {
-  const { language, changeLanguage, t } = useLanguage();
+export const GlobalLanguageSwitcher: React.FC = () => {
+  const { language, changeLanguage, t, isChanging } = useLanguage();
   const navigation = useNavigation();
-  const [isChanging, setIsChanging] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleLanguageChange = () => {
-    const newLang = language === 'ar' ? 'en' : 'ar';
-    const langName = newLang === 'ar' ? t('language.arabic') : t('language.english');
-    
-    Alert.alert(
-      t('language.changeTitle'),
-      t('language.changeMessage', { language: langName }),
-      [
-        { 
-          text: t('common.cancel'), 
-          style: 'cancel' 
-        },
-        { 
-          text: t('common.confirm'), 
-          onPress: async () => {
-            setIsChanging(true);
-            const success = await changeLanguage(newLang as 'ar' | 'en');
-            setIsChanging(false);
-            
-            if (success) {
-              // على iOS، نعيد توجيه المستخدم للشاشة الرئيسية
-              // على Android، نطلب إعادة فتح التطبيق
-              if (Platform.OS === 'ios') {
-                navigation.reset({
-                  index: 0,
-                  routes: [{ name: 'Home' }],
-                });
-              } else {
-                Alert.alert(
-                  t('language.changeTitle'),
-                  t('language.restartMessage'),
-                  [
-                    { 
-                      text: t('common.ok'),
-                      style: 'default'
-                    }
-                  ]
-                );
-              }
-            }
-          }
-        },
-      ]
-    );
+  const handlePress = () => {
+    navigation.navigate('LanguageSettings' as never);
   };
 
   return (
     <TouchableOpacity
       style={styles.container}
-      onPress={handleLanguageChange}
-      disabled={isChanging}
+      onPress={handlePress}
+      disabled={isLoading || isChanging}
     >
       <View style={styles.content}>
         <MaterialIcons 
@@ -83,8 +40,8 @@ export const LanguageSwitcher: React.FC = () => {
           </Text>
         </View>
         <MaterialIcons 
-          name="arrow-forward-ios" 
-          size={16} 
+          name="chevron-right" 
+          size={20} 
           color="#666" 
           style={styles.arrow}
         />

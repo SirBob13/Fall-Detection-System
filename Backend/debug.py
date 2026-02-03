@@ -58,7 +58,7 @@ def test_database():
 def test_ai_model():
     print("\n🧠 Testing AI model...")
     try:
-        from app.ai_model import load_model_and_scaler
+        from Backend.app.services.ai_model import load_model_and_scaler
         model, scaler = load_model_and_scaler()
         print(f"✅ AI model loaded: {model}")
         print(f"✅ Scaler loaded: {scaler}")
@@ -66,7 +66,7 @@ def test_ai_model():
         # Test prediction
         import numpy as np
         test_buffer = np.random.randn(50, 8)
-        from app.ai_model import predict_fall
+        from Backend.app.services.ai_model import predict_fall
         result = predict_fall(test_buffer)
         print(f"✅ Prediction test: {result.get('success', False)}")
         

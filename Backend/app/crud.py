@@ -7,10 +7,11 @@ from typing import List, Optional, Dict
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, and_
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError, OperationalError
 import numpy as np
 
 from . import models, schemas
-from .ai_model import predict_fall, preprocess_motion_data
+from .services.ai_model import predict_fall, preprocess_motion_data
 from .double_verification import DoubleVerificationSystem
 
 logger = logging.getLogger(__name__)
@@ -20,47 +21,98 @@ logger = logging.getLogger(__name__)
 # ======================
 
 def create_user(db: Session, user: schemas.UserCreate) -> models.User:
-    """Create a new user."""
-    db_user = models.User(**user.dict())
-    db.add(db_user)
-    db.commit()
-    db.refresh(db_user)
-    logger.info(f"Created user {db_user.id}: {db_user.name}")
-    return db_user
+    """Create a new user with proper error handling."""
+    try:
+        db_user = models.User(**user.dict())
+        db.add(db_user)
+        db.commit()
+        db.refresh(db_user)
+        logger.info(f"Created user {db_user.id}: {db_user.name}")
+        return db_user
+        
+    except IntegrityError as e:
+        db.rollback()
+        logger.error(f"Integrity error creating user: {e}")
+        raise ValueError(f"User creation failed due to constraint violation: {str(e)}")
+        
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error creating user: {e}")
+        raise RuntimeError(f"Database error: {str(e)}")
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Unexpected error creating user: {e}")
+        raise
 
 def get_user(db: Session, user_id: int) -> Optional[models.User]:
     """Get user by ID."""
-    return db.query(models.User).filter(models.User.id == user_id).first()
+    try:
+        return db.query(models.User).filter(models.User.id == user_id).first()
+    except SQLAlchemyError as e:
+        logger.error(f"Database error getting user {user_id}: {e}")
+        return None
 
 def get_users(db: Session, skip: int = 0, limit: int = 100) -> List[models.User]:
     """Get list of users."""
-    return db.query(models.User).offset(skip).limit(limit).all()
+    try:
+        return db.query(models.User).offset(skip).limit(limit).all()
+    except SQLAlchemyError as e:
+        logger.error(f"Database error getting users: {e}")
+        return []
 
 def update_user(db: Session, user_id: int, user_update: schemas.UserUpdate) -> Optional[models.User]:
     """Update user information."""
-    db_user = get_user(db, user_id)
-    if not db_user:
-        return None
-    
-    update_data = user_update.dict(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(db_user, field, value)
-    
-    db.commit()
-    db.refresh(db_user)
-    logger.info(f"Updated user {user_id}")
-    return db_user
+    try:
+        db_user = get_user(db, user_id)
+        if not db_user:
+            return None
+        
+        update_data = user_update.dict(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(db_user, field, value)
+        
+        db.commit()
+        db.refresh(db_user)
+        logger.info(f"Updated user {user_id}")
+        return db_user
+        
+    except IntegrityError as e:
+        db.rollback()
+        logger.error(f"Integrity error updating user {user_id}: {e}")
+        raise ValueError(f"User update failed due to constraint violation: {str(e)}")
+        
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error updating user {user_id}: {e}")
+        raise RuntimeError(f"Database error: {str(e)}")
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Unexpected error updating user {user_id}: {e}")
+        raise
 
 def delete_user(db: Session, user_id: int) -> bool:
     """Delete a user."""
-    db_user = get_user(db, user_id)
-    if not db_user:
-        return False
-    
-    db.delete(db_user)
-    db.commit()
-    logger.info(f"Deleted user {user_id}")
-    return True
+    try:
+        db_user = get_user(db, user_id)
+        if not db_user:
+            return False
+        
+        db.delete(db_user)
+        db.commit()
+        logger.info(f"Deleted user {user_id}")
+        return True
+        
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error deleting user {user_id}: {e}")
+        raise RuntimeError(f"Database error: {str(e)}")
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Unexpected error deleting user {user_id}: {e}")
+        raise
 
 # ======================
 # Device CRUD Operations
@@ -68,34 +120,69 @@ def delete_user(db: Session, user_id: int) -> bool:
 
 def create_device(db: Session, device: schemas.DeviceCreate) -> models.Device:
     """Register a new device."""
-    db_device = models.Device(**device.dict())
-    db.add(db_device)
-    db.commit()
-    db.refresh(db_device)
-    logger.info(f"Created device {db_device.device_id} for user {db_device.user_id}")
-    return db_device
+    try:
+        db_device = models.Device(**device.dict())
+        db.add(db_device)
+        db.commit()
+        db.refresh(db_device)
+        logger.info(f"Created device {db_device.device_id} for user {db_device.user_id}")
+        return db_device
+        
+    except IntegrityError as e:
+        db.rollback()
+        logger.error(f"Integrity error creating device: {e}")
+        raise ValueError(f"Device creation failed due to constraint violation: {str(e)}")
+        
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error creating device: {e}")
+        raise RuntimeError(f"Database error: {str(e)}")
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Unexpected error creating device: {e}")
+        raise
 
 def get_device_by_id(db: Session, device_id: str) -> Optional[models.Device]:
     """Get device by device ID."""
-    return db.query(models.Device).filter(models.Device.device_id == device_id).first()
+    try:
+        return db.query(models.Device).filter(models.Device.device_id == device_id).first()
+    except SQLAlchemyError as e:
+        logger.error(f"Database error getting device {device_id}: {e}")
+        return None
 
 def get_device_by_user(db: Session, user_id: int) -> Optional[models.Device]:
     """Get device by user ID."""
-    return db.query(models.Device).filter(models.Device.user_id == user_id).first()
+    try:
+        return db.query(models.Device).filter(models.Device.user_id == user_id).first()
+    except SQLAlchemyError as e:
+        logger.error(f"Database error getting device for user {user_id}: {e}")
+        return None
 
 def update_device_status(db: Session, device_id: str, battery_level: float, is_connected: bool) -> Optional[models.Device]:
     """Update device status."""
-    db_device = get_device_by_id(db, device_id)
-    if not db_device:
-        return None
-    
-    db_device.battery_level = battery_level
-    db_device.is_connected = is_connected
-    db_device.last_seen = datetime.utcnow()
-    
-    db.commit()
-    db.refresh(db_device)
-    return db_device
+    try:
+        db_device = get_device_by_id(db, device_id)
+        if not db_device:
+            return None
+        
+        db_device.battery_level = battery_level
+        db_device.is_connected = is_connected
+        db_device.last_seen = datetime.utcnow()
+        
+        db.commit()
+        db.refresh(db_device)
+        return db_device
+        
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error updating device status {device_id}: {e}")
+        raise RuntimeError(f"Database error: {str(e)}")
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Unexpected error updating device status {device_id}: {e}")
+        raise
 
 # ======================
 # Motion Data Operations
@@ -103,43 +190,87 @@ def update_device_status(db: Session, device_id: str, battery_level: float, is_c
 
 def create_motion_data(db: Session, motion_data: schemas.MotionDataCreate) -> models.MotionSensorData:
     """Store motion sensor data."""
-    
-    # Calculate magnitudes
-    acc_mag = (motion_data.acc_x**2 + motion_data.acc_y**2 + motion_data.acc_z**2) ** 0.5
-    gyro_mag = (motion_data.gyro_x**2 + motion_data.gyro_y**2 + motion_data.gyro_z**2) ** 0.5
-    
-    # Check for fall suspicion (simple threshold)
-    is_fall_suspected = acc_mag > 3.0 or gyro_mag > 150
-    
-    db_motion = models.MotionSensorData(
-        user_id=motion_data.user_id,
-        device_id=motion_data.device_id,
-        acc_x=motion_data.acc_x,
-        acc_y=motion_data.acc_y,
-        acc_z=motion_data.acc_z,
-        gyro_x=motion_data.gyro_x,
-        gyro_y=motion_data.gyro_y,
-        gyro_z=motion_data.gyro_z,
-        temperature=motion_data.temperature,
-        acc_mag=acc_mag,
-        gyro_mag=gyro_mag,
-        is_fall_suspected=is_fall_suspected,
-        timestamp=datetime.utcnow()
-    )
-    
-    db.add(db_motion)
-    db.commit()
-    db.refresh(db_motion)
-    
-    return db_motion
+    try:
+        # Calculate magnitudes
+        acc_mag = (motion_data.acc_x**2 + motion_data.acc_y**2 + motion_data.acc_z**2) ** 0.5
+        gyro_mag = (motion_data.gyro_x**2 + motion_data.gyro_y**2 + motion_data.gyro_z**2) ** 0.5
+        
+        # Check for fall suspicion (simple threshold)
+        is_fall_suspected = acc_mag > 3.0 or gyro_mag > 150
+        
+        db_motion = models.MotionSensorData(
+            user_id=motion_data.user_id,
+            device_id=motion_data.device_id,
+            acc_x=motion_data.acc_x,
+            acc_y=motion_data.acc_y,
+            acc_z=motion_data.acc_z,
+            gyro_x=motion_data.gyro_x,
+            gyro_y=motion_data.gyro_y,
+            gyro_z=motion_data.gyro_z,
+            temperature=motion_data.temperature,
+            acc_mag=acc_mag,
+            gyro_mag=gyro_mag,
+            is_fall_suspected=is_fall_suspected,
+            timestamp=datetime.utcnow()
+        )
+        
+        db.add(db_motion)
+        db.commit()
+        db.refresh(db_motion)
+        
+        return db_motion
+        
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error storing motion data: {e}")
+        raise RuntimeError(f"Database error: {str(e)}")
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Unexpected error storing motion data: {e}")
+        raise
 
 def get_recent_motion_data(db: Session, user_id: int, limit: int = 100) -> List[models.MotionSensorData]:
     """Get recent motion data for a user."""
-    return db.query(models.MotionSensorData)\
-        .filter(models.MotionSensorData.user_id == user_id)\
-        .order_by(desc(models.MotionSensorData.timestamp))\
-        .limit(limit)\
-        .all()
+    try:
+        return db.query(models.MotionSensorData)\
+            .filter(models.MotionSensorData.user_id == user_id)\
+            .order_by(desc(models.MotionSensorData.timestamp))\
+            .limit(limit)\
+            .all()
+    except SQLAlchemyError as e:
+        logger.error(f"Database error getting motion data for user {user_id}: {e}")
+        return []
+
+def get_motion_data(db: Session, motion_id: int) -> Optional[models.MotionSensorData]:
+    """Get motion data by ID."""
+    try:
+        return db.query(models.MotionSensorData).filter(models.MotionSensorData.id == motion_id).first()
+    except SQLAlchemyError as e:
+        logger.error(f"Database error getting motion data {motion_id}: {e}")
+        return None
+
+def get_motion_data_timeframe(
+    db: Session, 
+    user_id: int, 
+    start_time: datetime, 
+    end_time: datetime
+) -> List[models.MotionSensorData]:
+    """Get motion data within a specific timeframe."""
+    try:
+        return db.query(models.MotionSensorData)\
+            .filter(
+                and_(
+                    models.MotionSensorData.user_id == user_id,
+                    models.MotionSensorData.timestamp >= start_time,
+                    models.MotionSensorData.timestamp <= end_time
+                )
+            )\
+            .order_by(models.MotionSensorData.timestamp)\
+            .all()
+    except SQLAlchemyError as e:
+        logger.error(f"Database error getting motion data for timeframe: {e}")
+        return []
 
 # ======================
 # Vital Data Operations
@@ -147,66 +278,125 @@ def get_recent_motion_data(db: Session, user_id: int, limit: int = 100) -> List[
 
 def create_vital_data(db: Session, vital_data: schemas.VitalDataCreate) -> models.VitalSensorData:
     """Store vital signs data."""
-    
-    # Check for abnormalities (simplified)
-    is_abnormal = False
-    abnormality_type = None
-    
-    if vital_data.heart_rate:
-        if vital_data.heart_rate < 50 or vital_data.heart_rate > 120:
+    try:
+        # Check for abnormalities (simplified)
+        is_abnormal = False
+        abnormality_type = None
+        
+        if vital_data.heart_rate:
+            if vital_data.heart_rate < 50 or vital_data.heart_rate > 120:
+                is_abnormal = True
+                abnormality_type = "heart_rate"
+        
+        if vital_data.oxygen_saturation and vital_data.oxygen_saturation < 90:
             is_abnormal = True
-            abnormality_type = "heart_rate"
-    
-    if vital_data.oxygen_saturation and vital_data.oxygen_saturation < 90:
-        is_abnormal = True
-        abnormality_type = "oxygen_saturation"
-    
-    if vital_data.blood_pressure_systolic and vital_data.blood_pressure_systolic > 180:
-        is_abnormal = True
-        abnormality_type = "blood_pressure"
-    
-    db_vital = models.VitalSensorData(
-        user_id=vital_data.user_id,
-        heart_rate=vital_data.heart_rate,
-        blood_pressure_systolic=vital_data.blood_pressure_systolic,
-        blood_pressure_diastolic=vital_data.blood_pressure_diastolic,
-        oxygen_saturation=vital_data.oxygen_saturation,
-        body_temperature=vital_data.body_temperature,
-        respiration_rate=vital_data.respiration_rate,
-        is_abnormal=is_abnormal,
-        abnormality_type=abnormality_type,
-        timestamp=datetime.utcnow()
-    )
-    
-    db.add(db_vital)
-    db.commit()
-    db.refresh(db_vital)
-    
-    return db_vital
+            abnormality_type = "oxygen_saturation"
+        
+        if vital_data.blood_pressure_systolic and vital_data.blood_pressure_systolic > 180:
+            is_abnormal = True
+            abnormality_type = "blood_pressure"
+        
+        db_vital = models.VitalSensorData(
+            user_id=vital_data.user_id,
+            heart_rate=vital_data.heart_rate,
+            blood_pressure_systolic=vital_data.blood_pressure_systolic,
+            blood_pressure_diastolic=vital_data.blood_pressure_diastolic,
+            oxygen_saturation=vital_data.oxygen_saturation,
+            body_temperature=vital_data.body_temperature,
+            respiration_rate=vital_data.respiration_rate,
+            is_abnormal=is_abnormal,
+            abnormality_type=abnormality_type,
+            timestamp=datetime.utcnow()
+        )
+        
+        db.add(db_vital)
+        db.commit()
+        db.refresh(db_vital)
+        
+        return db_vital
+        
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error storing vital data: {e}")
+        raise RuntimeError(f"Database error: {str(e)}")
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Unexpected error storing vital data: {e}")
+        raise
 
 def get_recent_vital_data(db: Session, user_id: int, limit: int = 10) -> List[models.VitalSensorData]:
     """Get recent vital data for a user."""
-    return db.query(models.VitalSensorData)\
-        .filter(models.VitalSensorData.user_id == user_id)\
-        .order_by(desc(models.VitalSensorData.timestamp))\
-        .limit(limit)\
-        .all()
+    try:
+        return db.query(models.VitalSensorData)\
+            .filter(models.VitalSensorData.user_id == user_id)\
+            .order_by(desc(models.VitalSensorData.timestamp))\
+            .limit(limit)\
+            .all()
+    except SQLAlchemyError as e:
+        logger.error(f"Database error getting vital data for user {user_id}: {e}")
+        return []
 
-# ======================
-# Additional Helper Functions
-# ======================
-
-def get_prediction(db: Session, prediction_id: int) -> Optional[models.Prediction]:
-    """Get prediction by ID."""
-    return db.query(models.Prediction).filter(models.Prediction.id == prediction_id).first()
-
-def get_motion_data(db: Session, motion_id: int) -> Optional[models.MotionSensorData]:
-    """Get motion data by ID."""
-    return db.query(models.MotionSensorData).filter(models.MotionSensorData.id == motion_id).first()
+def get_current_vitals(db: Session, user_id: int) -> Optional[Dict]:
+    """Get current vitals for a user."""
+    try:
+        vitals = get_recent_vital_data(db, user_id, limit=1)
+        if not vitals:
+            return None
+        
+        return {
+            'heart_rate': vitals[0].heart_rate,
+            'oxygen_saturation': vitals[0].oxygen_saturation,
+            'blood_pressure_systolic': vitals[0].blood_pressure_systolic,
+            'body_temperature': vitals[0].body_temperature,
+            'timestamp': vitals[0].timestamp
+        }
+    except Exception as e:
+        logger.error(f"Error getting current vitals for user {user_id}: {e}")
+        return None
 
 # ======================
 # Prediction Operations
 # ======================
+
+def get_prediction(db: Session, prediction_id: int) -> Optional[models.Prediction]:
+    """Get prediction by ID."""
+    try:
+        return db.query(models.Prediction).filter(models.Prediction.id == prediction_id).first()
+    except SQLAlchemyError as e:
+        logger.error(f"Database error getting prediction {prediction_id}: {e}")
+        return None
+
+def create_prediction(db: Session, prediction: schemas.PredictionCreate) -> models.Prediction:
+    """Create a new prediction record."""
+    try:
+        db_prediction = models.Prediction(**prediction.dict())
+        db.add(db_prediction)
+        db.commit()
+        db.refresh(db_prediction)
+        return db_prediction
+        
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error creating prediction: {e}")
+        raise RuntimeError(f"Database error: {str(e)}")
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Unexpected error creating prediction: {e}")
+        raise
+
+def get_user_predictions(db: Session, user_id: int, limit: int = 50) -> List[models.Prediction]:
+    """Get predictions for a specific user."""
+    try:
+        return db.query(models.Prediction)\
+            .filter(models.Prediction.user_id == user_id)\
+            .order_by(desc(models.Prediction.timestamp))\
+            .limit(limit)\
+            .all()
+    except SQLAlchemyError as e:
+        logger.error(f"Database error getting predictions for user {user_id}: {e}")
+        return []
 
 def process_motion_and_predict(
     db: Session,
@@ -214,6 +404,7 @@ def process_motion_and_predict(
 ) -> Dict:
     """
     Process motion data, make prediction, and verify with double verification.
+    UPDATED FOR DUAL OUTPUT MODEL.
     """
     
     try:
@@ -231,7 +422,7 @@ def process_motion_and_predict(
                 "motion_id": stored_motion.id
             }
         
-        # 3. Prepare buffer for AI model
+        # 3. Prepare buffer for AI model with enhanced features if needed
         motion_buffer = []
         for motion in recent_motions[-50:]:  # Use last 50 readings
             features = preprocess_motion_data(
@@ -240,14 +431,21 @@ def process_motion_and_predict(
                 acc_z=motion.acc_z,
                 gyro_x=motion.gyro_x,
                 gyro_y=motion.gyro_y,
-                gyro_z=motion.gyro_z
+                gyro_z=motion.gyro_z,
+                temperature=motion.temperature or 36.5
             )
             motion_buffer.append(features)
         
         motion_buffer = np.array(motion_buffer)
         
-        # 4. Make AI prediction
+        # 4. Make AI prediction with dual output
         ai_prediction = predict_fall(motion_buffer)
+        
+        # Log the dual output
+        logger.info(f"🎯 AI Prediction:")
+        logger.info(f"   Fall Now: {ai_prediction.get('fall_now_probability', 0):.3f}")
+        logger.info(f"   Fall Soon: {ai_prediction.get('fall_soon_probability', 0):.3f}")
+        logger.info(f"   Is Mock: {ai_prediction.get('is_mock', False)}")
         
         if not ai_prediction.get("success", False):
             logger.error(f"AI prediction failed for user {motion_data.user_id}")
@@ -324,6 +522,15 @@ def process_motion_and_predict(
             "double_verification_performed": verified_prediction.get("vital_check_performed", False)
         }
         
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error in process_motion_and_predict: {e}")
+        return {
+            "success": False,
+            "message": f"Database error processing motion data: {str(e)}",
+            "error": str(e)
+        }
+        
     except Exception as e:
         logger.error(f"Error in process_motion_and_predict: {e}")
         return {
@@ -338,36 +545,55 @@ def process_motion_and_predict(
 
 def create_alert(db: Session, alert_data: schemas.AlertCreate) -> models.Alert:
     """Create a new alert."""
-    db_alert = models.Alert(
-        user_id=alert_data.user_id,
-        prediction_id=alert_data.prediction_id,
-        alert_type=alert_data.alert_type,
-        severity=alert_data.severity,
-        message=alert_data.message,
-        status="pending",
-        timestamp=datetime.utcnow()
-    )
-    
-    db.add(db_alert)
-    db.commit()
-    db.refresh(db_alert)
-    return db_alert
+    try:
+        db_alert = models.Alert(
+            user_id=alert_data.user_id,
+            prediction_id=alert_data.prediction_id,
+            alert_type=alert_data.alert_type,
+            severity=alert_data.severity,
+            message=alert_data.message,
+            status="pending",
+            timestamp=datetime.utcnow()
+        )
+        
+        db.add(db_alert)
+        db.commit()
+        db.refresh(db_alert)
+        return db_alert
+        
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error creating alert: {e}")
+        raise RuntimeError(f"Database error: {str(e)}")
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Unexpected error creating alert: {e}")
+        raise
 
 def get_pending_alerts(db: Session, limit: int = 50) -> List[models.Alert]:
     """Get pending alerts."""
-    return db.query(models.Alert)\
-        .filter(models.Alert.status == "pending")\
-        .order_by(desc(models.Alert.timestamp))\
-        .limit(limit)\
-        .all()
+    try:
+        return db.query(models.Alert)\
+            .filter(models.Alert.status == "pending")\
+            .order_by(desc(models.Alert.timestamp))\
+            .limit(limit)\
+            .all()
+    except SQLAlchemyError as e:
+        logger.error(f"Database error getting pending alerts: {e}")
+        return []
 
 def get_alerts_by_user(db: Session, user_id: int, limit: int = 20) -> List[models.Alert]:
     """Get alerts for a specific user."""
-    return db.query(models.Alert)\
-        .filter(models.Alert.user_id == user_id)\
-        .order_by(desc(models.Alert.timestamp))\
-        .limit(limit)\
-        .all()
+    try:
+        return db.query(models.Alert)\
+            .filter(models.Alert.user_id == user_id)\
+            .order_by(desc(models.Alert.timestamp))\
+            .limit(limit)\
+            .all()
+    except SQLAlchemyError as e:
+        logger.error(f"Database error getting alerts for user {user_id}: {e}")
+        return []
 
 def update_alert_status(
     db: Session,
@@ -376,21 +602,71 @@ def update_alert_status(
     acknowledged_by: Optional[str] = None
 ) -> Optional[models.Alert]:
     """Update alert status."""
-    alert = db.query(models.Alert).filter(models.Alert.id == alert_id).first()
-    if not alert:
-        return None
-    
-    alert.status = status
-    
-    if status == "acknowledged" and acknowledged_by:
-        alert.acknowledged_by = acknowledged_by
-        alert.acknowledged_at = datetime.utcnow()
-    elif status == "resolved":
-        alert.resolved_at = datetime.utcnow()
-    
-    db.commit()
-    db.refresh(alert)
-    return alert
+    try:
+        alert = db.query(models.Alert).filter(models.Alert.id == alert_id).first()
+        if not alert:
+            return None
+        
+        alert.status = status
+        
+        if status == "acknowledged" and acknowledged_by:
+            alert.acknowledged_by = acknowledged_by
+            alert.acknowledged_at = datetime.utcnow()
+        elif status == "resolved":
+            alert.resolved_at = datetime.utcnow()
+        
+        db.commit()
+        db.refresh(alert)
+        return alert
+        
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error updating alert status {alert_id}: {e}")
+        raise RuntimeError(f"Database error: {str(e)}")
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Unexpected error updating alert status {alert_id}: {e}")
+        raise
+
+# ======================
+# Emergency Contact Operations
+# ======================
+
+def create_emergency_contact(db: Session, contact_data: schemas.EmergencyContactCreate) -> models.EmergencyContact:
+    """Create a new emergency contact."""
+    try:
+        db_contact = models.EmergencyContact(**contact_data.dict())
+        db.add(db_contact)
+        db.commit()
+        db.refresh(db_contact)
+        return db_contact
+        
+    except IntegrityError as e:
+        db.rollback()
+        logger.error(f"Integrity error creating emergency contact: {e}")
+        raise ValueError(f"Emergency contact creation failed: {str(e)}")
+        
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error creating emergency contact: {e}")
+        raise RuntimeError(f"Database error: {str(e)}")
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Unexpected error creating emergency contact: {e}")
+        raise
+
+def get_emergency_contacts(db: Session, user_id: int) -> List[models.EmergencyContact]:
+    """Get emergency contacts for a user."""
+    try:
+        return db.query(models.EmergencyContact)\
+            .filter(models.EmergencyContact.user_id == user_id)\
+            .order_by(models.EmergencyContact.priority)\
+            .all()
+    except SQLAlchemyError as e:
+        logger.error(f"Database error getting emergency contacts for user {user_id}: {e}")
+        return []
 
 # ======================
 # System Operations
@@ -426,6 +702,9 @@ def get_system_stats(db: Session) -> Dict:
         pending_alerts = db.query(models.Alert).filter(models.Alert.status == "pending").count()
         total_alerts = db.query(models.Alert).filter(models.Alert.timestamp >= last_day).count()
         
+        # Device stats
+        connected_devices = db.query(models.Device).filter(models.Device.is_connected == True).count()
+        
         return {
             "users": {
                 "total": total_users,
@@ -441,6 +720,10 @@ def get_system_stats(db: Session) -> Dict:
                 "pending": pending_alerts,
                 "last_24h": total_alerts
             },
+            "devices": {
+                "connected": connected_devices,
+                "total": db.query(models.Device).count()
+            },
             "timestamp": now.isoformat()
         }
     except Exception as e:
@@ -449,6 +732,49 @@ def get_system_stats(db: Session) -> Dict:
             "users": {"total": 0, "active": 0},
             "predictions": {"total": 0, "falls_detected": 0, "recent_hour": 0, "falls_recent_hour": 0},
             "alerts": {"pending": 0, "last_24h": 0},
+            "devices": {"connected": 0, "total": 0},
             "timestamp": now.isoformat(),
+            "error": str(e)
+        }
+
+def cleanup_old_data(db: Session, days_to_keep: int = 30) -> Dict:
+    """Clean up old data to maintain database performance."""
+    try:
+        cutoff_date = datetime.utcnow() - timedelta(days=days_to_keep)
+        
+        # Delete old motion data
+        motion_deleted = db.query(models.MotionSensorData)\
+            .filter(models.MotionSensorData.timestamp < cutoff_date)\
+            .delete(synchronize_session=False)
+        
+        # Delete old vital data
+        vital_deleted = db.query(models.VitalSensorData)\
+            .filter(models.VitalSensorData.timestamp < cutoff_date)\
+            .delete(synchronize_session=False)
+        
+        # Delete old system logs (keep 7 days only)
+        logs_cutoff = datetime.utcnow() - timedelta(days=7)
+        logs_deleted = db.query(models.SystemLog)\
+            .filter(models.SystemLog.timestamp < logs_cutoff)\
+            .delete(synchronize_session=False)
+        
+        db.commit()
+        
+        return {
+            "success": True,
+            "message": "Old data cleaned up successfully",
+            "deleted_records": {
+                "motion_data": motion_deleted,
+                "vital_data": vital_deleted,
+                "system_logs": logs_deleted
+            }
+        }
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error cleaning up old data: {e}")
+        return {
+            "success": False,
+            "message": f"Error cleaning up data: {str(e)}",
             "error": str(e)
         }

@@ -9,7 +9,7 @@ from sqlalchemy import desc, and_
 import numpy as np  # تم إضافة هذا الاستيراد
 
 from . import models, schemas
-from .ai_model import predict_fall, preprocess_motion_data
+from .services.ai_model import predict_fall, preprocess_motion_data
 from .double_verification import DoubleVerificationSystem
 
 logger = logging.getLogger(__name__)

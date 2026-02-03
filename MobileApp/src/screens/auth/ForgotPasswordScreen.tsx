@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
   TextInput,
   TouchableOpacity,
   ScrollView,
@@ -18,7 +17,6 @@ import * as Yup from 'yup';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 
-import { AUTH_CONFIG, AUTH_TEXTS } from '../../constants/auth';
 import { authService } from '../../services/auth.service';
 import { ForgotPasswordData } from '../../types/auth';
 
@@ -44,6 +42,7 @@ export const ForgotPasswordScreen: React.FC = () => {
   const navigation = useNavigation<ForgotPasswordScreenNavigationProp>();
   const [loading, setLoading] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
+  const [countdown, setCountdown] = useState(0);
 
   const handleForgotPassword = async (values: ForgotPasswordData) => {
     try {
@@ -53,85 +52,149 @@ export const ForgotPasswordScreen: React.FC = () => {
       
       if (response.success) {
         setEmailSent(true);
+        setCountdown(60); // 60 seconds countdown
+        
+        // Start countdown
+        const timer = setInterval(() => {
+          setCountdown((prev) => {
+            if (prev <= 1) {
+              clearInterval(timer);
+              return 0;
+            }
+            return prev - 1;
+          });
+        }, 1000);
+        
         Alert.alert(
-          'Sent Successfully',
-          'Password reset link has been sent to your email',
+          '✅ Email Sent!',
+          'Password reset link has been sent to your email address',
           [{ text: 'OK' }]
         );
       } else {
-        Alert.alert('Error', response.message || 'An error occurred while sending the link');
+        Alert.alert('❌ Error', response.message || 'Failed to send reset link');
       }
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'An unexpected error occurred');
+      Alert.alert('❌ Error', error.message || 'An unexpected error occurred');
     } finally {
       setLoading(false);
     }
   };
 
+  const handleResendEmail = () => {
+    if (countdown > 0) {
+      Alert.alert(
+        '⏳ Please Wait',
+        `You can resend email in ${countdown} seconds`,
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+    setEmailSent(false);
+  };
+
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView className="flex-1 bg-white">
       <KeyboardAvoidingView
-        style={styles.container}
+        className="flex-1"
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <ScrollView
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={{ flexGrow: 1, padding: 24 }}
           showsVerticalScrollIndicator={false}
         >
           {/* Header */}
-          <View style={styles.header}>
+          <View className="items-center mb-10">
             <TouchableOpacity
-              style={styles.backButton}
+              className="self-end p-2 mb-4"
               onPress={() => navigation.goBack()}
+              activeOpacity={0.7}
             >
-              <MaterialIcons name="arrow-back" size={24} color="#333" />
+              <MaterialIcons name="arrow-back" size={24} color="#212121" />
             </TouchableOpacity>
-            <MaterialIcons name="lock-reset" size={80} color={AUTH_CONFIG.COLORS.primary} />
-            <Text style={styles.title}>Reset Password</Text>
-            <Text style={styles.subtitle}>
+            
+            <View className="w-28 h-28 rounded-full bg-blue-50 justify-center items-center mb-6">
+              <MaterialIcons name="lock-reset" size={50} color="#2196F3" />
+            </View>
+            
+            <Text className="text-2xl font-bold text-dark text-center mb-3">
+              Reset Your Password
+            </Text>
+            <Text className="text-base text-gray text-center leading-6 max-w-xs">
               Enter your email and we'll send you a link to reset your password
             </Text>
           </View>
 
           {emailSent ? (
             // State after email is sent
-            <View style={styles.successContainer}>
-              <MaterialIcons name="mark-email-read" size={100} color={AUTH_CONFIG.COLORS.success} />
-              <Text style={styles.successTitle}>Email Sent!</Text>
-              <Text style={styles.successText}>
-                Please check your email inbox and follow the instructions
-                to reset your password.
+            <View className="items-center px-4">
+              {/* Success Icon */}
+              <View className="w-32 h-32 rounded-full bg-green-50 justify-center items-center mb-6">
+                <MaterialIcons name="mark-email-read" size={60} color="#4CAF50" />
+              </View>
+              
+              {/* Success Message */}
+              <Text className="text-2xl font-bold text-success text-center mb-4">
+                Check Your Email!
               </Text>
-              <View style={styles.tipsContainer}>
-                <Text style={styles.tipsTitle}>Tips:</Text>
-                <View style={styles.tipItem}>
-                  <MaterialIcons name="check-circle" size={16} color={AUTH_CONFIG.COLORS.success} />
-                  <Text style={styles.tipText}>Check your spam/junk folder</Text>
-                </View>
-                <View style={styles.tipItem}>
-                  <MaterialIcons name="check-circle" size={16} color={AUTH_CONFIG.COLORS.success} />
-                  <Text style={styles.tipText}>Link is valid for 24 hours only</Text>
-                </View>
-                <View style={styles.tipItem}>
-                  <MaterialIcons name="check-circle" size={16} color={AUTH_CONFIG.COLORS.success} />
-                  <Text style={styles.tipText}>If you don't receive the email, try again</Text>
+              <Text className="text-base text-gray text-center leading-6 mb-8">
+                We've sent password reset instructions to your email address.
+              </Text>
+              
+              {/* Tips Box */}
+              <View className="w-full bg-blue-50 rounded-2xl p-5 mb-8 border border-blue-200">
+                <Text className="text-lg font-semibold text-dark mb-4">📌 Important Tips:</Text>
+                
+                <View className="space-y-3">
+                  <View className="flex-row items-start">
+                    <MaterialIcons name="search" size={18} color="#2196F3" className="mt-0.5" />
+                    <Text className="text-sm text-gray ml-3 flex-1">
+                      Check your spam or junk folder if you don't see the email
+                    </Text>
+                  </View>
+                  
+                  <View className="flex-row items-start">
+                    <MaterialIcons name="timer" size={18} color="#FF9800" className="mt-0.5" />
+                    <Text className="text-sm text-gray ml-3 flex-1">
+                      Reset link expires in 24 hours for security reasons
+                    </Text>
+                  </View>
+                  
+                  <View className="flex-row items-start">
+                    <MaterialIcons name="security" size={18} color="#4CAF50" className="mt-0.5" />
+                    <Text className="text-sm text-gray ml-3 flex-1">
+                      Never share your reset link with anyone
+                    </Text>
+                  </View>
                 </View>
               </View>
               
-              <TouchableOpacity
-                style={styles.resendButton}
-                onPress={() => setEmailSent(false)}
-              >
-                <MaterialIcons name="email" size={20} color="#FFF" />
-                <Text style={styles.resendButtonText}>Send New Link</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity
-                style={styles.backToLoginButton}
-                onPress={() => navigation.navigate('Login')}
-              >
-                <Text style={styles.backToLoginText}>Back to Login</Text>
-              </TouchableOpacity>
+              {/* Action Buttons */}
+              <View className="w-full space-y-3">
+                <TouchableOpacity
+                  className={`flex-row justify-center items-center py-4 rounded-xl ${
+                    countdown > 0 ? 'bg-gray-300' : 'bg-primary'
+                  }`}
+                  onPress={handleResendEmail}
+                  disabled={countdown > 0}
+                  activeOpacity={0.7}
+                >
+                  <MaterialIcons name="email" size={22} color="#FFFFFF" />
+                  <Text className="text-white font-bold text-base ml-3">
+                    {countdown > 0 ? `Resend in ${countdown}s` : 'Send New Link'}
+                  </Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  className="flex-row justify-center items-center py-4 border-2 border-primary rounded-xl"
+                  onPress={() => navigation.navigate('Login')}
+                  activeOpacity={0.7}
+                >
+                  <MaterialIcons name="arrow-back" size={20} color="#2196F3" />
+                  <Text className="text-primary font-semibold text-base ml-2">
+                    Back to Login
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
           ) : (
             // Email input form
@@ -150,19 +213,16 @@ export const ForgotPasswordScreen: React.FC = () => {
                 isValid,
                 dirty,
               }) => (
-                <View style={styles.formContainer}>
+                <View className="mb-8">
                   {/* Email Field */}
-                  <View style={styles.inputContainer}>
-                    <Text style={styles.label}>
-                      <MaterialIcons name="email" size={16} color="#666" /> Email
+                  <View className="mb-8">
+                    <Text className="text-base font-semibold text-dark mb-3">
+                      <MaterialIcons name="email" size={16} color="#666" /> Email Address
                     </Text>
                     <TextInput
-                      style={[
-                        styles.input,
-                        errors.email && touched.email && styles.inputError,
-                      ]}
+                      className={`input-field ${errors.email && touched.email ? 'border-danger' : ''}`}
                       placeholder="example@email.com"
-                      placeholderTextColor="#999"
+                      placeholderTextColor="#BDBDBD"
                       value={values.email}
                       onChangeText={handleChange('email')}
                       onBlur={handleBlur('email')}
@@ -171,34 +231,59 @@ export const ForgotPasswordScreen: React.FC = () => {
                       editable={!loading}
                     />
                     {errors.email && touched.email && (
-                      <Text style={styles.errorText}>{errors.email}</Text>
+                      <Text className="error-text">{errors.email}</Text>
                     )}
                   </View>
 
                   {/* Submit Button */}
                   <TouchableOpacity
-                    style={[
-                      styles.submitButton,
-                      (!isValid || !dirty || loading) && styles.submitButtonDisabled,
-                    ]}
+                    className={`
+                      btn-primary flex-row justify-center items-center py-4 mb-6
+                      ${(!isValid || !dirty || loading) ? 'opacity-50' : ''}
+                    `}
                     onPress={() => handleSubmit()}
                     disabled={!isValid || !dirty || loading}
+                    activeOpacity={0.7}
                   >
                     {loading ? (
                       <ActivityIndicator color="#FFF" size="small" />
                     ) : (
                       <>
-                        <MaterialIcons name="send" size={24} color="#FFF" />
-                        <Text style={styles.submitButtonText}>Send Reset Link</Text>
+                        <MaterialIcons name="send" size={22} color="#FFF" />
+                        <Text className="text-white font-bold text-lg ml-3">
+                          Send Reset Link
+                        </Text>
                       </>
                     )}
                   </TouchableOpacity>
 
-                  {/* Tips */}
-                  <View style={styles.infoBox}>
-                    <MaterialIcons name="info" size={20} color={AUTH_CONFIG.COLORS.info} />
-                    <Text style={styles.infoText}>
-                      You will receive a link to reset your password. Make sure to use a correct email address.
+                  {/* Information Box */}
+                  <View className="flex-row p-4 bg-blue-50 rounded-xl border border-blue-200">
+                    <MaterialIcons name="info" size={24} color="#2196F3" />
+                    <View className="ml-3 flex-1">
+                      <Text className="text-sm font-medium text-dark mb-1">
+                        What happens next?
+                      </Text>
+                      <Text className="text-xs text-gray">
+                        You'll receive an email with a secure link to reset your password. Click the link and create a new password.
+                      </Text>
+                    </View>
+                  </View>
+                  
+                  {/* Security Notice */}
+                  <View className="mt-6 p-4 bg-yellow-50 rounded-xl border border-yellow-200">
+                    <View className="flex-row items-center mb-2">
+                      <MaterialIcons name="security" size={18} color="#FF9800" />
+                      <Text className="text-sm font-medium text-dark ml-2">Security Notice</Text>
+                    </View>
+                    <Text className="text-xs text-gray">
+                      • Only enter your registered email address
+                    </Text>
+                    <Text className="text-xs text-gray mt-1">
+                      • We'll never ask for your password via email
+                    </Text>
+                    <Text className="text-xs text-gray mt-1">
+                      • Links expire automatically for your protection
                     </Text>
                   </View>
                 </View>
@@ -206,201 +291,30 @@ export const ForgotPasswordScreen: React.FC = () => {
             </Formik>
           )}
 
-          {/* Back to Login Link */}
+          {/* Back to Login Link (only show in form mode) */}
           {!emailSent && (
             <TouchableOpacity
-              style={styles.backToLoginContainer}
+              className="flex-row justify-center items-center py-6 border-t border-lightGray mt-6"
               onPress={() => navigation.navigate('Login')}
+              activeOpacity={0.7}
             >
-              <MaterialIcons name="arrow-back" size={16} color={AUTH_CONFIG.COLORS.primary} />
-              <Text style={styles.backToLoginText2}>Back to Login</Text>
+              <MaterialIcons name="arrow-back" size={18} color="#2196F3" />
+              <Text className="text-primary font-semibold text-base ml-2">
+                Back to Login
+              </Text>
             </TouchableOpacity>
           )}
+          
+          {/* Footer */}
+          <View className="items-center mt-8">
+            <View className="flex-row items-center mb-2">
+              <MaterialIcons name="support-agent" size={16} color="#757575" />
+              <Text className="text-xs text-gray ml-2">Need help? Contact support</Text>
+            </View>
+            <Text className="text-xs text-lightGray">Fall Detection System • v1.0.0</Text>
+          </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 };
-
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#FFF',
-  },
-  container: {
-    flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-    padding: 24,
-  },
-  header: {
-    alignItems: 'center',
-    marginBottom: 40,
-  },
-  backButton: {
-    alignSelf: 'flex-end',
-    marginBottom: 20,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#333',
-    textAlign: 'center',
-    marginTop: 20,
-    marginBottom: 12,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    lineHeight: 24,
-    paddingHorizontal: 20,
-  },
-  formContainer: {
-    marginBottom: 24,
-  },
-  inputContainer: {
-    marginBottom: 30,
-  },
-  label: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 8,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#DDD',
-    borderRadius: 12,
-    padding: 16,
-    fontSize: 16,
-    color: '#333',
-    backgroundColor: '#FAFAFA',
-  },
-  inputError: {
-    borderColor: AUTH_CONFIG.COLORS.error,
-  },
-  errorText: {
-    color: AUTH_CONFIG.COLORS.error,
-    fontSize: 14,
-    marginTop: 4,
-  },
-  submitButton: {
-    backgroundColor: AUTH_CONFIG.COLORS.primary,
-    borderRadius: 12,
-    padding: 18,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  submitButtonDisabled: {
-    backgroundColor: '#CCC',
-    opacity: 0.7,
-  },
-  submitButtonText: {
-    color: '#FFF',
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginLeft: 8,
-  },
-  infoBox: {
-    flexDirection: 'row',
-    backgroundColor: '#F0F8FF',
-    borderColor: AUTH_CONFIG.COLORS.info,
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-  },
-  infoText: {
-    flex: 1,
-    fontSize: 14,
-    color: '#333',
-    marginLeft: 12,
-    lineHeight: 20,
-  },
-  backToLoginContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#EEE',
-  },
-  backToLoginText2: {
-    fontSize: 16,
-    color: AUTH_CONFIG.COLORS.primary,
-    fontWeight: '600',
-    marginLeft: 8,
-  },
-  successContainer: {
-    alignItems: 'center',
-    padding: 20,
-  },
-  successTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: AUTH_CONFIG.COLORS.success,
-    marginTop: 20,
-    marginBottom: 16,
-  },
-  successText: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    lineHeight: 24,
-    marginBottom: 30,
-  },
-  tipsContainer: {
-    width: '100%',
-    backgroundColor: '#F8F9FA',
-    borderRadius: 12,
-    padding: 20,
-    marginBottom: 30,
-  },
-  tipsTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 12,
-  },
-  tipItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  tipText: {
-    flex: 1,
-    fontSize: 14,
-    color: '#666',
-    marginLeft: 10,
-  },
-  resendButton: {
-    backgroundColor: AUTH_CONFIG.COLORS.primary,
-    borderRadius: 12,
-    padding: 16,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    width: '100%',
-    marginBottom: 16,
-  },
-  resendButtonText: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginLeft: 8,
-  },
-  backToLoginButton: {
-    padding: 16,
-    width: '100%',
-    alignItems: 'center',
-  },
-  backToLoginText: {
-    fontSize: 16,
-    color: AUTH_CONFIG.COLORS.primary,
-    fontWeight: 'bold',
-  },
-});

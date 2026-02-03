@@ -16,7 +16,7 @@ from .database import Base
 # ==================== User Models ====================
 
 class User(Base):
-    """جدول المستخدمين الرئيسي"""
+    """Main users table"""
     __tablename__ = "users"
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
@@ -35,18 +35,35 @@ class User(Base):
     
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)  # إضافة هذا السطر
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
-    # Relationships
-    auth = relationship("UserAuth", back_populates="user", uselist=False, cascade="all, delete-orphan")
-    devices = relationship("Device", back_populates="user", cascade="all, delete-orphan")
-    motions = relationship("MotionSensorData", back_populates="user", cascade="all, delete-orphan")
-    vitals = relationship("VitalSensorData", back_populates="user", cascade="all, delete-orphan")
-    predictions = relationship("Prediction", back_populates="user", cascade="all, delete-orphan")
-    alerts = relationship("Alert", back_populates="user", cascade="all, delete-orphan")
-    emergency_contacts = relationship("EmergencyContact", back_populates="user_relation", cascade="all, delete-orphan")  # ✅ هنا التغيير
-    social_accounts = relationship("SocialAccount", back_populates="user", cascade="all, delete-orphan")
-    sessions = relationship("UserSession", back_populates="user", cascade="all, delete-orphan")
+    # Relationships with proper cascade
+    auth = relationship("UserAuth", back_populates="user", uselist=False, 
+                       cascade="all, delete-orphan", single_parent=True)
+    
+    devices = relationship("Device", back_populates="user", 
+                          cascade="all, delete-orphan")
+    
+    motions = relationship("MotionSensorData", back_populates="user", 
+                          cascade="all, delete-orphan")
+    
+    vitals = relationship("VitalSensorData", back_populates="user", 
+                         cascade="all, delete-orphan")
+    
+    predictions = relationship("Prediction", back_populates="user", 
+                              cascade="all, delete-orphan")
+    
+    alerts = relationship("Alert", back_populates="user", 
+                         cascade="all, delete-orphan")
+    
+    emergency_contacts = relationship("EmergencyContact", back_populates="user_relation", 
+                                     cascade="all, delete-orphan")
+    
+    social_accounts = relationship("SocialAccount", back_populates="user", 
+                                  cascade="all, delete-orphan")
+    
+    sessions = relationship("UserSession", back_populates="user", 
+                           cascade="all, delete-orphan")
     
     # Indexes
     __table_args__ = (
@@ -57,10 +74,8 @@ class User(Base):
     def __repr__(self):
         return f"<User(id={self.id}, name='{self.name}', email='{self.auth.email if self.auth else 'No Auth'}')>"
 
-
-
 class UserAuth(Base):
-    """جدول مصادقة المستخدمين"""
+    """User authentication table"""
     __tablename__ = "user_auth"
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
@@ -98,7 +113,7 @@ class UserAuth(Base):
         return f"<UserAuth(id={self.id}, email='{self.email}', user_id={self.user_id})>"
 
 class UserSession(Base):
-    """جدول جلسات المستخدمين"""
+    """User sessions table"""
     __tablename__ = "user_sessions"
     
     id = Column(String(100), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -130,7 +145,7 @@ class UserSession(Base):
         return f"<UserSession(id={self.id}, user_id={self.user_id}, expires_at={self.expires_at})>"
 
 class SocialAccount(Base):
-    """جدول حسابات التواصل الاجتماعي"""
+    """Social media accounts table"""
     __tablename__ = "social_accounts"
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
@@ -169,7 +184,7 @@ class SocialAccount(Base):
 # ==================== Device Models ====================
 
 class Device(Base):
-    """جدول الأجهزة"""
+    """Devices table"""
     __tablename__ = "devices"
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
@@ -206,7 +221,7 @@ class Device(Base):
 # ==================== Sensor Data Models ====================
 
 class MotionSensorData(Base):
-    """جدول بيانات مستشعر الحركة"""
+    """Motion sensor data table"""
     __tablename__ = "motion_sensor_data"
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
@@ -237,8 +252,22 @@ class MotionSensorData(Base):
     device = relationship("Device", back_populates="motions")
     predictions = relationship("Prediction", back_populates="motion_data", cascade="all, delete-orphan")
     
-    # Indexes
+    # Indexes - UPDATED VERSION
     __table_args__ = (
+        # New composite indexes for frequent queries
+        Index('idx_motion_user_device_time', 'user_id', 'device_id', 'timestamp'),
+        Index('idx_motion_fall_suspected_time', 'is_fall_suspected', 'timestamp'),
+        
+        # Single column indexes for sensor data filtering
+        Index('idx_motion_acc_x', 'acc_x'),
+        Index('idx_motion_acc_y', 'acc_y'),
+        Index('idx_motion_acc_z', 'acc_z'),
+        Index('idx_motion_gyro_x', 'gyro_x'),
+        Index('idx_motion_gyro_y', 'gyro_y'),
+        Index('idx_motion_gyro_z', 'gyro_z'),
+        Index('idx_motion_temperature', 'temperature'),
+        
+        # Keep existing indexes
         Index('idx_motion_user_timestamp', 'user_id', 'timestamp'),
         Index('idx_motion_device_timestamp', 'device_id', 'timestamp'),
         Index('idx_motion_fall_suspected', 'is_fall_suspected'),
@@ -250,7 +279,7 @@ class MotionSensorData(Base):
         return f"<MotionSensorData(id={self.id}, user_id={self.user_id}, timestamp={self.timestamp})>"
 
 class VitalSensorData(Base):
-    """جدول بيانات المؤشرات الحيوية"""
+    """Vital signs sensor data table"""
     __tablename__ = "vital_sensor_data"
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
@@ -275,8 +304,18 @@ class VitalSensorData(Base):
     # Relationships
     user = relationship("User", back_populates="vitals")
     
-    # Indexes
+    # Indexes - UPDATED VERSION
     __table_args__ = (
+        # New composite index for frequent queries
+        Index('idx_vital_user_abnormal_time', 'user_id', 'is_abnormal', 'timestamp'),
+        
+        # Indexes for specific vital signs
+        Index('idx_vital_bp_systolic', 'blood_pressure_systolic'),
+        Index('idx_vital_bp_diastolic', 'blood_pressure_diastolic'),
+        Index('idx_vital_respiration', 'respiration_rate'),
+        Index('idx_vital_hrv', 'heart_rate_variability'),
+        
+        # Keep existing indexes
         Index('idx_vital_user_timestamp', 'user_id', 'timestamp'),
         Index('idx_vital_abnormal', 'is_abnormal'),
         Index('idx_vital_heart_rate', 'heart_rate'),
@@ -289,7 +328,7 @@ class VitalSensorData(Base):
 # ==================== AI Prediction Models ====================
 
 class Prediction(Base):
-    """جدول تنبؤات النظام"""
+    """System predictions table"""
     __tablename__ = "predictions"
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
@@ -323,6 +362,7 @@ class Prediction(Base):
         Index('idx_prediction_fall_soon', 'fall_soon_prediction'),
         Index('idx_prediction_confidence', 'confidence_score'),
         Index('idx_prediction_verdict', 'final_verdict'),
+        Index('idx_prediction_vital_check', 'vital_check_performed'),
     )
     
     def __repr__(self):
@@ -331,7 +371,7 @@ class Prediction(Base):
 # ==================== Alert Models ====================
 
 class Alert(Base):
-    """جدول الإنذارات"""
+    """Alerts table"""
     __tablename__ = "alerts"
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
@@ -363,6 +403,7 @@ class Alert(Base):
         Index('idx_alert_status', 'status'),
         Index('idx_alert_severity', 'severity'),
         Index('idx_alert_type', 'alert_type'),
+        Index('idx_alert_prediction', 'prediction_id'),
     )
     
     def __repr__(self):
@@ -371,6 +412,7 @@ class Alert(Base):
 # ==================== Emergency Models ====================
 
 class EmergencyContact(Base):
+    """Emergency contacts table"""
     __tablename__ = "emergency_contacts"
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
@@ -379,20 +421,29 @@ class EmergencyContact(Base):
     # Contact Information
     name = Column(String(100), nullable=False)
     phone = Column(String(20), nullable=False)
-    relation_type = Column(String(50))  # family, friend, doctor, neighbor ✅
+    relation_type = Column(String(50))  # family, friend, doctor, neighbor
     priority = Column(Integer, default=3)
     is_active = Column(Boolean, default=True)
     
+    # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationship with User
     user_relation = relationship("User", back_populates="emergency_contacts")
+    
+    # Indexes
+    __table_args__ = (
+        Index('idx_contact_user_priority', 'user_id', 'priority'),
+        Index('idx_contact_active', 'is_active'),
+        Index('idx_contact_relation', 'relation_type'),
+    )
+    
+    def __repr__(self):
+        return f"<EmergencyContact(id={self.id}, name='{self.name}', user_id={self.user_id})>"
 
-
-        
 class EmergencyLog(Base):
-    """جدول سجل عمليات الطوارئ"""
+    """Emergency operations log table"""
     __tablename__ = "emergency_logs"
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
@@ -420,6 +471,7 @@ class EmergencyLog(Base):
         Index('idx_emergencylog_user_timestamp', 'user_id', 'timestamp'),
         Index('idx_emergencylog_type', 'emergency_type'),
         Index('idx_emergencylog_status', 'status'),
+        Index('idx_emergencylog_location', 'location_lat', 'location_lng'),
     )
     
     def __repr__(self):
@@ -428,7 +480,7 @@ class EmergencyLog(Base):
 # ==================== System Models ====================
 
 class SystemLog(Base):
-    """جدول سجلات النظام"""
+    """System logs table"""
     __tablename__ = "system_logs"
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
@@ -453,13 +505,14 @@ class SystemLog(Base):
         Index('idx_systemlog_level', 'level'),
         Index('idx_systemlog_source', 'source'),
         Index('idx_systemlog_user', 'user_id'),
+        Index('idx_systemlog_device', 'device_id'),
     )
     
     def __repr__(self):
         return f"<SystemLog(id={self.id}, level='{self.level}', source='{self.source}')>"
 
 class SystemSetting(Base):
-    """جدول إعدادات النظام"""
+    """System settings table"""
     __tablename__ = "system_settings"
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
@@ -482,6 +535,7 @@ class SystemSetting(Base):
     __table_args__ = (
         Index('idx_setting_category', 'category'),
         Index('idx_setting_editable', 'is_editable'),
+        Index('idx_setting_data_type', 'data_type'),
     )
     
     def __repr__(self):
@@ -490,7 +544,7 @@ class SystemSetting(Base):
 # ==================== Utility Models ====================
 
 class DatabaseMigration(Base):
-    """جدول تتبع هجرات قاعدة البيانات"""
+    """Database migrations tracking table"""
     __tablename__ = "database_migrations"
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
@@ -501,4 +555,15 @@ class DatabaseMigration(Base):
     
     # Status
     applied_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    status = Column(String(20), default='success')  #
+    status = Column(String(20), default='success')  # 'success', 'failed', 'pending'
+    error_message = Column(Text)
+    
+    # Indexes
+    __table_args__ = (
+        Index('idx_migration_version', 'version'),
+        Index('idx_migration_status', 'status'),
+        Index('idx_migration_applied_at', 'applied_at'),
+    )
+    
+    def __repr__(self):
+        return f"<DatabaseMigration(id={self.id}, migration_name='{self.migration_name}', status='{self.status}')>"

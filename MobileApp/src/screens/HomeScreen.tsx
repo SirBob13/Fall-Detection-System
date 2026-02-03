@@ -2,11 +2,11 @@ import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
   ScrollView,
   RefreshControl,
   Alert as RNAlert,
   Vibration,
+  TouchableOpacity, 
 } from 'react-native';
 import { useLanguage } from '../components/LanguageProvider';
 import { ScreenWrapper } from '../components/ScreenWrapper';
@@ -17,7 +17,7 @@ import { apiService } from '../services/api';
 import { storageService } from '../services/storage';
 import { notificationService } from '../services/notifications';
 import { User, Device, Alert as AlertType, Prediction } from '../types';
-import { COLORS } from '../utils/constants';
+
 
 export const HomeScreen: React.FC = () => {
   const { t } = useLanguage();
@@ -26,6 +26,7 @@ export const HomeScreen: React.FC = () => {
   const [device, setDevice] = useState<Device | null>(null);
   const [alerts, setAlerts] = useState<AlertType[]>([]);
   const [lastPrediction, setLastPrediction] = useState<Prediction | null>(null);
+  const [connectionError, setConnectionError] = useState(false);
   
   useEffect(() => {
     loadData();
@@ -47,13 +48,18 @@ export const HomeScreen: React.FC = () => {
           const alertsResponse = await apiService.getUserAlerts(storedUser.id, 5);
           if (alertsResponse.success) {
             setAlerts(alertsResponse.data || []);
+            setConnectionError(false);
+          } else {
+            setConnectionError(true);
           }
         } catch (apiError) {
           console.warn('⚠️ (Background) Error loading data:', apiError);
+          setConnectionError(true);
         }
       }
     } catch (error) {
       console.error('❌ (Background) General error:', error);
+      setConnectionError(true);
     }
   };
 
@@ -90,14 +96,14 @@ export const HomeScreen: React.FC = () => {
 
   const handleEmergencyPress = async () => {
     if (!user) {
-      RNAlert.alert(t('common.error'), t('auth.login.title') + ' ' + t('common.required'));
+      RNAlert.alert(t('common.error'), `${t('auth.login.title')} ${t('common.required')}`);
       return;
     }
 
     try {
       RNAlert.alert(
         t('emergency.sosButton'),
-        t('emergency.sosSending') + '?',
+        `${t('emergency.sosSending')}?`,
         [
           { text: t('common.cancel'), style: 'cancel' },
           {
@@ -105,7 +111,7 @@ export const HomeScreen: React.FC = () => {
             onPress: () => {
               RNAlert.alert(
                 t('success.sent'),
-                t('emergency.sosSending') + ' ' + t('success.sent'),
+                `${t('emergency.sosSending')} ${t('success.sent')}`,
                 [{ text: t('common.ok') }]
               );
               
@@ -125,7 +131,7 @@ export const HomeScreen: React.FC = () => {
   const handleEmergencyLongPress = () => {
     RNAlert.alert(
       t('emergency.title'),
-      t('emergency.settings.autoCall') + '?',
+      `${t('emergency.settings.autoCall')}?`,
       [
         { text: t('common.cancel'), style: 'cancel' },
         {
@@ -143,144 +149,204 @@ export const HomeScreen: React.FC = () => {
     );
   };
 
+  const handleViewAllAlerts = () => {
+    // Navigate to alerts screen
+    // navigation.navigate('Alerts');
+  };
+
   return (
-    <ScreenWrapper scrollable={false}>
+    <ScreenWrapper>
       <ScrollView
-        style={styles.container}
-        contentContainerStyle={styles.contentContainer}
+        className="flex-1"
+        contentContainerStyle={{ paddingHorizontal: 8 }}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl 
+            refreshing={refreshing} 
+            onRefresh={onRefresh} 
+            tintColor="#2196F3"
+            colors={['#2196F3']}
+          />
         }
         showsVerticalScrollIndicator={false}
       >
-        {/* System Status Card */}
-        <StatusCard
-          device={device}
-          lastPrediction={lastPrediction}
-          onRefresh={loadData}
-        />
+        {/* Connection Error Banner */}
+        {connectionError && (
+          <View className="mx-4 my-3 bg-red-50 border border-danger rounded-xl p-3">
+            <View className="flex-row items-center">
+              <View className="w-3 h-3 rounded-full bg-danger mr-2" />
+              <Text className="text-sm font-medium text-dark flex-1">
+                {t('errors.connection')}
+              </Text>
+            </View>
+            <Text className="text-xs text-gray mt-1">
+              {t('errors.connectionDesc')}
+            </Text>
+          </View>
+        )}
 
-        <View style={styles.spacingMedium} />
+        {/* System Status Card */}
+        <View className="mx-4">
+          <StatusCard
+            device={device}
+            lastPrediction={lastPrediction}
+            onRefresh={loadData}
+          />
+        </View>
 
         {/* Emergency Button */}
-        <EmergencyButton
-          onPress={handleEmergencyPress}
-          onLongPress={handleEmergencyLongPress}
-          disabled={!user}
-        />
+        <View className="my-6 items-center">
+          <EmergencyButton
+            onPress={handleEmergencyPress}
+            onLongPress={handleEmergencyLongPress}
+            disabled={!user}
+          />
+          {!user && (
+            <Text className="text-xs text-gray mt-2">
+              {t('auth.login.title')} {t('common.required')}
+            </Text>
+          )}
+        </View>
 
-        {/* Recent Alerts */}
-        {alerts.length > 0 && (
-          <View style={styles.alertsSection}>
-            <Text style={styles.sectionTitle}>
+        {/* Recent Alerts Section */}
+        <View className="mt-4">
+          <View className="flex-row justify-between items-center mx-4 mb-3">
+            <Text className="text-lg font-bold text-dark">
               {t('alerts.recentAlerts')}
             </Text>
-            {alerts.map((alert) => (
-              <AlertCard
-                key={alert.id}
-                alert={alert}
-                onAcknowledge={() => {}}
-                onResolve={() => {}}
-              />
-            ))}
+            {alerts.length > 0 && (
+              <TouchableOpacity 
+                onPress={handleViewAllAlerts}
+                className="px-3 py-1.5 bg-primary/10 rounded-full active:opacity-70"
+              >
+                <Text className="text-xs font-semibold text-primary">
+                  {t('common.viewAll')}
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
-        )}
+          
+          {alerts.length > 0 ? (
+            <View className="px-2">
+              {alerts.slice(0, 3).map((alert) => (
+                <View key={alert.id} className="mb-2">
+                  <AlertCard
+                    alert={alert}
+                    onAcknowledge={() => {}}
+                    onResolve={() => {}}
+                  />
+                </View>
+              ))}
+            </View>
+          ) : (
+            <View className="items-center py-10">
+              <View className="w-16 h-16 rounded-full bg-green-50 justify-center items-center mb-3">
+                <Text className="text-3xl">✅</Text>
+              </View>
+              <Text className="text-lg text-gray mb-2">
+                {t('alerts.noAlerts')}
+              </Text>
+              <Text className="text-sm text-lightGray">
+                {t('home.everythingOk')}
+              </Text>
+            </View>
+          )}
+        </View>
 
-        {/* No Alerts Message */}
-        {alerts.length === 0 && (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyStateText}>
-              {t('alerts.noAlerts')}
-            </Text>
-            <Text style={styles.emptyStateSubtext}>
-              {t('home.everythingOk')}
-            </Text>
-          </View>
-        )}
-
-        {/* Safety Tips */}
-        <View style={styles.tipsSection}>
-          <Text style={styles.sectionTitle}>
+        {/* Safety Tips Section */}
+        <View className="mt-8 mx-4">
+          <Text className="text-lg font-bold text-dark mb-4">
             {t('home.safetyTips')}
           </Text>
-          <View style={styles.tipCard}>
-            <Text style={styles.tipText}>
-              • {t('home.tip1')}
-            </Text>
-            <Text style={styles.tipText}>
-              • {t('home.tip2')}
-            </Text>
-            <Text style={styles.tipText}>
-              • {t('home.tip3')}
-            </Text>
-            <Text style={styles.tipText}>
-              • {t('home.tip4')}
-            </Text>
+          
+          <View className="bg-white rounded-2xl shadow-lg border border-lightGray p-5">
+            <View className="flex-row items-start mb-3">
+              <View className="w-8 h-8 rounded-full bg-blue-50 justify-center items-center mr-3">
+                <Text className="text-primary font-bold">1</Text>
+              </View>
+              <View className="flex-1">
+                <Text className="text-base font-semibold text-dark mb-1">
+                  {t('home.tip1Title')}
+                </Text>
+                <Text className="text-sm text-gray">
+                  {t('home.tip1')}
+                </Text>
+              </View>
+            </View>
+            
+            <View className="flex-row items-start mb-3">
+              <View className="w-8 h-8 rounded-full bg-blue-50 justify-center items-center mr-3">
+                <Text className="text-primary font-bold">2</Text>
+              </View>
+              <View className="flex-1">
+                <Text className="text-base font-semibold text-dark mb-1">
+                  {t('home.tip2Title')}
+                </Text>
+                <Text className="text-sm text-gray">
+                  {t('home.tip2')}
+                </Text>
+              </View>
+            </View>
+            
+            <View className="flex-row items-start mb-3">
+              <View className="w-8 h-8 rounded-full bg-blue-50 justify-center items-center mr-3">
+                <Text className="text-primary font-bold">3</Text>
+              </View>
+              <View className="flex-1">
+                <Text className="text-base font-semibold text-dark mb-1">
+                  {t('home.tip3Title')}
+                </Text>
+                <Text className="text-sm text-gray">
+                  {t('home.tip3')}
+                </Text>
+              </View>
+            </View>
+            
+            <View className="flex-row items-start">
+              <View className="w-8 h-8 rounded-full bg-blue-50 justify-center items-center mr-3">
+                <Text className="text-primary font-bold">4</Text>
+              </View>
+              <View className="flex-1">
+                <Text className="text-base font-semibold text-dark mb-1">
+                  {t('home.tip4Title')}
+                </Text>
+                <Text className="text-sm text-gray">
+                  {t('home.tip4')}
+                </Text>
+              </View>
+            </View>
           </View>
         </View>
 
-        <View style={styles.bottomSpacing} />
+        {/* Quick Stats */}
+        <View className="mt-8 mx-4">
+          <Text className="text-lg font-bold text-dark mb-4">
+            {t('home.quickStats')}
+          </Text>
+          
+          <View className="flex-row justify-between">
+            <View className="bg-white rounded-xl p-4 flex-1 mr-2 shadow-sm border border-lightGray">
+              <Text className="text-xs text-gray mb-1">{t('home.todayAlerts')}</Text>
+              <Text className="text-2xl font-bold text-dark">{alerts.length}</Text>
+              <View className="flex-row items-center mt-1">
+                <Text className="text-xs text-success">↓ 20%</Text>
+                <Text className="text-xs text-gray ml-1">{t('home.fromYesterday')}</Text>
+              </View>
+            </View>
+            
+            <View className="bg-white rounded-xl p-4 flex-1 ml-2 shadow-sm border border-lightGray">
+              <Text className="text-xs text-gray mb-1">{t('home.responseTime')}</Text>
+              <Text className="text-2xl font-bold text-dark">45s</Text>
+              <View className="flex-row items-center mt-1">
+                <Text className="text-xs text-success">↑ 15%</Text>
+                <Text className="text-xs text-gray ml-1">{t('home.faster')}</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* Bottom Spacing */}
+        <View className="h-20" />
       </ScrollView>
     </ScreenWrapper>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  contentContainer: {
-    paddingHorizontal: 8,
-  },
-  spacingMedium: {
-    height: 25,
-  },
-  bottomSpacing: {
-    height: 100,
-  },
-  alertsSection: {
-    marginTop: 8,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: COLORS.dark,
-    marginHorizontal: 16,
-    marginVertical: 12,
-  },
-  emptyState: {
-    alignItems: 'center',
-    padding: 40,
-    marginTop: 20,
-  },
-  emptyStateText: {
-    fontSize: 18,
-    color: COLORS.gray,
-    marginBottom: 8,
-  },
-  emptyStateSubtext: {
-    fontSize: 14,
-    color: COLORS.lightGray,
-  },
-  tipsSection: {
-    marginVertical: 20,
-  },
-  tipCard: {
-    backgroundColor: COLORS.white,
-    marginHorizontal: 16,
-    padding: 20,
-    borderRadius: 16,
-    shadowColor: COLORS.black,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 5,
-    borderWidth: 1,
-    borderColor: COLORS.lightGray,
-  },
-  tipText: {
-    fontSize: 15,
-    color: COLORS.dark,
-    marginVertical: 6,
-  },
-});

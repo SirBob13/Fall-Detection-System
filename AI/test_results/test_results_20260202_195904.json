@@ -1,0 +1,70 @@
+{
+    "test_time": "2026-02-02T19:59:04.600397",
+    "model_path": "/Users/AyshaKassem/Desktop/graduating project/App/AI/models/fall_detection_final.keras",
+    "model_type": "<class 'keras.src.models.functional.Functional'>",
+    "num_features": 16,
+    "test_samples": 2000,
+    "positive_samples": 1480,
+    "sample_predictions": [
+        {
+            "sample": 0,
+            "fall_now": 6.862696864118334e-06,
+            "fall_soon": 0.003651414066553116,
+            "actual": 0.0
+        },
+        {
+            "sample": 1,
+            "fall_now": 1.1901026482519228e-05,
+            "fall_soon": 0.005696032661944628,
+            "actual": 0.0
+        },
+        {
+            "sample": 2,
+            "fall_now": 1.2827081263822038e-05,
+            "fall_soon": 0.0052673411555588245,
+            "actual": 0.0
+        },
+        {
+            "sample": 3,
+            "fall_now": 1.2371739103400614e-05,
+            "fall_soon": 0.005118770524859428,
+            "actual": 0.0
+        },
+        {
+            "sample": 4,
+            "fall_now": 1.4016697605256923e-05,
+            "fall_soon": 0.00604209303855896,
+            "actual": 0.0
+        },
+        {
+            "sample": 5,
+            "fall_now": 2.7534224500413984e-05,
+            "fall_soon": 0.012556089088320732,
+            "actual": 0.0
+        },
+        {
+            "sample": 6,
+            "fall_now": 3.542490230756812e-05,
+            "fall_soon": 0.012487921863794327,
+            "actual": 0.0
+        },
+        {
+            "sample": 7,
+            "fall_now": 4.0238359360955656e-05,
+            "fall_soon": 0.009791717864573002,
+            "actual": 0.0
+        },
+        {
+            "sample": 8,
+            "fall_now": 1.7502425180282444e-05,
+            "fall_soon": 0.00523574510589242,
+            "actual": 0.0
+        },
+        {
+            "sample": 9,
+            "fall_now": 8.725703082745895e-06,
+            "fall_soon": 0.0035359093453735113,
+            "actual": 0.0
+        }
+    ]
+}

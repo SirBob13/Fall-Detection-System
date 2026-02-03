@@ -1,0 +1,1252 @@
+/* src/global.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* تنسيقات مخصصة */
+@layer base {
+  :root {
+    --direction: ltr;
+  }
+
+  [dir="rtl"] {
+    --direction: rtl;
+  }
+}
+
+@layer components {
+  :root {
+  --safe-area-top: env(safe-area-inset-top);
+  --safe-area-bottom: env(safe-area-inset-bottom);
+}
+
+.safe-top {
+  padding-top: var(--safe-area-top);
+}
+
+.safe-bottom {
+  padding-bottom: var(--safe-area-bottom);
+}
+  /* تنسيقات عامة */
+  .container {
+    @apply mx-auto px-4 max-w-7xl;
+  }
+  
+  /* تنسيقات البطاقات */
+  .card {
+    @apply bg-white rounded-2xl shadow-card p-5 border border-lightGray;
+  }
+  
+  .card-emergency {
+    @apply bg-white rounded-2xl shadow-emergency p-5 border-2 border-danger;
+  }
+  
+  /* تنسيقات الأزرار */
+  .btn {
+    @apply px-6 py-3 rounded-lg font-semibold transition-all duration-200 active:opacity-80;
+  }
+  
+  .btn-primary {
+    @apply bg-primary text-white shadow-button;
+  }
+  
+  .btn-secondary {
+    @apply bg-secondary text-white;
+  }
+  
+  .btn-success {
+    @apply bg-success text-white;
+  }
+  
+  .btn-danger {
+    @apply bg-danger text-white shadow-emergency;
+  }
+  
+  .btn-warning {
+    @apply bg-warning text-white;
+  }
+  
+  .btn-outline {
+    @apply border-2 border-primary text-primary bg-transparent;
+  }
+  
+  .btn-disabled {
+    @apply bg-lightGray text-gray cursor-not-allowed opacity-50;
+  }
+  
+  /* تنسيقات الإدخال */
+  .input {
+    @apply border border-lightGray rounded-lg px-4 py-3 text-base text-dark 
+           focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 
+           transition-all duration-200;
+  }
+  
+  .input-error {
+    @apply border-danger focus:border-danger focus:ring-danger/20;
+  }
+  
+  .input-success {
+    @apply border-success focus:border-success focus:ring-success/20;
+  }
+  
+  /* تنسيقات الحالة */
+  .status-badge {
+    @apply px-3 py-1 rounded-full text-xs font-semibold;
+  }
+  
+  .status-success {
+    @apply bg-green-100 text-green-800;
+  }
+  
+  .status-warning {
+    @apply bg-yellow-100 text-yellow-800;
+  }
+  
+  .status-danger {
+    @apply bg-red-100 text-red-800;
+  }
+  
+  .status-info {
+    @apply bg-blue-100 text-blue-800;
+  }
+  
+  /* تنسيقات التنبيهات */
+  .alert {
+    @apply rounded-xl p-4 mb-3;
+  }
+  
+  .alert-info {
+    @apply bg-blue-50 border border-blue-200 text-blue-800;
+  }
+  
+  .alert-success {
+    @apply bg-green-50 border border-green-200 text-green-800;
+  }
+  
+  .alert-warning {
+    @apply bg-yellow-50 border border-yellow-200 text-yellow-800;
+  }
+  
+  .alert-danger {
+    @apply bg-red-50 border border-red-200 text-red-800;
+  }
+  
+  /* تنسيقات التحميل */
+  .skeleton {
+    @apply animate-pulse bg-lightGray rounded;
+  }
+  
+  /* تنسيقات رؤوس الأقسام */
+  .section-title {
+    @apply text-lg font-bold text-dark mb-4;
+  }
+  
+  .section-subtitle {
+    @apply text-sm text-gray mb-3;
+  }
+  
+  /* تنسيقات الشبكة */
+  .grid-2 {
+    @apply grid grid-cols-2 gap-4;
+  }
+  
+  .grid-3 {
+    @apply grid grid-cols-3 gap-4;
+  }
+  
+  .grid-4 {
+    @apply grid grid-cols-4 gap-4;
+  }
+
+
+    .emergency-card {
+    @apply bg-white rounded-2xl shadow-card p-5 mx-4 my-4;
+  }
+  
+  .setting-item {
+    @apply mb-6 border-b border-lightGray pb-4;
+  }
+  
+  .setting-item:last-child {
+    @apply border-b-0 mb-0;
+  }
+  
+  .stat-card {
+    @apply items-center flex-1 p-3 bg-lightGray/20 rounded-xl mx-1;
+  }
+  
+  .stat-number {
+    @apply text-2xl font-bold text-dark mt-2;
+  }
+  
+  .stat-label {
+    @apply text-xs text-gray;
+  }
+  
+  .instruction-item {
+    @apply flex-row items-start mb-3 last:mb-0;
+  }
+  
+  .instruction-text {
+    @apply text-sm text-dark ml-2 flex-1;
+  }
+  
+  /* تنسيقات Modal */
+  .modal-overlay {
+    @apply flex-1 justify-center items-center bg-black/50;
+  }
+  
+  .modal-content {
+    @apply bg-white rounded-2xl w-11/12 max-w-md p-6;
+  }
+  
+  .modal-header {
+    @apply items-center mb-6;
+  }
+  
+  .modal-title {
+    @apply text-xl font-bold text-dark mt-3;
+  }
+  
+  .modal-input {
+    @apply border border-lightGray rounded-lg px-4 py-3 text-base text-dark mb-4;
+  }
+  
+  .modal-buttons {
+    @apply flex-row justify-between;
+  }
+  
+  .modal-button {
+    @apply flex-1 py-3 rounded-lg items-center;
+  }
+  
+  .modal-cancel {
+    @apply bg-lightGray mr-2;
+  }
+  
+  .modal-action {
+    @apply bg-success ml-2;
+  }
+
+
+
+
+    .contact-card {
+    @apply bg-white rounded-2xl shadow-card p-4 mb-3 border;
+  }
+  
+  .contact-card-high {
+    @apply border-danger/30 bg-red-50/20;
+  }
+  
+  .contact-card-medium {
+    @apply border-warning/30 bg-yellow-50/20;
+  }
+  
+  .contact-card-low {
+    @apply border-success/30 bg-green-50/20;
+  }
+  
+  .contact-card-inactive {
+    @apply opacity-60 border-lightGray;
+  }
+  
+  .priority-badge {
+    @apply px-2 py-1 rounded-full mr-3;
+  }
+  
+  .priority-badge-high {
+    @apply bg-danger;
+  }
+  
+  .priority-badge-medium {
+    @apply bg-warning;
+  }
+  
+  .priority-badge-low {
+    @apply bg-success;
+  }
+  
+  .relationship-icon {
+    @apply w-10 h-10 rounded-full bg-blue-50 justify-center items-center mr-3;
+  }
+  
+  .contact-name {
+    @apply text-base font-semibold text-dark;
+  }
+  
+  .contact-phone {
+    @apply text-sm text-primary mt-1;
+  }
+  
+  .contact-relationship {
+    @apply text-xs text-gray mt-1;
+  }
+  
+  .contact-actions {
+    @apply flex-row justify-end border-t border-lightGray pt-3;
+  }
+  
+  .contact-action-button {
+    @apply flex-row items-center px-3 py-1.5 rounded-lg mr-2;
+  }
+  
+  .contact-action-edit {
+    @apply bg-blue-50;
+  }
+  
+  .contact-action-delete {
+    @apply bg-red-50;
+  }
+  
+  .action-button-text {
+    @apply text-sm font-medium ml-1;
+  }
+  
+  /* تنسيقات Modal */
+  .add-contact-modal {
+    @apply flex-1 justify-center items-center bg-black/50;
+  }
+  
+  .modal-content {
+    @apply bg-white rounded-2xl w-11/12 max-w-md p-6;
+  }
+  
+  .modal-header {
+    @apply items-center mb-6;
+  }
+  
+  .modal-icon {
+    @apply w-16 h-16 rounded-full bg-blue-50 justify-center items-center mb-3;
+  }
+  
+  .modal-title {
+    @apply text-xl font-bold text-dark;
+  }
+  
+  .priority-option {
+    @apply flex-1 items-center py-3 rounded-lg mx-1 border;
+  }
+  
+  .priority-option-selected {
+    @apply border-transparent;
+  }
+  
+  .priority-option-unselected {
+    @apply bg-white border-lightGray;
+  }
+  
+  .relationship-option {
+    @apply w-1/2 p-3 mb-2 flex-row items-center rounded-lg;
+  }
+  
+  .relationship-option-selected {
+    @apply bg-blue-50 border border-primary;
+  }
+  
+  .relationship-option-unselected {
+    @apply bg-lightGray/20 border border-lightGray;
+  }
+  
+  /* تنسيقات Footer */
+  .footer-import-button {
+    @apply flex-row items-center justify-center py-3 px-4 bg-info rounded-xl mb-3;
+  }
+  
+  .footer-add-button {
+    @apply flex-row items-center justify-center py-4 px-4 bg-primary rounded-xl shadow-button;
+  }
+  
+  /* تنسيقات Tips Section */
+  .tips-section {
+    @apply mt-6 mb-4 p-4 bg-blue-50 rounded-2xl border border-blue-200;
+  }
+  
+  .tip-item {
+    @apply text-sm text-gray mt-1;
+  }
+
+
+
+
+    .alert-screen {
+    @apply flex-1 bg-light;
+  }
+  
+  .stats-card {
+    @apply items-center flex-1 p-4 rounded-2xl mx-1 shadow-lg;
+  }
+  
+  .stats-number {
+    @apply text-3xl font-bold text-white;
+  }
+  
+  .stats-label {
+    @apply text-sm text-white/90 mt-1;
+  }
+  
+  .filter-pill {
+    @apply px-4 py-3 rounded-full;
+  }
+  
+  .filter-pill-active {
+    @apply text-white;
+  }
+  
+  .filter-pill-inactive {
+    @apply bg-lightGray text-dark;
+  }
+  
+  .alert-card {
+    @apply bg-white rounded-2xl p-4 border-l-4 shadow-card;
+  }
+  
+  .alert-card-critical {
+    @apply border-l-danger;
+  }
+  
+  .alert-card-high {
+    @apply border-l-warning;
+  }
+  
+  .alert-card-normal {
+    @apply border-l-primary;
+  }
+  
+  .alert-icon-container {
+    @apply w-12 h-12 rounded-full justify-center items-center mr-3;
+  }
+  
+  .alert-icon-critical {
+    @apply bg-red-50;
+  }
+  
+  .alert-icon-high {
+    @apply bg-orange-50;
+  }
+  
+  .alert-icon-normal {
+    @apply bg-blue-50;
+  }
+  
+  .severity-badge {
+    @apply px-3 py-1 rounded-full;
+  }
+  
+  .severity-critical {
+    @apply bg-red-100 text-red-800;
+  }
+  
+  .severity-high {
+    @apply bg-orange-100 text-orange-800;
+  }
+  
+  .severity-medium {
+    @apply bg-yellow-100 text-yellow-800;
+  }
+  
+  .severity-low {
+    @apply bg-green-100 text-green-800;
+  }
+  
+  .alert-details {
+    @apply flex-row justify-between p-3 bg-lightGray/20 rounded-lg;
+  }
+  
+  .alert-action-button {
+    @apply flex-row items-center justify-center flex-1 py-3 rounded-lg;
+  }
+  
+  .alert-acknowledge {
+    @apply bg-blue-50;
+  }
+  
+  .alert-resolve {
+    @apply bg-green-50;
+  }
+  
+  /* Empty State */
+  .empty-alerts {
+    @apply items-center py-16;
+  }
+  
+  .empty-alerts-icon {
+    @apply w-24 h-24 rounded-full bg-green-50 justify-center items-center mb-6;
+  }
+  
+  .empty-alerts-title {
+    @apply text-xl text-gray font-medium mb-2;
+  }
+  
+  .empty-alerts-subtitle {
+    @apply text-sm text-lightGray text-center max-w-xs;
+  }
+
+
+    .reset-password-container {
+    @apply flex-1 bg-white;
+  }
+  
+  .reset-password-header {
+    @apply items-center mb-10 mt-5;
+  }
+  
+  .reset-password-icon {
+    @apply w-24 h-24 rounded-full bg-blue-50 justify-center items-center mb-6;
+  }
+  
+  .reset-password-title {
+    @apply text-2xl font-bold text-dark text-center mb-3;
+  }
+  
+  .reset-password-subtitle {
+    @apply text-base text-gray text-center leading-6 max-w-xs;
+  }
+  
+  /* تنسيقات حقل الإدخال */
+  .password-input-container {
+    @apply relative;
+  }
+  
+  .password-toggle-button {
+    @apply absolute right-4 top-4;
+  }
+  
+  /* مؤشر قوة كلمة المرور */
+  .password-strength-container {
+    @apply mt-4;
+  }
+  
+  .password-strength-header {
+    @apply flex-row justify-between items-center mb-2;
+  }
+  
+  .password-strength-bar {
+    @apply h-2 bg-lightGray rounded-full overflow-hidden;
+  }
+  
+  .password-strength-fill {
+    @apply h-full rounded-full transition-all duration-300;
+  }
+  
+  /* متطلبات الأمان */
+  .security-requirements {
+    @apply bg-light p-5 rounded-2xl mb-8 border border-lightGray;
+  }
+  
+  .requirements-title {
+    @apply text-base font-bold text-dark mb-4;
+  }
+  
+  .requirement-item {
+    @apply flex-row items-center mb-3;
+  }
+  
+  .requirement-check {
+    @apply flex-1 ml-3;
+  }
+  
+  .requirement-met {
+    @apply text-success font-medium;
+  }
+  
+  .requirement-not-met {
+    @apply text-gray;
+  }
+  
+  /* نصائح الأمان */
+  .security-tips {
+    @apply mt-8 p-4 bg-yellow-50 rounded-xl border border-yellow-200;
+  }
+  
+  .security-tips-title {
+    @apply flex-row items-center mb-2;
+  }
+  
+  .security-tip {
+    @apply text-sm text-gray mb-1;
+  }
+  
+  /* أزرار التنقل */
+  .back-to-login {
+    @apply mt-6 flex-row justify-center items-center;
+  }
+  
+  /* حالة تطابق كلمة المرور */
+  .password-match-indicator {
+    @apply flex-row items-center mt-3;
+  }
+  
+  .password-match-text {
+    @apply text-sm ml-2;
+  }
+  
+  .password-match-success {
+    @apply text-success;
+  }
+  
+  .password-match-error {
+    @apply text-danger;
+  }
+
+
+   /* تنسيقات Register Screen */
+  .register-screen {
+    @apply flex-1 bg-white;
+  }
+  
+  .register-header {
+    @apply bg-blue-50 pt-5 pb-8 rounded-b-3xl;
+  }
+  
+  .register-logo {
+    @apply flex-row items-center mb-4;
+  }
+  
+  .register-logo-icon {
+    @apply w-14 h-14 rounded-full bg-white shadow-md justify-center items-center mr-3;
+  }
+  
+  .register-logo-text {
+    @apply text-3xl font-bold text-primary;
+  }
+  
+  .register-title {
+    @apply text-2xl font-bold text-dark mb-3;
+  }
+  
+  .register-subtitle {
+    @apply text-base text-gray text-center leading-6 max-w-md mb-6;
+  }
+  
+  /* Badges */
+  .benefit-badge {
+    @apply flex-row items-center bg-white px-4 py-2 rounded-full shadow-sm;
+  }
+  
+  .benefit-badge-text {
+    @apply text-sm text-dark ml-2 font-medium;
+  }
+  
+  /* Form Sections */
+  .register-section {
+    @apply card mb-4;
+  }
+  
+  .section-header {
+    @apply flex-row items-center justify-between mb-4;
+  }
+  
+  .optional-badge {
+    @apply px-3 py-1 bg-lightGray/30 rounded-full;
+  }
+  
+  /* Input Fields */
+  .register-input-group {
+    @apply mb-5;
+  }
+  
+  .register-input-row {
+    @apply flex-row mb-5;
+  }
+  
+  .register-input-half {
+    @apply flex-1;
+  }
+  
+  .register-input-half-left {
+    @apply mr-2;
+  }
+  
+  .register-input-half-right {
+    @apply ml-2;
+  }
+  
+  /* Gender Selection */
+  .gender-option {
+    @apply flex-1 flex-row items-center justify-center py-3 mx-1 rounded-lg border;
+  }
+  
+  .gender-option-selected {
+    @apply bg-primary border-primary;
+  }
+  
+  .gender-option-unselected {
+    @apply bg-light border-lightGray;
+  }
+  
+  .gender-option-text {
+    @apply ml-2 text-sm font-medium;
+  }
+  
+  .gender-option-text-selected {
+    @apply text-white;
+  }
+  
+  .gender-option-text-unselected {
+    @apply text-dark;
+  }
+  
+  /* Password Fields */
+  .password-field-container {
+    @apply relative;
+  }
+  
+  .password-toggle {
+    @apply absolute right-4 top-4;
+  }
+  
+  /* Medical Conditions */
+  .medical-conditions-input {
+    @apply input-field h-28 text-align-top;
+  }
+  
+  /* Terms and Conditions */
+  .terms-checkbox {
+    @apply w-6 h-6 rounded-md border-2 flex items-center justify-center mr-3 mt-1;
+  }
+  
+  .terms-checkbox-checked {
+    @apply bg-primary border-primary;
+  }
+  
+  .terms-checkbox-unchecked {
+    @apply border-gray bg-white;
+  }
+  
+  .terms-text {
+    @apply text-sm text-gray leading-5 flex-1;
+  }
+  
+  .terms-link {
+    @apply text-primary font-semibold;
+  }
+  
+  /* Security Assurance */
+  .security-assurance {
+    @apply flex-row items-center p-4 bg-green-50 rounded-xl border border-green-200 mb-6;
+  }
+  
+  .security-assurance-text {
+    @apply ml-3 flex-1;
+  }
+  
+  .security-assurance-title {
+    @apply text-sm font-medium text-dark mb-1;
+  }
+  
+  .security-assurance-description {
+    @apply text-xs text-gray;
+  }
+  
+  /* Login Link */
+  .register-login-link {
+    @apply flex-row justify-center items-center py-6 border-t border-lightGray mx-5;
+  }
+  
+  .register-login-text {
+    @apply text-base text-gray mr-2;
+  }
+  
+  .register-login-button {
+    @apply text-primary font-bold text-base;
+  }
+  
+  /* Password Match Indicator */
+  .password-match-indicator {
+    @apply mt-3 flex-row items-center;
+  }
+  
+  .password-match-text {
+    @apply text-sm ml-2;
+  }
+  
+  /* Hint Text */
+  .input-hint {
+    @apply text-xs text-gray mt-2;
+  }
+
+    /* تنسيقات Login Screen */
+  .login-screen {
+    @apply flex-1 bg-white;
+  }
+  
+  .login-scroll-content {
+    @apply flex-grow p-6 pb-10;
+  }
+  
+  /* Language Switch */
+  .language-switch-container {
+    @apply flex-row justify-end mb-5 mt-2;
+  }
+  
+  .language-switch-button {
+    @apply flex-row items-center px-4 py-2 bg-blue-50 rounded-full border border-blue-100;
+  }
+  
+  .language-switch-text {
+    @apply text-sm font-semibold text-primary ml-2;
+  }
+  
+  /* Header */
+  .login-header {
+    @apply items-center mb-8;
+  }
+  
+  .login-logo-container {
+    @apply w-32 h-32 rounded-full bg-gradient-to-r from-blue-50 to-blue-100 justify-center items-center mb-6;
+  }
+  
+  .login-app-name {
+    @apply text-3xl font-bold text-dark mb-2;
+  }
+  
+  .login-welcome {
+    @apply text-xl font-semibold text-primary mb-3;
+  }
+  
+  .login-subtitle {
+    @apply text-base text-gray text-center leading-6 max-w-md;
+  }
+  
+  /* Connection Status */
+  .connection-status {
+    @apply flex-row items-center p-4 rounded-xl mb-6;
+  }
+  
+  .connection-checking {
+    @apply bg-blue-50 justify-center;
+  }
+  
+  .connection-disconnected {
+    @apply bg-orange-50 border border-orange-200;
+  }
+  
+  .connection-retry-button {
+    @apply p-2 bg-white rounded-full;
+  }
+  
+  /* Form Fields */
+  .login-input-container {
+    @apply mb-5;
+  }
+  
+  .login-input-label {
+    @apply flex-row items-center mb-2;
+  }
+  
+  .login-input-field {
+    @apply input-field;
+  }
+  
+  .login-password-container {
+    @apply relative;
+  }
+  
+  .login-password-toggle {
+    @apply absolute right-4 top-4;
+  }
+  
+  /* Options */
+  .login-options {
+    @apply flex-row justify-between items-center mb-8;
+  }
+  
+  .remember-me {
+    @apply flex-row items-center;
+  }
+  
+  .remember-checkbox {
+    @apply w-5 h-5 rounded border-2 flex items-center justify-center mr-2;
+  }
+  
+  .remember-checkbox-checked {
+    @apply bg-primary border-primary;
+  }
+  
+  .remember-checkbox-unchecked {
+    @apply border-gray;
+  }
+  
+  .remember-text {
+    @apply text-sm text-gray;
+  }
+  
+  .forgot-password {
+    @apply text-sm text-primary font-semibold;
+  }
+  
+  /* Buttons */
+  .login-button {
+    @apply btn-primary flex-row justify-center items-center py-4 mb-4;
+  }
+  
+  .login-button-disabled {
+    @apply opacity-50;
+  }
+  
+  .biometric-button {
+    @apply flex-row justify-center items-center py-4 border-2 border-primary rounded-xl bg-blue-50 mb-4;
+  }
+  
+  .biometric-button-text {
+    @apply text-primary font-semibold text-base ml-3;
+  }
+  
+  /* Social Login */
+  .social-login-container {
+    @apply mb-8;
+  }
+  
+  .social-login-title {
+    @apply text-sm text-gray text-center mb-4;
+  }
+  
+  .social-buttons-container {
+    @apply flex-row justify-center;
+  }
+  
+  .social-button {
+    @apply flex-row items-center justify-center rounded-xl py-3 px-6 mx-2;
+  }
+  
+  .social-google {
+    @apply bg-red-500;
+  }
+  
+  .social-apple {
+    @apply bg-black;
+  }
+  
+  .social-button-text {
+    @apply text-white font-semibold ml-2;
+  }
+  
+  /* Divider */
+  .login-divider {
+    @apply flex-row items-center my-6;
+  }
+  
+  .divider-line {
+    @apply flex-1 h-px bg-lightGray;
+  }
+  
+  .divider-text {
+    @apply text-sm text-gray mx-4;
+  }
+  
+  /* Registration Link */
+  .registration-link-container {
+    @apply flex-row justify-center items-center py-6 border-t border-lightGray;
+  }
+  
+  .registration-text {
+    @apply text-base text-gray mr-2;
+  }
+  
+  .registration-link {
+    @apply text-primary font-bold text-base;
+  }
+  
+  /* App Info */
+  .app-info-container {
+    @apply items-center mt-4;
+  }
+  
+  .app-info-text {
+    @apply flex-row items-center;
+  }
+  
+  .app-version {
+    @apply text-xs text-gray ml-2;
+  }
+  
+  .app-copyright {
+    @apply text-xs text-lightGray mt-1;
+  }
+  
+  /* Error States */
+  .login-error-message {
+    @apply text-sm text-danger mt-2;
+  }
+  
+  /* Connection Warning */
+  .connection-warning {
+    @apply flex-row items-center bg-orange-50 border border-orange-200 p-4 rounded-xl mb-4;
+  }
+  
+  .connection-warning-text {
+    @apply text-sm text-dark ml-3 flex-1;
+  }
+
+
+
+    /* تنسيقات Forgot Password Screen */
+  .forgot-password-screen {
+    @apply flex-1 bg-white;
+  }
+  
+  .forgot-password-header {
+    @apply items-center mb-10;
+  }
+  
+  .forgot-password-icon {
+    @apply w-28 h-28 rounded-full bg-blue-50 justify-center items-center mb-6;
+  }
+  
+  .forgot-password-title {
+    @apply text-2xl font-bold text-dark text-center mb-3;
+  }
+  
+  .forgot-password-subtitle {
+    @apply text-base text-gray text-center leading-6 max-w-xs;
+  }
+  
+  /* Success State */
+  .forgot-password-success {
+    @apply items-center px-4;
+  }
+  
+  .success-icon-container {
+    @apply w-32 h-32 rounded-full bg-green-50 justify-center items-center mb-6;
+  }
+  
+  .success-title {
+    @apply text-2xl font-bold text-success text-center mb-4;
+  }
+  
+  .success-message {
+    @apply text-base text-gray text-center leading-6 mb-8;
+  }
+  
+  /* Tips Box */
+  .forgot-tips-box {
+    @apply w-full bg-blue-50 rounded-2xl p-5 mb-8 border border-blue-200;
+  }
+  
+  .tips-title {
+    @apply text-lg font-semibold text-dark mb-4;
+  }
+  
+  .tip-item {
+    @apply flex-row items-start;
+  }
+  
+  .tip-icon {
+    @apply mt-0.5;
+  }
+  
+  .tip-text {
+    @apply text-sm text-gray ml-3 flex-1;
+  }
+  
+  /* Action Buttons */
+  .forgot-action-buttons {
+    @apply w-full space-y-3;
+  }
+  
+  .resend-button {
+    @apply flex-row justify-center items-center py-4 rounded-xl;
+  }
+  
+  .resend-button-enabled {
+    @apply bg-primary;
+  }
+  
+  .resend-button-disabled {
+    @apply bg-gray-300;
+  }
+  
+  .back-to-login-button {
+    @apply flex-row justify-center items-center py-4 border-2 border-primary rounded-xl;
+  }
+  
+  /* Information Boxes */
+  .info-box {
+    @apply flex-row p-4 bg-blue-50 rounded-xl border border-blue-200;
+  }
+  
+  .info-content {
+    @apply ml-3 flex-1;
+  }
+  
+  .info-title {
+    @apply text-sm font-medium text-dark mb-1;
+  }
+  
+  .info-description {
+    @apply text-xs text-gray;
+  }
+  
+  .security-notice {
+    @apply mt-6 p-4 bg-yellow-50 rounded-xl border border-yellow-200;
+  }
+  
+  .security-notice-title {
+    @apply flex-row items-center mb-2;
+  }
+  
+  .security-notice-item {
+    @apply text-xs text-gray mt-1;
+  }
+  
+  /* Form Fields */
+  .forgot-email-field {
+    @apply mb-8;
+  }
+  
+  .forgot-email-label {
+    @apply text-base font-semibold text-dark mb-3;
+  }
+  
+  /* Footer */
+  .forgot-footer {
+    @apply items-center mt-8;
+  }
+  
+  .support-link {
+    @apply flex-row items-center mb-2;
+  }
+  
+  .support-text {
+    @apply text-xs text-gray ml-2;
+  }
+  
+  .app-version {
+    @apply text-xs text-lightGray;
+  }
+  
+  /* Back Link */
+  .back-link-container {
+    @apply flex-row justify-center items-center py-6 border-t border-lightGray mt-6;
+  }
+  
+  .back-link-text {
+    @apply text-primary font-semibold text-base ml-2;
+  }
+
+}
+
+@layer utilities {
+  /* إصلاحات للـ RTL */
+  .rtl\:flip {
+    transform: scaleX(-1);
+  }
+  
+  .rtl\:text-right {
+    text-align: right;
+  }
+  
+  .rtl\:text-left {
+    text-align: left;
+  }
+  
+  .rtl\:flex-row-reverse {
+    flex-direction: row-reverse;
+  }
+  
+  /* تنسيقات الحواف */
+  .border-light {
+    @apply border border-lightGray/30;
+  }
+  
+  /* تنسيقات الظلال */
+  .shadow-hover {
+    @apply transition-shadow duration-300 hover:shadow-xl;
+  }
+  
+  /* تنسيقات التحويلات */
+  .transform-gpu {
+    transform: translateZ(0);
+  }
+  
+  /* تنسيقات النص */
+  .text-balance {
+    text-wrap: balance;
+  }
+  
+  /* تنسيقات القوائم */
+  .list-circle {
+    list-style-type: circle;
+    padding-left: 1.5rem;
+  }
+  
+  .list-disc {
+    list-style-type: disc;
+    padding-left: 1.5rem;
+  }
+  
+  /* تنسيقات الصور */
+  .img-cover {
+    @apply w-full h-full object-cover;
+  }
+  
+  .img-contain {
+    @apply w-full h-full object-contain;
+  }
+}
+
+/* إصلاحات للأجهزة المختلفة */
+@media (max-width: 640px) {
+  .sm\:hidden {
+    display: none;
+  }
+  
+  .sm\:block {
+    display: block;
+  }
+  
+  .sm\:flex-col {
+    flex-direction: column;
+  }
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+/* إصلاحات لأجهزة iOS */
+@supports (-webkit-touch-callout: none) {
+  .ios-padding {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}
+
+
+
+[dir="rtl"] .rtl\:flex-row-reverse {
+  flex-direction: row-reverse;
+}
+
+[dir="rtl"] .rtl\:text-right {
+  text-align: right;
+}
+
+[dir="rtl"] .rtl\:mr-3 {
+  margin-right: 0;
+  margin-left: 0.75rem;
+}
+
+[dir="rtl"] .rtl\:ml-2 {
+  margin-left: 0;
+  margin-right: 0.5rem;
+}

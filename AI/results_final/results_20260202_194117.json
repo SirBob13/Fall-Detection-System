@@ -1,0 +1,36 @@
+{
+    "timestamp": "2026-02-02T19:41:17.209817",
+    "model": "Dual_Output_Fall_Detector",
+    "features": "Enhanced",
+    "feature_count": 16,
+    "thresholds": {
+        "fall_now": 0.3500000000000001,
+        "fall_soon": 0.30000000000000004
+    },
+    "fall_now": {
+        "accuracy": 0.9607754222877225,
+        "precision": 0.967359445776712,
+        "recall": 0.9862809019288237,
+        "f1_score": 0.9767285445251547,
+        "auc": 0.9847015563871232,
+        "confusion_matrix": {
+            "tp": 7261,
+            "fp": 245,
+            "fn": 101,
+            "tn": 1214
+        }
+    },
+    "fall_soon": {
+        "accuracy": 0.9717719079469448,
+        "precision": 0.9782806606840941,
+        "recall": 0.9892162019989479,
+        "f1_score": 0.9837180409337606,
+        "auc": 0.9870794119948114,
+        "confusion_matrix": {
+            "tp": 7522,
+            "fp": 167,
+            "fn": 82,
+            "tn": 1050
+        }
+    }
+}

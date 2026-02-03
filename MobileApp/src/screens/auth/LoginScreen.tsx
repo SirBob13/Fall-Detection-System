@@ -1,9 +1,7 @@
-// src/screens/auth/LoginScreen.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
   TextInput,
   TouchableOpacity,
   ScrollView,
@@ -12,40 +10,37 @@ import {
   Platform,
   ActivityIndicator,
 } from 'react-native';
-import { useRoute, RouteProp } from '@react-navigation/native';
+import { useRoute, RouteProp, useNavigation } from '@react-navigation/native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Formik } from 'formik';
 import * as Yup from 'yup';
-import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 
-import { AUTH_CONFIG, AUTH_TEXTS } from '../../constants/auth';
 import { authService } from '../../services/auth.service';
 import { UserCredentials } from '../../types/auth';
-import { useLanguage } from '../../components/LanguageProvider'; 
-import { COLORS } from '../../utils/constants'; 
 
 type RootStackParamList = {
   Auth: undefined;
   MainTabs: undefined;
+  Register: undefined;
+  Login: { prefilledEmail?: string };
 };
 
-type LoginScreenNavigationProp = StackNavigationProp<RootStackParamList>;
-type LoginScreenRouteProp = RouteProp<{ Login: { prefilledEmail?: string } }, 'Login'>;
+type LoginScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Login'>;
+type LoginScreenRouteProp = RouteProp<RootStackParamList, 'Login'>;
 
 const LoginSchema = Yup.object().shape({
   email: Yup.string()
-    .email(AUTH_TEXTS.AR.validation.invalidEmail)
-    .required(AUTH_TEXTS.AR.validation.required),
+    .email('Invalid email address')
+    .required('Email is required'),
   password: Yup.string()
-    .min(6, AUTH_TEXTS.AR.validation.minLength.replace('{min}', '6'))
-    .required(AUTH_TEXTS.AR.validation.required),
+    .min(6, 'Password must be at least 6 characters')
+    .required('Password is required'),
 });
 
 export const LoginScreen: React.FC = () => {
   const route = useRoute<LoginScreenRouteProp>();
   const navigation = useNavigation<LoginScreenNavigationProp>();
-  const { language, changeLanguage, t, isChanging } = useLanguage();
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
@@ -54,7 +49,7 @@ export const LoginScreen: React.FC = () => {
   const [databaseStatus, setDatabaseStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
   const [isCheckingConnection, setIsCheckingConnection] = useState(false);
   
-  // لمنع التكرار
+  // Prevent duplicate actions
   const connectionCheckedRef = useRef(false);
   const loginAttemptRef = useRef(false);
 
@@ -97,35 +92,8 @@ export const LoginScreen: React.FC = () => {
     setBiometricAvailable(biometricData.isAvailable);
   };
 
-  const handleLanguageSwitch = async () => {
-    try {
-      const newLang = language === 'ar' ? 'en' : 'ar';
-      const success = await changeLanguage(newLang);
-      
-      if (success) {
-        Alert.alert(
-          t('success.updated'),
-          t('language.restartMessage'),
-          [{ 
-            text: t('common.ok'),
-            onPress: () => {
-              setTimeout(() => {
-                navigation.reset({
-                  index: 0,
-                  routes: [{ name: 'Login' }],
-                });
-              }, 500);
-            }
-          }]
-        );
-      }
-    } catch (error) {
-      Alert.alert(t('common.error'), t('errors.unknown'));
-    }
-  };
-
   const handleLogin = async (values: UserCredentials) => {
-    // منع النقر المزدوج
+    // Prevent double-click
     if (loginAttemptRef.current || loading) return;
     
     loginAttemptRef.current = true;
@@ -134,7 +102,7 @@ export const LoginScreen: React.FC = () => {
     try {
       console.log('🔐 [Login] Starting login process...');
       
-      // تخطي فحص الاتصال أثناء تسجيل الدخول - نعتمد على الحالة الحالية
+      // Skip connection check during login - rely on current status
       if (databaseStatus === 'disconnected') {
         Alert.alert(
           '❌ Cannot Login',
@@ -145,7 +113,7 @@ export const LoginScreen: React.FC = () => {
         return;
       }
 
-      // التحقق السريع من وجود المستخدم
+      // Quick user existence check
       console.log(`📧 [Login] Quick email check: ${values.email}`);
       const userExists = await authService.checkUserExists(values.email);
       
@@ -224,20 +192,6 @@ export const LoginScreen: React.FC = () => {
     );
   };
 
-  const handleTestDatabase = () => {
-    Alert.alert(
-      'Test Connection',
-      'Will check database connection.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Test',
-          onPress: checkDatabaseStatus
-        }
-      ]
-    );
-  };
-
   const handleForgotPassword = () => {
     Alert.alert(
       'Forgot Password',
@@ -247,74 +201,71 @@ export const LoginScreen: React.FC = () => {
   };
 
   const handleRegister = () => {
-    navigation.navigate('Register' as never);
+    navigation.navigate('Register');
+  };
+
+  const texts = {
+    welcome: 'Welcome Back',
+    subtitle: 'Your safety matters. Smart system for fall detection and rapid response',
+    login: 'Login',
+    or: 'Or',
+    continueWith: 'Continue with',
+    noAccount: "Don't have an account?",
+    signUp: 'Sign up now',
+    email: 'Email',
+    password: 'Password',
+    remember: 'Remember me',
+    forgot: 'Forgot password?',
+    biometric: 'Login with Fingerprint',
   };
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      className="flex-1 bg-white"
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={{ flexGrow: 1, padding: 24, paddingBottom: 40 }}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {/* Language Switch Button */}
-        <View style={styles.languageHeader}>
-          <TouchableOpacity
-            style={styles.languageButton}
-            onPress={handleLanguageSwitch}
-            disabled={isChanging}
-          >
-            <MaterialCommunityIcons 
-              name="translate" 
-              size={20} 
-              color={COLORS.primary} 
-            />
-            <Text style={styles.languageButtonText}>
-              {language === 'ar' ? 'English' : 'العربية'}
-            </Text>
-            {isChanging && (
-              <ActivityIndicator size="small" color={COLORS.primary} style={styles.languageLoader} />
-            )}
-          </TouchableOpacity>
-        </View>
-
         {/* Header */}
-        <View style={styles.header}>
-          <View style={styles.logoContainer}>
-            <MaterialCommunityIcons name="shield-check" size={80} color={AUTH_CONFIG.COLORS.primary} />
-            <Text style={styles.logoText}>Fall Detection</Text>
+        <View className="items-center mb-8">
+          <View className="w-32 h-32 rounded-full bg-gradient-to-r from-blue-50 to-blue-100 justify-center items-center mb-6">
+            <MaterialCommunityIcons name="shield-check" size={60} color="#2196F3" />
           </View>
-          <Text style={styles.welcomeText}>
-            {language === 'ar' ? AUTH_TEXTS.AR.welcome : 'Welcome to Fall Detection System'}
-          </Text>
-          <Text style={styles.subtitle}>
-            {language === 'ar' 
-              ? 'سلامتك تهمنا. نظام ذكي لكشف السقوط والاستجابة السريعة'
-              : 'Your safety matters. Smart system for fall detection and rapid response'}
+          <Text className="text-3xl font-bold text-dark mb-2">Fall Detection</Text>
+          <Text className="text-xl font-semibold text-primary mb-3">{texts.welcome}</Text>
+          <Text className="text-base text-gray text-center leading-6 max-w-md">
+            {texts.subtitle}
           </Text>
         </View>
 
         {/* Connection Status */}
         {databaseStatus === 'checking' ? (
-          <View style={styles.connectionChecking}>
-            <ActivityIndicator size="small" color={COLORS.primary} />
-            <Text style={styles.connectionCheckingText}>
-              {language === 'ar' ? 'جاري فحص الاتصال...' : 'Checking connection...'}
+          <View className="flex-row items-center justify-center bg-blue-50 p-4 rounded-xl mb-6">
+            <ActivityIndicator size="small" color="#2196F3" />
+            <Text className="text-sm text-primary ml-3">
+              Checking connection...
             </Text>
           </View>
         ) : databaseStatus === 'disconnected' && (
-          <View style={styles.databaseWarning}>
-            <MaterialCommunityIcons name="wifi-off" size={20} color={COLORS.warning} />
-            <Text style={styles.databaseWarningText}>
-              {language === 'ar' 
-                ? 'الاتصال محدود - يمكنك تسجيل الدخول لاحقاً'
-                : 'Limited connection - You can login later'}
-            </Text>
-            <TouchableOpacity onPress={checkDatabaseStatus} style={styles.retryButton}>
-              <Text style={styles.retryButtonText}>⟳</Text>
+          <View className="flex-row items-center bg-orange-50 border border-orange-200 p-4 rounded-xl mb-6">
+            <MaterialCommunityIcons name="wifi-off" size={20} color="#FF9800" />
+            <View className="ml-3 flex-1">
+              <Text className="text-sm font-medium text-dark">
+                Limited Connection
+              </Text>
+              <Text className="text-xs text-gray mt-1">
+                You can login later
+              </Text>
+            </View>
+            <TouchableOpacity 
+              onPress={checkDatabaseStatus} 
+              className="p-2 bg-white rounded-full"
+              activeOpacity={0.7}
+            >
+              <Text className="text-primary font-bold">⟳</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -335,22 +286,19 @@ export const LoginScreen: React.FC = () => {
             isValid,
             dirty,
           }) => (
-            <View style={styles.formContainer}>
+            <View className="mb-6">
               {/* Email Field */}
-              <View style={styles.inputContainer}>
-                <View style={styles.inputLabel}>
-                  <MaterialCommunityIcons name="email-outline" size={20} color="#666" />
-                  <Text style={styles.labelText}>
-                    {language === 'ar' ? AUTH_TEXTS.AR.login.email : 'Email'}
+              <View className="mb-5">
+                <View className="flex-row items-center mb-2">
+                  <MaterialCommunityIcons name="email-outline" size={18} color="#666" />
+                  <Text className="text-base font-semibold text-dark ml-2">
+                    {texts.email}
                   </Text>
                 </View>
                 <TextInput
-                  style={[
-                    styles.input,
-                    errors.email && touched.email && styles.inputError,
-                  ]}
-                  placeholder={language === 'ar' ? "example@email.com" : "example@email.com"}
-                  placeholderTextColor="#999"
+                  className={`input-field ${errors.email && touched.email ? 'border-danger' : ''}`}
+                  placeholder="example@email.com"
+                  placeholderTextColor="#BDBDBD"
                   value={values.email}
                   onChangeText={handleChange('email')}
                   onBlur={handleBlur('email')}
@@ -360,27 +308,23 @@ export const LoginScreen: React.FC = () => {
                   autoComplete="email"
                 />
                 {errors.email && touched.email && (
-                  <Text style={styles.errorText}>{errors.email}</Text>
+                  <Text className="error-text">{errors.email}</Text>
                 )}
               </View>
 
               {/* Password Field */}
-              <View style={styles.inputContainer}>
-                <View style={styles.inputLabel}>
-                  <MaterialCommunityIcons name="lock-outline" size={20} color="#666" />
-                  <Text style={styles.labelText}>
-                    {language === 'ar' ? AUTH_TEXTS.AR.login.password : 'Password'}
+              <View className="mb-6">
+                <View className="flex-row items-center mb-2">
+                  <MaterialCommunityIcons name="lock-outline" size={18} color="#666" />
+                  <Text className="text-base font-semibold text-dark ml-2">
+                    {texts.password}
                   </Text>
                 </View>
-                <View style={styles.passwordContainer}>
+                <View className="relative">
                   <TextInput
-                    style={[
-                      styles.input,
-                      styles.passwordInput,
-                      errors.password && touched.password && styles.inputError,
-                    ]}
+                    className={`input-field pr-12 ${errors.password && touched.password ? 'border-danger' : ''}`}
                     placeholder="••••••••"
-                    placeholderTextColor="#999"
+                    placeholderTextColor="#BDBDBD"
                     value={values.password}
                     onChangeText={handleChange('password')}
                     onBlur={handleBlur('password')}
@@ -389,63 +333,66 @@ export const LoginScreen: React.FC = () => {
                     autoComplete="password"
                   />
                   <TouchableOpacity
-                    style={styles.eyeButton}
+                    className="absolute right-4 top-4"
                     onPress={() => setShowPassword(!showPassword)}
+                    activeOpacity={0.7}
                   >
                     <MaterialCommunityIcons
                       name={showPassword ? 'eye-off' : 'eye'}
-                      size={24}
+                      size={22}
                       color="#666"
                     />
                   </TouchableOpacity>
                 </View>
                 {errors.password && touched.password && (
-                  <Text style={styles.errorText}>{errors.password}</Text>
+                  <Text className="error-text">{errors.password}</Text>
                 )}
               </View>
 
               {/* Remember Me and Forgot Password */}
-              <View style={styles.optionsContainer}>
+              <View className="flex-row justify-between items-center mb-8">
                 <TouchableOpacity
-                  style={styles.rememberContainer}
+                  className="flex-row items-center"
                   onPress={() => setRememberMe(!rememberMe)}
+                  activeOpacity={0.7}
                 >
-                  <View style={[
-                    styles.checkbox,
-                    rememberMe && styles.checkboxChecked
-                  ]}>
+                  <View className={`
+                    w-5 h-5 rounded border-2 flex items-center justify-center mr-2
+                    ${rememberMe ? 'bg-primary border-primary' : 'border-gray'}
+                  `}>
                     {rememberMe && (
-                      <MaterialCommunityIcons name="check" size={16} color="#FFF" />
+                      <MaterialCommunityIcons name="check" size={12} color="#FFFFFF" />
                     )}
                   </View>
-                  <Text style={styles.rememberText}>
-                    {language === 'ar' ? AUTH_TEXTS.AR.login.remember : 'Remember me'}
+                  <Text className="text-sm text-gray">
+                    {texts.remember}
                   </Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity onPress={handleForgotPassword}>
-                  <Text style={styles.forgotText}>
-                    {language === 'ar' ? AUTH_TEXTS.AR.login.forgot : 'Forgot password?'}
+                <TouchableOpacity onPress={handleForgotPassword} activeOpacity={0.7}>
+                  <Text className="text-sm text-primary font-semibold">
+                    {texts.forgot}
                   </Text>
                 </TouchableOpacity>
               </View>
 
               {/* Login Button */}
               <TouchableOpacity
-                style={[
-                  styles.loginButton,
-                  (!isValid || !dirty || loading) && styles.loginButtonDisabled,
-                ]}
+                className={`
+                  btn-primary flex-row justify-center items-center py-4 mb-4
+                  ${(!isValid || !dirty || loading) ? 'opacity-50' : ''}
+                `}
                 onPress={() => handleSubmit()}
                 disabled={!isValid || !dirty || loading}
+                activeOpacity={0.7}
               >
                 {loading ? (
                   <ActivityIndicator color="#FFF" size="small" />
                 ) : (
                   <>
-                    <MaterialCommunityIcons name="login" size={24} color="#FFF" />
-                    <Text style={styles.loginButtonText}>
-                      {language === 'ar' ? AUTH_TEXTS.AR.login.title : 'Login'}
+                    <MaterialCommunityIcons name="login" size={22} color="#FFF" />
+                    <Text className="text-white font-bold text-lg ml-3">
+                      {texts.login}
                     </Text>
                   </>
                 )}
@@ -454,25 +401,24 @@ export const LoginScreen: React.FC = () => {
               {/* Biometric Authentication */}
               {biometricAvailable && databaseStatus === 'connected' && (
                 <TouchableOpacity
-                  style={styles.biometricButton}
+                  className="flex-row justify-center items-center py-4 border-2 border-primary rounded-xl bg-blue-50 mb-4"
                   onPress={handleBiometricLogin}
                   disabled={loading}
+                  activeOpacity={0.7}
                 >
-                  <MaterialCommunityIcons name="fingerprint" size={24} color={AUTH_CONFIG.COLORS.primary} />
-                  <Text style={styles.biometricText}>
-                    {language === 'ar' ? AUTH_TEXTS.AR.login.biometric : 'Login with Fingerprint'}
+                  <MaterialCommunityIcons name="fingerprint" size={24} color="#2196F3" />
+                  <Text className="text-primary font-semibold text-base ml-3">
+                    {texts.biometric}
                   </Text>
                 </TouchableOpacity>
               )}
 
               {/* Message if database is disconnected */}
               {databaseStatus === 'disconnected' && (
-                <View style={styles.offlineWarning}>
-                  <MaterialCommunityIcons name="wifi-off" size={24} color={COLORS.warning} />
-                  <Text style={styles.offlineWarningText}>
-                    {language === 'ar' 
-                      ? 'يمكنك تسجيل الدخول باستخدام بياناتك المحفوظة'
-                      : 'You can login using your saved credentials'}
+                <View className="flex-row items-center bg-orange-50 border border-orange-200 p-4 rounded-xl mb-4">
+                  <MaterialCommunityIcons name="wifi-off" size={20} color="#FF9800" />
+                  <Text className="text-sm text-dark ml-3 flex-1">
+                    You can login using your saved credentials
                   </Text>
                 </View>
               )}
@@ -481,371 +427,72 @@ export const LoginScreen: React.FC = () => {
         </Formik>
 
         {/* Divider */}
-        <View style={styles.dividerContainer}>
-          <View style={styles.divider} />
-          <Text style={styles.dividerText}>
-            {language === 'ar' ? AUTH_TEXTS.AR.login.or : 'Or'}
-          </Text>
-          <View style={styles.divider} />
-        </View>
-
-        {/* Social Media Login */}
         {databaseStatus === 'connected' && (
-          <View style={styles.socialContainer}>
-            <Text style={styles.socialTitle}>
-              {language === 'ar' ? AUTH_TEXTS.AR.login.continueWith : 'Continue with'}
-            </Text>
-            
-            <View style={styles.socialButtons}>
-              <TouchableOpacity
-                style={[styles.socialButton, styles.googleButton]}
-                onPress={() => handleSocialLogin('google')}
-                disabled={loading}
-              >
-                <MaterialCommunityIcons name="google" size={24} color="#FFF" />
-                <Text style={styles.socialButtonText}>Google</Text>
-              </TouchableOpacity>
-
-              {Platform.OS === 'ios' && (
-                <TouchableOpacity
-                  style={[styles.socialButton, styles.appleButton]}
-                  onPress={() => handleSocialLogin('apple')}
-                  disabled={loading}
-                >
-                  <MaterialCommunityIcons name="apple" size={24} color="#FFF" />
-                  <Text style={styles.socialButtonText}>Apple</Text>
-                </TouchableOpacity>
-              )}
+          <>
+            <View className="flex-row items-center my-6">
+              <View className="flex-1 h-px bg-lightGray" />
+              <Text className="text-sm text-gray mx-4">{texts.or}</Text>
+              <View className="flex-1 h-px bg-lightGray" />
             </View>
-          </View>
+
+            {/* Social Media Login */}
+            <View className="mb-8">
+              <Text className="text-sm text-gray text-center mb-4">
+                {texts.continueWith}
+              </Text>
+              
+              <View className="flex-row justify-center">
+                <TouchableOpacity
+                  className="flex-row items-center justify-center bg-red-500 rounded-xl py-3 px-6 mx-2"
+                  onPress={() => handleSocialLogin('google')}
+                  disabled={loading}
+                  activeOpacity={0.7}
+                >
+                  <MaterialCommunityIcons name="google" size={20} color="#FFF" />
+                  <Text className="text-white font-semibold ml-2">Google</Text>
+                </TouchableOpacity>
+
+                {Platform.OS === 'ios' && (
+                  <TouchableOpacity
+                    className="flex-row items-center justify-center bg-black rounded-xl py-3 px-6 mx-2"
+                    onPress={() => handleSocialLogin('apple')}
+                    disabled={loading}
+                    activeOpacity={0.7}
+                  >
+                    <MaterialCommunityIcons name="apple" size={20} color="#FFF" />
+                    <Text className="text-white font-semibold ml-2">Apple</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+          </>
         )}
 
         {/* Registration Link */}
-        <View style={styles.registerContainer}>
-          <Text style={styles.registerText}>
-            {language === 'ar' ? AUTH_TEXTS.AR.login.noAccount : "Don't have an account?"}
-          </Text>
+        <View className="flex-row justify-center items-center py-6 border-t border-lightGray">
+          <Text className="text-base text-gray mr-2">{texts.noAccount}</Text>
           <TouchableOpacity 
             onPress={handleRegister}
             disabled={loading}
+            activeOpacity={0.7}
           >
-            <Text style={styles.registerLink}>
-              {language === 'ar' ? AUTH_TEXTS.AR.login.signUp : 'Sign up now'}
+            <Text className="text-primary font-bold text-base">
+              {texts.signUp}
             </Text>
           </TouchableOpacity>
         </View>
 
-        {/* App Version */}
-        <Text style={styles.versionText}>
-          Fall Detection App v1.0.0
-        </Text>
+        {/* App Info */}
+        <View className="items-center mt-4">
+          <View className="flex-row items-center">
+            <MaterialCommunityIcons name="shield" size={16} color="#757575" />
+            <Text className="text-xs text-gray ml-2">Fall Detection App v1.0.0</Text>
+          </View>
+          <Text className="text-xs text-lightGray mt-1">© 2024 All rights reserved</Text>
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FFF',
-  },
-  scrollContent: {
-    flexGrow: 1,
-    padding: 24,
-    paddingBottom: 40,
-  },
-  languageHeader: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    marginBottom: 20,
-    marginTop: 10,
-  },
-  languageButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: 'rgba(33, 150, 243, 0.1)',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(33, 150, 243, 0.3)',
-  },
-  languageButtonText: {
-    marginLeft: 8,
-    fontSize: 14,
-    color: COLORS.primary,
-    fontWeight: '600',
-  },
-  languageLoader: {
-    marginLeft: 6,
-  },
-  header: {
-    alignItems: 'center',
-    marginBottom: 30,
-  },
-  logoContainer: {
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  logoText: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: AUTH_CONFIG.COLORS.primary,
-    marginTop: 12,
-  },
-  welcomeText: {
-    fontSize: 24,
-    fontWeight: '600',
-    color: '#333',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    lineHeight: 24,
-  },
-  connectionChecking: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(33, 150, 243, 0.1)',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 20,
-  },
-  connectionCheckingText: {
-    marginLeft: 8,
-    fontSize: 14,
-    color: COLORS.primary,
-  },
-  databaseWarning: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 152, 0, 0.1)',
-    borderWidth: 1,
-    borderColor: AUTH_CONFIG.COLORS.warning,
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 20,
-  },
-  databaseWarningText: {
-    flex: 1,
-    fontSize: 13,
-    color: '#333',
-    marginLeft: 8,
-  },
-  retryButton: {
-    padding: 4,
-    marginLeft: 8,
-  },
-  retryButtonText: {
-    fontSize: 16,
-    color: COLORS.primary,
-  },
-  formContainer: {
-    marginBottom: 24,
-  },
-  inputContainer: {
-    marginBottom: 20,
-  },
-  inputLabel: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  labelText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginLeft: 8,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#DDD',
-    borderRadius: 12,
-    padding: 16,
-    fontSize: 16,
-    color: '#333',
-    backgroundColor: '#FAFAFA',
-  },
-  inputError: {
-    borderColor: AUTH_CONFIG.COLORS.error,
-  },
-  errorText: {
-    color: AUTH_CONFIG.COLORS.error,
-    fontSize: 14,
-    marginTop: 4,
-    marginLeft: 8,
-  },
-  passwordContainer: {
-    position: 'relative',
-  },
-  passwordInput: {
-    paddingRight: 60,
-  },
-  eyeButton: {
-    position: 'absolute',
-    right: 16,
-    top: 16,
-  },
-  optionsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  rememberContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  checkbox: {
-    width: 20,
-    height: 20,
-    borderRadius: 4,
-    borderWidth: 2,
-    borderColor: AUTH_CONFIG.COLORS.primary,
-    marginRight: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  checkboxChecked: {
-    backgroundColor: AUTH_CONFIG.COLORS.primary,
-  },
-  rememberText: {
-    fontSize: 14,
-    color: '#666',
-  },
-  forgotText: {
-    fontSize: 14,
-    color: AUTH_CONFIG.COLORS.primary,
-    fontWeight: '600',
-  },
-  loginButton: {
-    backgroundColor: AUTH_CONFIG.COLORS.primary,
-    borderRadius: 12,
-    padding: 18,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  loginButtonDisabled: {
-    backgroundColor: '#CCC',
-    opacity: 0.7,
-  },
-  loginButtonText: {
-    color: '#FFF',
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginLeft: 8,
-  },
-  biometricButton: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 16,
-    borderWidth: 1,
-    borderColor: AUTH_CONFIG.COLORS.primary,
-    borderRadius: 12,
-    backgroundColor: '#F0F8FF',
-  },
-  biometricText: {
-    color: AUTH_CONFIG.COLORS.primary,
-    fontSize: 16,
-    fontWeight: '600',
-    marginLeft: 8,
-  },
-  offlineWarning: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 152, 0, 0.1)',
-    borderWidth: 1,
-    borderColor: AUTH_CONFIG.COLORS.warning,
-    borderRadius: 12,
-    padding: 16,
-    marginTop: 16,
-  },
-  offlineWarningText: {
-    flex: 1,
-    fontSize: 14,
-    color: '#333',
-    marginLeft: 12,
-    lineHeight: 20,
-  },
-  dividerContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 24,
-  },
-  divider: {
-    flex: 1,
-    height: 1,
-    backgroundColor: '#E0E0E0',
-  },
-  dividerText: {
-    marginHorizontal: 16,
-    color: '#666',
-    fontSize: 14,
-  },
-  socialContainer: {
-    marginBottom: 24,
-  },
-  socialTitle: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  socialButtons: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-  },
-socialButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 12,
-    padding: 16,
-    flex: 1,
-    marginHorizontal: 6,
-  },
-  googleButton: {
-    backgroundColor: '#DB4437',
-  },
-  appleButton: {
-    backgroundColor: '#000000',
-  },
-  socialButtonText: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: '600',
-    marginLeft: 8,
-  },
-  registerContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 24,
-    marginBottom: 32,
-  },
-  registerText: {
-    fontSize: 16,
-    color: '#666',
-  },
-  registerLink: {
-    fontSize: 16,
-    color: AUTH_CONFIG.COLORS.primary,
-    fontWeight: 'bold',
-    marginLeft: 8,
-  },
-  versionText: {
-    textAlign: 'center',
-    fontSize: 14,
-    color: '#999',
-    marginTop: 8,
-  },
-});
 
 export default LoginScreen;

@@ -2,6 +2,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '../utils/constants';
 import { User, Device, Alert } from '../types';
 
+const persistConfig = {
+  key: 'root',
+  storage: AsyncStorage,
+  whitelist: ['auth', 'settings']
+};
+
 class StorageService {
   // User Data
   async saveUser(user: User): Promise<boolean> {

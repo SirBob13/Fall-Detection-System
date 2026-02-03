@@ -1,64 +1,44 @@
 import React from 'react';
-import {
-  View,
-  StyleSheet,
-  ScrollView,
-  StatusBar,
-  Platform,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { View, SafeAreaView, StatusBar, Platform } from 'react-native';
 import { useLanguage } from './LanguageProvider';
-import { COLORS } from '../utils/constants';
 
 interface ScreenWrapperProps {
   children: React.ReactNode;
-  style?: any;
+  className?: string;
   scrollable?: boolean;
   safeArea?: boolean;
-  backgroundColor?: string;
+  statusBarColor?: string;
 }
 
-export const ScreenWrapper: React.FC<ScreenWrapperProps> = ({
-  children,
-  style,
+export const ScreenWrapper: React.FC<ScreenWrapperProps> = ({ 
+  children, 
+  className = '',
   scrollable = true,
   safeArea = true,
-  backgroundColor = COLORS.light,
+  statusBarColor = '#2196F3'
 }) => {
   const { isRTL } = useLanguage();
 
-  const Container = scrollable ? ScrollView : View;
-  const Wrapper = safeArea ? SafeAreaView : View;
-
+  const WrapperView = scrollable ? View : View;
+  
   return (
-    <Wrapper style={[styles.wrapper, { backgroundColor }]}>
-      <StatusBar
-        barStyle="dark-content"
-        backgroundColor={backgroundColor}
+    <View className={`flex-1 bg-light ${className}`} style={{ direction: isRTL ? 'rtl' : 'ltr' }}>
+      <StatusBar 
+        barStyle={Platform.OS === 'ios' ? 'light-content' : 'light-content'} 
+        backgroundColor={statusBarColor}
       />
-      <Container
-        style={[
-          styles.container,
-          style,
-          { direction: isRTL ? 'rtl' : 'ltr' }
-        ]}
-        contentContainerStyle={scrollable ? styles.scrollContent : undefined}
-        showsVerticalScrollIndicator={false}
-      >
-        {children}
-      </Container>
-    </Wrapper>
+      
+      {safeArea ? (
+        <SafeAreaView className="flex-1">
+          <WrapperView className="flex-1">
+            {children}
+          </WrapperView>
+        </SafeAreaView>
+      ) : (
+        <WrapperView className="flex-1">
+          {children}
+        </WrapperView>
+      )}
+    </View>
   );
 };
-
-const styles = StyleSheet.create({
-  wrapper: {
-    flex: 1,
-  },
-  container: {
-    flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-  },
-});

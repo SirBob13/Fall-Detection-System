@@ -2,19 +2,18 @@ import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
   ScrollView,
   Switch,
   TouchableOpacity,
   Alert,
   TextInput,
   Modal,
+  ActivityIndicator,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import Slider from '@react-native-community/slider';
 import { emergencyService } from '../services/emergency.service';
 import { EmergencySettings } from '../services/emergency.types';
-import { COLORS } from '../utils/constants';
-import Slider from '@react-native-community/slider';
 
 export const EmergencySettingsScreen: React.FC = () => {
   const [settings, setSettings] = useState<EmergencySettings | null>(null);
@@ -22,9 +21,16 @@ export const EmergencySettingsScreen: React.FC = () => {
   const [modalVisible, setModalVisible] = useState(false);
   const [testMessage, setTestMessage] = useState('');
   const [testPhone, setTestPhone] = useState('');
+  const [stats, setStats] = useState({
+    total: 12,
+    successful: 10,
+    failed: 2,
+    last: '2024-01-15',
+  });
 
   useEffect(() => {
     loadSettings();
+    loadStats();
   }, []);
 
   const loadSettings = async () => {
@@ -37,6 +43,17 @@ export const EmergencySettingsScreen: React.FC = () => {
       Alert.alert('Error', 'Failed to load emergency settings');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const loadStats = async () => {
+    try {
+      const statsData = await emergencyService.getEmergencyStats();
+      if (statsData) {
+        setStats(statsData);
+      }
+    } catch (error) {
+      console.warn('Could not load stats:', error);
     }
   };
 
@@ -97,6 +114,7 @@ export const EmergencySettingsScreen: React.FC = () => {
               const success = await emergencyService.clearEmergencyHistory();
               if (success) {
                 Alert.alert('Success', 'History cleared successfully');
+                setStats({ total: 0, successful: 0, failed: 0, last: 'None' });
               } else {
                 Alert.alert('Error', 'Failed to clear history');
               }
@@ -170,20 +188,6 @@ export const EmergencySettingsScreen: React.FC = () => {
     );
   };
 
-  const getHistoryStats = async () => {
-    try {
-      const history = await emergencyService.getEmergencyHistory();
-      return {
-        total: history.length,
-        successful: history.filter(h => h.status === 'sent').length,
-        failed: history.filter(h => h.status === 'failed').length,
-        last: history[0]?.timestamp || 'None',
-      };
-    } catch (error) {
-      return null;
-    }
-  };
-
   const renderSettingItem = (
     title: string,
     description: string,
@@ -193,20 +197,20 @@ export const EmergencySettingsScreen: React.FC = () => {
     if (!settings) return null;
 
     return (
-      <View style={styles.settingItem}>
-        <View style={styles.settingHeader}>
-          <View style={styles.settingIconContainer}>
-            <MaterialCommunityIcons name={icon} size={24} color={COLORS.primary} />
+      <View className="mb-6">
+        <View className="flex-row items-center mb-3">
+          <View className="w-10 h-10 rounded-full bg-blue-50 justify-center items-center mr-3">
+            <MaterialCommunityIcons name={icon} size={20} color="#2196F3" />
           </View>
-          <View style={styles.settingInfo}>
-            <Text style={styles.settingTitle}>{title}</Text>
-            <Text style={styles.settingDescription}>{description}</Text>
+          <View className="flex-1">
+            <Text className="text-base font-semibold text-dark">{title}</Text>
+            <Text className="text-xs text-gray mt-1">{description}</Text>
           </View>
           <Switch
             value={settings[key] as boolean}
             onValueChange={(value) => handleSettingChange(key, value)}
-            trackColor={{ false: '#767577', true: COLORS.primary }}
-            thumbColor={settings[key] ? '#fff' : '#f4f3f4'}
+            trackColor={{ false: '#E0E0E0', true: '#2196F3' }}
+            thumbColor={settings[key] ? '#FFFFFF' : '#F4F3F4'}
           />
         </View>
       </View>
@@ -228,35 +232,35 @@ export const EmergencySettingsScreen: React.FC = () => {
     const value = settings[key] as number;
 
     return (
-      <View style={styles.settingItem}>
-        <View style={styles.settingHeader}>
-          <View style={styles.settingIconContainer}>
-            <MaterialCommunityIcons name={icon} size={24} color={COLORS.primary} />
+      <View className="mb-6">
+        <View className="flex-row items-center mb-4">
+          <View className="w-10 h-10 rounded-full bg-blue-50 justify-center items-center mr-3">
+            <MaterialCommunityIcons name={icon} size={20} color="#2196F3" />
           </View>
-          <View style={styles.settingInfo}>
-            <Text style={styles.settingTitle}>{title}</Text>
-            <Text style={styles.settingDescription}>{description}</Text>
+          <View className="flex-1">
+            <Text className="text-base font-semibold text-dark">{title}</Text>
+            <Text className="text-xs text-gray mt-1">{description}</Text>
           </View>
         </View>
         
-        <View style={styles.sliderContainer}>
-          <Text style={styles.sliderValue}>
+        <View className="pl-13">
+          <Text className="text-lg font-bold text-primary text-center mb-2">
             {value} {unit}
           </Text>
           <Slider
-            style={styles.slider}
+            style={{ height: 40 }}
             minimumValue={min}
             maximumValue={max}
             step={step}
             value={value}
             onValueChange={(value) => handleSettingChange(key, value)}
-            minimumTrackTintColor={COLORS.primary}
-            maximumTrackTintColor="#d3d3d3"
-            thumbTintColor={COLORS.primary}
+            minimumTrackTintColor="#2196F3"
+            maximumTrackTintColor="#D3D3D3"
+            thumbTintColor="#2196F3"
           />
-          <View style={styles.sliderLabels}>
-            <Text style={styles.sliderLabel}>{min}</Text>
-            <Text style={styles.sliderLabel}>{max}</Text>
+          <View className="flex-row justify-between mt-1">
+            <Text className="text-xs text-gray">{min}</Text>
+            <Text className="text-xs text-gray">{max}</Text>
           </View>
         </View>
       </View>
@@ -265,29 +269,34 @@ export const EmergencySettingsScreen: React.FC = () => {
 
   if (isLoading || !settings) {
     return (
-      <View style={styles.loadingContainer}>
-        <MaterialCommunityIcons name="cog" size={60} color={COLORS.primary} />
-        <Text style={styles.loadingText}>Loading settings...</Text>
+      <View className="flex-1 justify-center items-center bg-white">
+        <MaterialCommunityIcons name="cog" size={60} color="#2196F3" />
+        <Text className="mt-4 text-base text-gray">Loading settings...</Text>
+        <ActivityIndicator color="#2196F3" size="large" className="mt-4" />
       </View>
     );
   }
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView className="flex-1 bg-light" showsVerticalScrollIndicator={false}>
       {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerIcon}>
-          <MaterialCommunityIcons name="shield-alert" size={40} color={COLORS.white} />
+      <View className="bg-primary pb-8 rounded-b-3xl">
+        <View className="items-center pt-8">
+          <View className="w-20 h-20 rounded-full bg-white/20 justify-center items-center mb-4">
+            <MaterialCommunityIcons name="shield-alert" size={40} color="#FFFFFF" />
+          </View>
+          <Text className="text-2xl font-bold text-white text-center mb-2">
+            Emergency System Settings
+          </Text>
+          <Text className="text-sm text-white/80 text-center px-8">
+            Customize how the emergency system works in case of danger
+          </Text>
         </View>
-        <Text style={styles.headerTitle}>Emergency System Settings</Text>
-        <Text style={styles.headerSubtitle}>
-          Customize how the emergency system works in case of danger
-        </Text>
       </View>
 
       {/* Emergency Actions */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Emergency Actions</Text>
+      <View className="card mx-4 mt-6">
+        <Text className="section-title">Emergency Actions</Text>
         
         {renderSettingItem(
           'Auto Call Emergency',
@@ -319,8 +328,8 @@ export const EmergencySettingsScreen: React.FC = () => {
       </View>
 
       {/* Timing Settings */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Timing Settings</Text>
+      <View className="card mx-4 my-4">
+        <Text className="section-title">Timing Settings</Text>
         
         {renderSliderSetting(
           'Emergency Countdown',
@@ -345,91 +354,105 @@ export const EmergencySettingsScreen: React.FC = () => {
       </View>
 
       {/* Statistics */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>System Statistics</Text>
-        <View style={styles.statsContainer}>
-          <View style={styles.statCard}>
-            <MaterialCommunityIcons name="history" size={24} color={COLORS.primary} />
-            <Text style={styles.statNumber}>12</Text>
-            <Text style={styles.statLabel}>Total Operations</Text>
+      <View className="card mx-4 my-4">
+        <Text className="section-title">System Statistics</Text>
+        <View className="flex-row justify-between mt-2">
+          <View className="items-center flex-1 p-3 bg-lightGray/20 rounded-xl mx-1">
+            <MaterialCommunityIcons name="history" size={24} color="#2196F3" />
+            <Text className="text-2xl font-bold text-dark mt-2">{stats.total}</Text>
+            <Text className="text-xs text-gray">Total Operations</Text>
           </View>
-          <View style={styles.statCard}>
-            <MaterialCommunityIcons name="check-circle" size={24} color={COLORS.success} />
-            <Text style={styles.statNumber}>10</Text>
-            <Text style={styles.statLabel}>Successful</Text>
+          
+          <View className="items-center flex-1 p-3 bg-lightGray/20 rounded-xl mx-1">
+            <MaterialCommunityIcons name="check-circle" size={24} color="#4CAF50" />
+            <Text className="text-2xl font-bold text-dark mt-2">{stats.successful}</Text>
+            <Text className="text-xs text-gray">Successful</Text>
           </View>
-          <View style={styles.statCard}>
-            <MaterialCommunityIcons name="alert-circle" size={24} color={COLORS.danger} />
-            <Text style={styles.statNumber}>2</Text>
-            <Text style={styles.statLabel}>Failed</Text>
+          
+          <View className="items-center flex-1 p-3 bg-lightGray/20 rounded-xl mx-1">
+            <MaterialCommunityIcons name="alert-circle" size={24} color="#F44336" />
+            <Text className="text-2xl font-bold text-dark mt-2">{stats.failed}</Text>
+            <Text className="text-xs text-gray">Failed</Text>
           </View>
+        </View>
+        
+        <View className="mt-4 p-3 bg-blue-50 rounded-lg">
+          <Text className="text-sm text-dark font-medium">Last Operation</Text>
+          <Text className="text-xs text-gray mt-1">{stats.last}</Text>
         </View>
       </View>
 
       {/* Test & Actions */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Testing & Actions</Text>
+      <View className="card mx-4 my-4">
+        <Text className="section-title">Testing & Actions</Text>
         
         <TouchableOpacity
-          style={styles.testButton}
+          className="btn-primary flex-row items-center justify-center mb-3"
           onPress={handleTestEmergency}
+          activeOpacity={0.7}
         >
-          <MaterialCommunityIcons name="play-circle" size={24} color="#FFF" />
-          <Text style={styles.testButtonText}>Test Emergency System</Text>
+          <MaterialCommunityIcons name="play-circle" size={24} color="#FFFFFF" />
+          <Text className="btn-primary-text ml-2">Test Emergency System</Text>
         </TouchableOpacity>
         
         <TouchableOpacity
-          style={[styles.testButton, styles.smsButton]}
+          className="btn-success flex-row items-center justify-center mb-4"
           onPress={() => setModalVisible(true)}
+          activeOpacity={0.7}
         >
-          <MaterialCommunityIcons name="message-processing" size={24} color="#FFF" />
-          <Text style={styles.testButtonText}>Test SMS Sending</Text>
+          <MaterialCommunityIcons name="message-processing" size={24} color="#FFFFFF" />
+          <Text className="text-white font-semibold ml-2">Test SMS Sending</Text>
         </TouchableOpacity>
         
-        <View style={styles.actionButtons}>
+        <View className="flex-row justify-between mt-2">
           <TouchableOpacity
-            style={[styles.actionButton, styles.resetButton]}
+            className="flex-row items-center justify-center py-3 px-4 bg-lightGray rounded-lg flex-1 mr-2"
             onPress={handleResetSettings}
+            activeOpacity={0.7}
           >
-            <MaterialCommunityIcons name="restore" size={20} color={COLORS.dark} />
-            <Text style={styles.resetButtonText}>Reset Settings</Text>
+            <MaterialCommunityIcons name="restore" size={20} color="#212121" />
+            <Text className="text-sm font-semibold text-dark ml-2">Reset</Text>
           </TouchableOpacity>
           
           <TouchableOpacity
-            style={[styles.actionButton, styles.clearButton]}
+            className="flex-row items-center justify-center py-3 px-4 bg-red-50 border border-danger rounded-lg flex-1 ml-2"
             onPress={handleClearHistory}
+            activeOpacity={0.7}
           >
-            <MaterialCommunityIcons name="trash-can" size={20} color={COLORS.danger} />
-            <Text style={styles.clearButtonText}>Clear History</Text>
+            <MaterialCommunityIcons name="trash-can" size={20} color="#F44336" />
+            <Text className="text-sm font-semibold text-danger ml-2">Clear History</Text>
           </TouchableOpacity>
         </View>
       </View>
 
       {/* Instructions */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Important Instructions</Text>
-        <View style={styles.instructions}>
-          <View style={styles.instructionItem}>
-            <MaterialCommunityIcons name="check-circle" size={16} color={COLORS.success} />
-            <Text style={styles.instructionText}>
+      <View className="card mx-4 my-4">
+        <Text className="section-title">Important Instructions</Text>
+        <View className="space-y-3 mt-2">
+          <View className="flex-row items-start">
+            <MaterialCommunityIcons name="check-circle" size={16} color="#4CAF50" className="mt-0.5" />
+            <Text className="text-sm text-dark ml-2 flex-1">
               Make sure you have added correct emergency contacts
             </Text>
           </View>
-          <View style={styles.instructionItem}>
-            <MaterialCommunityIcons name="check-circle" size={16} color={COLORS.success} />
-            <Text style={styles.instructionText}>
+          
+          <View className="flex-row items-start">
+            <MaterialCommunityIcons name="check-circle" size={16} color="#4CAF50" className="mt-0.5" />
+            <Text className="text-sm text-dark ml-2 flex-1">
               Test the system regularly to ensure it works
             </Text>
           </View>
-          <View style={styles.instructionItem}>
-            <MaterialCommunityIcons name="check-circle" size={16} color={COLORS.success} />
-            <Text style={styles.instructionText}>
+          
+          <View className="flex-row items-start">
+            <MaterialCommunityIcons name="check-circle" size={16} color="#4CAF50" className="mt-0.5" />
+            <Text className="text-sm text-dark ml-2 flex-1">
               Maintain battery charge to avoid service interruption
             </Text>
           </View>
-          <View style={styles.instructionItem}>
-            <MaterialCommunityIcons name="check-circle" size={16} color={COLORS.success} />
-            <Text style={styles.instructionText}>
+          
+          <View className="flex-row items-start">
+            <MaterialCommunityIcons name="check-circle" size={16} color="#4CAF50" className="mt-0.5" />
+            <Text className="text-sm text-dark ml-2 flex-1">
               Inform contacts that they are listed as emergency contacts
             </Text>
           </View>
@@ -437,11 +460,14 @@ export const EmergencySettingsScreen: React.FC = () => {
       </View>
 
       {/* Footer */}
-      <View style={styles.footer}>
-        <Text style={styles.footerText}>
+      <View className="items-center py-8 px-4">
+        <View className="w-12 h-12 rounded-full bg-blue-50 justify-center items-center mb-3">
+          <MaterialCommunityIcons name="shield-check" size={24} color="#2196F3" />
+        </View>
+        <Text className="text-sm text-gray text-center mb-2">
           Emergency system works automatically when fall is detected or when emergency button is pressed
         </Text>
-        <Text style={styles.footerVersion}>Version 2.0 - Enhanced System</Text>
+        <Text className="text-xs text-lightGray">Version 2.0 - Enhanced System</Text>
       </View>
 
       {/* Test SMS Modal */}
@@ -451,348 +477,67 @@ export const EmergencySettingsScreen: React.FC = () => {
         visible={modalVisible}
         onRequestClose={() => setModalVisible(false)}
       >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <MaterialCommunityIcons name="message-text" size={30} color={COLORS.primary} />
-              <Text style={styles.modalTitle}>Test SMS Sending</Text>
+        <View className="flex-1 justify-center items-center bg-black/50">
+          <View className="bg-white rounded-2xl w-11/12 max-w-md p-6">
+            <View className="items-center mb-6">
+              <View className="w-16 h-16 rounded-full bg-blue-50 justify-center items-center mb-3">
+                <MaterialCommunityIcons name="message-text" size={30} color="#2196F3" />
+              </View>
+              <Text className="text-xl font-bold text-dark">Test SMS Sending</Text>
+              <Text className="text-sm text-gray mt-1 text-center">
+                Enter phone number and message for testing
+              </Text>
             </View>
 
             <TextInput
-              style={styles.modalInput}
+              className="input-field mb-4"
               placeholder="Phone number (e.g., +201234567890)"
               value={testPhone}
               onChangeText={setTestPhone}
               keyboardType="phone-pad"
+              placeholderTextColor="#BDBDBD"
             />
 
             <TextInput
-              style={[styles.modalInput, styles.messageInput]}
+              className="input-field h-28 mb-6 text-align-top"
               placeholder="Test message text"
               value={testMessage}
               onChangeText={setTestMessage}
               multiline
               numberOfLines={4}
+              textAlignVertical="top"
+              placeholderTextColor="#BDBDBD"
             />
 
-            <View style={styles.modalButtons}>
+            <View className="flex-row justify-between">
               <TouchableOpacity
-                style={[styles.modalButton, styles.cancelModalButton]}
+                className="flex-1 bg-lightGray py-3 rounded-lg mr-2 items-center"
                 onPress={() => {
                   setModalVisible(false);
                   setTestMessage('');
                   setTestPhone('');
                 }}
+                activeOpacity={0.7}
               >
-                <Text style={styles.cancelModalButtonText}>Cancel</Text>
+                <Text className="text-dark font-semibold">Cancel</Text>
               </TouchableOpacity>
               
               <TouchableOpacity
-                style={[styles.modalButton, styles.sendModalButton]}
+                className="flex-1 bg-success py-3 rounded-lg ml-2 flex-row items-center justify-center"
                 onPress={handleTestSMS}
+                activeOpacity={0.7}
               >
-                <MaterialCommunityIcons name="send" size={20} color="#FFF" />
-                <Text style={styles.sendModalButtonText}>Send Test</Text>
+                <MaterialCommunityIcons name="send" size={20} color="#FFFFFF" />
+                <Text className="text-white font-bold ml-2">Send Test</Text>
               </TouchableOpacity>
             </View>
+            
+            <Text className="text-xs text-gray mt-4 text-center">
+              Note: In development mode, SMS sending is simulated
+            </Text>
           </View>
         </View>
       </Modal>
     </ScrollView>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.light,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: COLORS.white,
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: COLORS.gray,
-  },
-  header: {
-    backgroundColor: COLORS.primary,
-    padding: 24,
-    alignItems: 'center',
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
-    marginBottom: 16,
-  },
-  headerIcon: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: COLORS.white,
-    marginBottom: 8,
-  },
-  headerSubtitle: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.8)',
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-  section: {
-    backgroundColor: COLORS.white,
-    marginHorizontal: 16,
-    marginBottom: 16,
-    borderRadius: 16,
-    padding: 20,
-    shadowColor: COLORS.black,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: COLORS.dark,
-    marginBottom: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.lightGray,
-    paddingBottom: 8,
-  },
-  settingItem: {
-    marginBottom: 24,
-  },
-  settingHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  settingIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(33, 150, 243, 0.1)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  settingInfo: {
-    flex: 1,
-  },
-  settingTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: COLORS.dark,
-    marginBottom: 4,
-  },
-  settingDescription: {
-    fontSize: 12,
-    color: COLORS.gray,
-    lineHeight: 16,
-  },
-  sliderContainer: {
-    marginTop: 8,
-  },
-  sliderValue: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: COLORS.primary,
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  slider: {
-    height: 40,
-  },
-  sliderLabels: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 4,
-  },
-  sliderLabel: {
-    fontSize: 12,
-    color: COLORS.gray,
-  },
-  statsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  statCard: {
-    flex: 1,
-    alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#F8F9FA',
-    borderRadius: 12,
-    marginHorizontal: 4,
-  },
-  statNumber: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: COLORS.dark,
-    marginVertical: 8,
-  },
-  statLabel: {
-    fontSize: 12,
-    color: COLORS.gray,
-    textAlign: 'center',
-  },
-  testButton: {
-    backgroundColor: COLORS.primary,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 12,
-  },
-  smsButton: {
-    backgroundColor: COLORS.success,
-  },
-  testButtonText: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginLeft: 8,
-  },
-  actionButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 16,
-  },
-  actionButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 12,
-    borderRadius: 8,
-    marginHorizontal: 4,
-  },
-  resetButton: {
-    backgroundColor: COLORS.lightGray,
-  },
-  resetButtonText: {
-    color: COLORS.dark,
-    fontSize: 14,
-    fontWeight: '600',
-    marginLeft: 8,
-  },
-  clearButton: {
-    backgroundColor: 'rgba(244, 67, 54, 0.1)',
-    borderWidth: 1,
-    borderColor: COLORS.danger,
-  },
-  clearButtonText: {
-    color: COLORS.danger,
-    fontSize: 14,
-    fontWeight: '600',
-    marginLeft: 8,
-  },
-  instructions: {
-    marginTop: 8,
-  },
-  instructionItem: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: 12,
-  },
-  instructionText: {
-    flex: 1,
-    fontSize: 14,
-    color: COLORS.dark,
-    marginLeft: 8,
-    lineHeight: 20,
-  },
-  footer: {
-    padding: 24,
-    alignItems: 'center',
-    marginBottom: 32,
-  },
-  footerText: {
-    fontSize: 14,
-    color: COLORS.gray,
-    textAlign: 'center',
-    lineHeight: 20,
-    marginBottom: 8,
-  },
-  footerVersion: {
-    fontSize: 12,
-    color: COLORS.lightGray,
-  },
-  modalContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-  },
-  modalContent: {
-    backgroundColor: COLORS.white,
-    borderRadius: 16,
-    padding: 24,
-    width: '90%',
-    maxWidth: 400,
-  },
-  modalHeader: {
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: COLORS.dark,
-    marginTop: 12,
-  },
-  modalInput: {
-    borderWidth: 1,
-    borderColor: COLORS.lightGray,
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    color: COLORS.dark,
-    marginBottom: 16,
-  },
-  messageInput: {
-    height: 100,
-    textAlignVertical: 'top',
-  },
-  modalButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 8,
-  },
-  modalButton: {
-    flex: 1,
-    padding: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'center',
-  },
-  cancelModalButton: {
-    backgroundColor: COLORS.lightGray,
-    marginRight: 8,
-  },
-  cancelModalButtonText: {
-    color: COLORS.dark,
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  sendModalButton: {
-    backgroundColor: COLORS.success,
-    marginLeft: 8,
-  },
-  sendModalButtonText: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginLeft: 8,
-  },
-});

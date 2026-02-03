@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
   ScrollView,
   Switch,
   TouchableOpacity,
@@ -12,19 +11,17 @@ import {
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
-import { COLORS } from '../utils/constants';
+import { useLanguage } from '../components/LanguageProvider';
 import { apiService } from '../services/api';
 import { storageService } from '../services/storage';
 import { notificationService } from '../services/notifications';
 import { User, Device } from '../types';
-import { useLanguage } from '../components/LanguageProvider';
-
 
 type SettingsScreenNavigationProp = StackNavigationProp<any>;
 
 export const SettingsScreen: React.FC = () => {
   const navigation = useNavigation<SettingsScreenNavigationProp>();
-  const { t, language, changeLanguage } = useLanguage(); 
+  const { t, language } = useLanguage();
   const [user, setUser] = useState<User | null>(null);
   const [device, setDevice] = useState<Device | null>(null);
   const [settings, setSettings] = useState({
@@ -37,10 +34,6 @@ export const SettingsScreen: React.FC = () => {
   });
   const [isEditing, setIsEditing] = useState(false);
   const [editedUser, setEditedUser] = useState<Partial<User>>({});
-    
-  const handleLanguageChange = () => {
-    navigation.navigate('LanguageSettings');
-  };
 
   useEffect(() => {
     loadData();
@@ -90,7 +83,7 @@ export const SettingsScreen: React.FC = () => {
   const handleLogout = () => {
     Alert.alert(
       t('settings.logout'),
-      t('common.confirm') + ' ' + t('settings.logout').toLowerCase() + '?',
+      `${t('common.confirm')} ${t('settings.logout').toLowerCase()}?`,
       [
         { text: t('common.cancel'), style: 'cancel' },
         {
@@ -98,7 +91,10 @@ export const SettingsScreen: React.FC = () => {
           style: 'destructive',
           onPress: async () => {
             await storageService.clearAll();
-            Alert.alert(t('success.loggedOut'), t('success.loggedOut'));
+            navigation.reset({
+              index: 0,
+              routes: [{ name: 'Login' }],
+            });
           },
         },
       ]
@@ -106,16 +102,21 @@ export const SettingsScreen: React.FC = () => {
   };
 
   const testNotification = () => {
+    if (!user) {
+      Alert.alert(t('common.error'), t('errors.loginRequired'));
+      return;
+    }
+
     notificationService.sendFallAlert({
-      id: 1,
-      user_id: user?.id || 1,
+      id: Date.now(),
+      user_id: user.id,
       timestamp: new Date().toISOString(),
       alert_type: 'fall',
       severity: 'critical',
       message: t('alerts.fallDetected'),
       status: 'pending',
     });
-    Alert.alert(t('success.sent'), t('success.sent'));
+    Alert.alert(t('success.sent'), t('notifications.testSent'));
   };
 
   const handleEmergencyContacts = () => {
@@ -127,202 +128,272 @@ export const SettingsScreen: React.FC = () => {
   };
 
   const handleLanguageSettings = () => {
-    navigation.navigate('LanguageSettings' as never);
+    navigation.navigate('LanguageSettings');
   };
 
   const handleHelp = () => {
-    Alert.alert(t('settings.help'), t('common.info'));
+    Alert.alert(t('settings.help'), t('settings.helpMessage'));
   };
 
   const handlePrivacy = () => {
-    Alert.alert(t('settings.privacy'), t('common.info'));
+    navigation.navigate('PrivacyPolicy');
   };
 
   const handleAbout = () => {
-    Alert.alert(t('app.name'), t('app.version'));
+    Alert.alert(
+      t('app.name'),
+      `${t('app.version')} 1.0.0\n${t('app.description')}`
+    );
+  };
+
+  const handleSyncData = async () => {
+    try {
+      Alert.alert(t('common.syncing'), t('common.pleaseWait'));
+      await loadData();
+      Alert.alert(t('success.synced'), t('success.dataUpdated'));
+    } catch (error) {
+      Alert.alert(t('common.error'), t('errors.syncFailed'));
+    }
   };
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView className="flex-1 bg-light" showsVerticalScrollIndicator={false}>
       {/* Profile Section */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>{t('settings.profile')}</Text>
+      <View className="my-2">
+        <Text className="section-title">
+          {t('settings.profile')}
+        </Text>
         
         {user ? (
-          <View style={styles.profileCard}>
+          <View className="card">
             {isEditing ? (
               <>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>{t('auth.register.name')}</Text>
+                <View className="mb-4">
+                  <Text className="text-sm text-dark mb-2">{t('auth.register.name')}</Text>
                   <TextInput
-                    style={styles.input}
+                    className="input-field"
                     value={editedUser.name || user.name}
                     onChangeText={(text) => setEditedUser({ ...editedUser, name: text })}
                     placeholder={t('auth.register.name')}
+                    placeholderTextColor="#BDBDBD"
                   />
                 </View>
                 
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>{t('settings.emergencyContact')}</Text>
+                <View className="mb-4">
+                  <Text className="text-sm text-dark mb-2">{t('settings.emergencyContact')}</Text>
                   <TextInput
-                    style={styles.input}
+                    className="input-field"
                     value={editedUser.emergency_contact || user.emergency_contact || ''}
                     onChangeText={(text) => setEditedUser({ ...editedUser, emergency_contact: text })}
                     placeholder="+201234567890"
+                    placeholderTextColor="#BDBDBD"
                     keyboardType="phone-pad"
                   />
                 </View>
                 
-                <View style={styles.buttonRow}>
+                <View className="flex-row justify-between mt-2">
                   <TouchableOpacity
-                    style={[styles.button, styles.cancelButton]}
+                    className="flex-1 bg-lightGray p-3 rounded-lg mr-2"
                     onPress={() => {
                       setIsEditing(false);
                       setEditedUser({});
                     }}
                   >
-                    <Text style={styles.cancelButtonText}>{t('common.cancel')}</Text>
+                    <Text className="text-dark font-semibold text-center">
+                      {t('common.cancel')}
+                    </Text>
                   </TouchableOpacity>
                   
                   <TouchableOpacity
-                    style={[styles.button, styles.saveButton]}
+                    className="flex-1 bg-primary p-3 rounded-lg ml-2"
                     onPress={handleUpdateUser}
                   >
-                    <Text style={styles.saveButtonText}>{t('common.save')}</Text>
+                    <Text className="text-white font-semibold text-center">
+                      {t('common.save')}
+                    </Text>
                   </TouchableOpacity>
                 </View>
               </>
             ) : (
               <>
-                <View style={styles.profileInfo}>
-                  <MaterialCommunityIcons name="account-circle" size={60} color={COLORS.primary} />
-                  <View style={styles.profileText}>
-                    <Text style={styles.userName}>{user.name}</Text>
-                    <Text style={styles.userInfo}>
+                <View className="flex-row items-center mb-4">
+                  <View className="relative">
+                    <MaterialCommunityIcons name="account-circle" size={60} color="#2196F3" />
+                    {user.profile_image && (
+                      <View className="absolute inset-0 rounded-full bg-primary opacity-10" />
+                    )}
+                  </View>
+                  <View className="ml-4 flex-1">
+                    <Text className="text-xl font-bold text-dark mb-1">{user.name}</Text>
+                    <Text className="text-sm text-gray mb-1">
                       {user.age} {t('common.years')} • {user.gender === 'male' ? t('common.male') : t('common.female')}
                     </Text>
                     {user.emergency_contact && (
-                      <Text style={styles.userContact}>
-                        📞 {user.emergency_contact}
-                      </Text>
+                      <View className="flex-row items-center mt-1">
+                        <MaterialCommunityIcons name="phone" size={14} color="#2196F3" />
+                        <Text className="text-sm text-primary ml-1">{user.emergency_contact}</Text>
+                      </View>
                     )}
                   </View>
                 </View>
                 
                 <TouchableOpacity
-                  style={styles.editButton}
+                  className="flex-row items-center justify-center p-3 border border-primary rounded-lg"
                   onPress={() => setIsEditing(true)}
+                  activeOpacity={0.7}
                 >
-                  <MaterialCommunityIcons name="pencil" size={20} color={COLORS.primary} />
-                  <Text style={styles.editButtonText}>{t('common.edit')}</Text>
+                  <MaterialCommunityIcons name="pencil" size={20} color="#2196F3" />
+                  <Text className="text-primary text-sm font-semibold ml-2">
+                    {t('common.edit')}
+                  </Text>
                 </TouchableOpacity>
               </>
             )}
           </View>
         ) : (
-          <TouchableOpacity style={styles.loginButton}>
-            <Text style={styles.loginButtonText}>{t('auth.login.title')}</Text>
+          <TouchableOpacity 
+            className="btn-primary mx-4"
+            onPress={() => navigation.navigate('Login')}
+            activeOpacity={0.7}
+          >
+            <Text className="btn-primary-text">
+              {t('auth.login.title')}
+            </Text>
           </TouchableOpacity>
         )}
       </View>
       
       {/* Language Section */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>{t('language.title')}</Text>
+      <View className="my-2">
+        <Text className="section-title">
+          {t('language.title')}
+        </Text>
         
         <TouchableOpacity
-          style={styles.settingRow}
+          className="flex-row items-center justify-between bg-white mx-4 p-5 rounded-2xl shadow-lg active:opacity-80"
           onPress={handleLanguageSettings}
+          activeOpacity={0.7}
         >
-          <View style={styles.settingInfo}>
-            <MaterialCommunityIcons name="translate" size={24} color={COLORS.primary} />
-            <View style={styles.settingText}>
-              <Text style={styles.settingLabel}>{t('language.title')}</Text>
-              <Text style={styles.settingDescription}>
+          <View className="flex-row items-center flex-1">
+            <View className="w-12 h-12 rounded-full bg-blue-50 justify-center items-center">
+              <MaterialCommunityIcons name="translate" size={24} color="#2196F3" />
+            </View>
+            <View className="ml-3 flex-1">
+              <Text className="text-base font-semibold text-dark">{t('language.title')}</Text>
+              <Text className="text-xs text-gray mt-1">
                 {language === 'ar' ? t('language.arabic') : t('language.english')}
               </Text>
             </View>
           </View>
-          <MaterialCommunityIcons name="chevron-right" size={24} color={COLORS.gray} />
+          <MaterialCommunityIcons name="chevron-right" size={24} color="#757575" />
         </TouchableOpacity>
       </View>
 
-
       {/* Emergency System Section */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>{t('emergency.title')}</Text>
+      <View className="my-2">
+        <Text className="section-title">
+          {t('emergency.title')}
+        </Text>
         
-        <View style={styles.emergencyCard}>
+        <View className="emergency-card">
           <TouchableOpacity
-            style={styles.emergencyItem}
+            className="flex-row items-center p-5 active:bg-lightGray/10"
             onPress={handleEmergencyContacts}
+            activeOpacity={0.7}
           >
-            <View style={styles.emergencyIconContainer}>
-              <MaterialCommunityIcons name="account-group" size={24} color={COLORS.primary} />
+            <View className="w-12 h-12 rounded-full bg-red-50 justify-center items-center mr-4">
+              <MaterialCommunityIcons name="account-group" size={24} color="#F44336" />
             </View>
-            <View style={styles.emergencyInfo}>
-              <Text style={styles.emergencyTitle}>{t('emergency.contacts.title')}</Text>
-              <Text style={styles.emergencyDescription}>
+            <View className="flex-1">
+              <Text className="text-base font-semibold text-dark mb-1">
+                {t('emergency.contacts.title')}
+              </Text>
+              <Text className="text-xs text-gray leading-4">
                 {t('emergency.contacts.description')}
               </Text>
             </View>
-            <MaterialCommunityIcons name="chevron-right" size={24} color={COLORS.gray} />
+            <MaterialCommunityIcons name="chevron-right" size={24} color="#757575" />
           </TouchableOpacity>
           
-          <View style={styles.divider} />
+          <View className="h-px bg-lightGray mx-5" />
           
           <TouchableOpacity
-            style={styles.emergencyItem}
+            className="flex-row items-center p-5 active:bg-lightGray/10"
             onPress={handleEmergencySettings}
+            activeOpacity={0.7}
           >
-            <View style={styles.emergencyIconContainer}>
-              <MaterialCommunityIcons name="cog" size={24} color={COLORS.primary} />
+            <View className="w-12 h-12 rounded-full bg-orange-50 justify-center items-center mr-4">
+              <MaterialCommunityIcons name="cog" size={24} color="#FF9800" />
             </View>
-            <View style={styles.emergencyInfo}>
-              <Text style={styles.emergencyTitle}>{t('emergency.settings.title')}</Text>
-              <Text style={styles.emergencyDescription}>
+            <View className="flex-1">
+              <Text className="text-base font-semibold text-dark mb-1">
+                {t('emergency.settings.title')}
+              </Text>
+              <Text className="text-xs text-gray leading-4">
                 {t('emergency.settings.description')}
               </Text>
             </View>
-            <MaterialCommunityIcons name="chevron-right" size={24} color={COLORS.gray} />
+            <MaterialCommunityIcons name="chevron-right" size={24} color="#757575" />
           </TouchableOpacity>
         </View>
       </View>
 
       {/* Device Information Section */}
       {device && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t('settings.deviceInfo')}</Text>
-          <View style={styles.deviceCard}>
-            <View style={styles.deviceRow}>
-              <MaterialCommunityIcons name="devices" size={24} color={COLORS.gray} />
-              <View style={styles.deviceInfo}>
-                <Text style={styles.deviceTitle}>{t('settings.deviceInfo')}</Text>
-                <Text style={styles.deviceId}>{device.device_id}</Text>
+        <View className="my-2">
+          <Text className="section-title">
+            {t('settings.deviceInfo')}
+          </Text>
+          <View className="card">
+            <View className="flex-row items-center mb-4">
+              <View className="w-12 h-12 rounded-full bg-green-50 justify-center items-center">
+                <MaterialCommunityIcons name="devices" size={24} color="#4CAF50" />
               </View>
-              <View style={[styles.statusDot, { 
-                backgroundColor: device.is_connected ? COLORS.success : COLORS.danger 
-              }]} />
+              <View className="ml-3 flex-1">
+                <Text className="text-base font-semibold text-dark">
+                  {device.name || t('settings.deviceInfo')}
+                </Text>
+                <Text className="text-sm text-gray mt-1">{device.device_id}</Text>
+              </View>
+              <View className="flex-row items-center">
+                <View 
+                  className={`w-3 h-3 rounded-full mr-2 ${device.is_connected ? 'bg-success' : 'bg-danger'}`}
+                />
+                <Text className="text-xs text-gray">
+                  {device.is_connected ? t('common.connected') : t('common.disconnected')}
+                </Text>
+              </View>
             </View>
             
-            <View style={styles.deviceStats}>
-              <View style={styles.statItem}>
-                <Text style={styles.statLabel}>{t('home.battery')}</Text>
-                <Text style={styles.statValue}>
+            <View className="flex-row justify-between border-t border-lightGray pt-4">
+              <View className="items-center flex-1">
+                <View className="flex-row items-center mb-1">
+                  <MaterialCommunityIcons name="battery" size={16} color="#757575" />
+                  <Text className="text-xs text-gray ml-1">{t('home.battery')}</Text>
+                </View>
+                <Text className="text-base font-semibold text-dark">
                   {device.battery_level?.toFixed(0) || '--'}%
                 </Text>
               </View>
               
-              <View style={styles.statItem}>
-                <Text style={styles.statLabel}>{t('system.lastSeen')}</Text>
-                <Text style={styles.statValue}>
-                  {new Date(device.last_seen).toLocaleTimeString()}
+              <View className="items-center flex-1 border-x border-lightGray">
+                <View className="flex-row items-center mb-1">
+                  <MaterialCommunityIcons name="clock" size={16} color="#757575" />
+                  <Text className="text-xs text-gray ml-1">{t('system.lastSeen')}</Text>
+                </View>
+                <Text className="text-base font-semibold text-dark">
+                  {new Date(device.last_seen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </Text>
               </View>
               
-              <View style={styles.statItem}>
-                <Text style={styles.statLabel}>{t('system.version')}</Text>
-                <Text style={styles.statValue}>{device.firmware_version || '--'}</Text>
+              <View className="items-center flex-1">
+                <View className="flex-row items-center mb-1">
+                  <MaterialCommunityIcons name="tag" size={16} color="#757575" />
+                  <Text className="text-xs text-gray ml-1">{t('system.version')}</Text>
+                </View>
+                <Text className="text-base font-semibold text-dark">
+                  {device.firmware_version || '--'}
+                </Text>
               </View>
             </View>
           </View>
@@ -330,10 +401,12 @@ export const SettingsScreen: React.FC = () => {
       )}
 
       {/* General Settings Section */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>{t('settings.generalSettings')}</Text>
+      <View className="my-2">
+        <Text className="section-title">
+          {t('settings.generalSettings')}
+        </Text>
         
-        <View style={styles.settingsCard}>
+        <View className="card">
           {Object.entries({
             notifications: t('settings.notifications'),
             vibration: t('settings.vibration'),
@@ -342,15 +415,28 @@ export const SettingsScreen: React.FC = () => {
             fallDetection: t('settings.fallDetection'),
             vitalMonitoring: t('settings.vitalMonitoring'),
           }).map(([key, label]) => (
-            <View key={key} style={styles.settingRow}>
-              <Text style={styles.settingLabel}>{label}</Text>
+            <View key={key} className="setting-row">
+              <View className="flex-1">
+                <Text className="text-base text-dark font-medium">{label}</Text>
+                {key === 'fallDetection' && (
+                  <Text className="text-xs text-gray mt-1">
+                    {t('settings.fallDetectionDesc')}
+                  </Text>
+                )}
+                {key === 'vitalMonitoring' && (
+                  <Text className="text-xs text-gray mt-1">
+                    {t('settings.vitalMonitoringDesc')}
+                  </Text>
+                )}
+              </View>
               <Switch
                 value={settings[key as keyof typeof settings]}
                 onValueChange={(value) => 
                   handleSettingChange(key as keyof typeof settings, value)
                 }
-                trackColor={{ false: COLORS.lightGray, true: COLORS.primary }}
-                thumbColor={COLORS.white}
+                trackColor={{ false: '#E0E0E0', true: '#2196F3' }}
+                thumbColor="#FFFFFF"
+                ios_backgroundColor="#E0E0E0"
               />
             </View>
           ))}
@@ -358,372 +444,115 @@ export const SettingsScreen: React.FC = () => {
       </View>
 
       {/* System Test Section */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>{t('settings.testSystem')}</Text>
+      <View className="my-2">
+        <Text className="section-title">
+          {t('settings.testSystem')}
+        </Text>
         
-        <View style={styles.testCard}>
-          <TouchableOpacity style={styles.testButton} onPress={testNotification}>
-            <MaterialCommunityIcons name="bell-ring" size={24} color={COLORS.warning} />
-            <Text style={styles.testButtonText}>{t('settings.testNotifications')}</Text>
+        <View className="card">
+          <TouchableOpacity 
+            className="flex-row items-center py-4 border-b border-lightGray active:opacity-70"
+            onPress={testNotification}
+            disabled={!user}
+            activeOpacity={0.7}
+          >
+            <View className="w-10 h-10 rounded-full bg-orange-50 justify-center items-center">
+              <MaterialCommunityIcons name="bell-ring" size={20} color="#FF9800" />
+            </View>
+            <View className="ml-3 flex-1">
+              <Text className="text-base font-medium text-dark">
+                {t('settings.testNotifications')}
+              </Text>
+              <Text className="text-xs text-gray mt-1">
+                {t('settings.testNotificationsDesc')}
+              </Text>
+            </View>
           </TouchableOpacity>
           
-          <TouchableOpacity style={styles.testButton} onPress={loadData}>
-            <MaterialCommunityIcons name="refresh" size={24} color={COLORS.primary} />
-            <Text style={styles.testButtonText}>{t('settings.refreshData')}</Text>
+          <TouchableOpacity 
+            className="flex-row items-center py-4 active:opacity-70"
+            onPress={handleSyncData}
+            activeOpacity={0.7}
+          >
+            <View className="w-10 h-10 rounded-full bg-blue-50 justify-center items-center">
+              <MaterialCommunityIcons name="refresh" size={20} color="#2196F3" />
+            </View>
+            <View className="ml-3 flex-1">
+              <Text className="text-base font-medium text-dark">
+                {t('settings.refreshData')}
+              </Text>
+              <Text className="text-xs text-gray mt-1">
+                {t('settings.refreshDataDesc')}
+              </Text>
+            </View>
           </TouchableOpacity>
         </View>
       </View>
 
       {/* Actions Section */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>{t('settings.actions')}</Text>
+      <View className="my-2 mb-8">
+        <Text className="section-title">
+          {t('settings.actions')}
+        </Text>
         
-        <View style={styles.actionsCard}>
-          <TouchableOpacity style={styles.actionButton} onPress={handleLogout}>
-            <MaterialCommunityIcons name="logout" size={24} color={COLORS.gray} />
-            <Text style={styles.actionButtonText}>{t('settings.logout')}</Text>
+        <View className="emergency-card">
+          <TouchableOpacity 
+            className="flex-row items-center p-5 border-b border-lightGray active:bg-lightGray/10"
+            onPress={handleLogout}
+            activeOpacity={0.7}
+          >
+            <View className="w-10 h-10 rounded-full bg-gray-100 justify-center items-center">
+              <MaterialCommunityIcons name="logout" size={20} color="#757575" />
+            </View>
+            <Text className="text-base text-dark ml-3 flex-1">{t('settings.logout')}</Text>
+            <MaterialCommunityIcons name="chevron-right" size={20} color="#757575" />
           </TouchableOpacity>
           
-          <TouchableOpacity style={styles.actionButton} onPress={handleHelp}>
-            <MaterialCommunityIcons name="help-circle" size={24} color={COLORS.info} />
-            <Text style={styles.actionButtonText}>{t('settings.help')}</Text>
+          <TouchableOpacity 
+            className="flex-row items-center p-5 border-b border-lightGray active:bg-lightGray/10"
+            onPress={handleHelp}
+            activeOpacity={0.7}
+          >
+            <View className="w-10 h-10 rounded-full bg-blue-50 justify-center items-center">
+              <MaterialCommunityIcons name="help-circle" size={20} color="#00BCD4" />
+            </View>
+            <Text className="text-base text-dark ml-3 flex-1">{t('settings.help')}</Text>
+            <MaterialCommunityIcons name="chevron-right" size={20} color="#757575" />
           </TouchableOpacity>
           
-          <TouchableOpacity style={styles.actionButton} onPress={handlePrivacy}>
-            <MaterialCommunityIcons name="shield-check" size={24} color={COLORS.success} />
-            <Text style={styles.actionButtonText}>{t('settings.privacy')}</Text>
+          <TouchableOpacity 
+            className="flex-row items-center p-5 border-b border-lightGray active:bg-lightGray/10"
+            onPress={handlePrivacy}
+            activeOpacity={0.7}
+          >
+            <View className="w-10 h-10 rounded-full bg-green-50 justify-center items-center">
+              <MaterialCommunityIcons name="shield-check" size={20} color="#4CAF50" />
+            </View>
+            <Text className="text-base text-dark ml-3 flex-1">{t('settings.privacy')}</Text>
+            <MaterialCommunityIcons name="chevron-right" size={20} color="#757575" />
           </TouchableOpacity>
           
-          <TouchableOpacity style={styles.actionButton} onPress={handleAbout}>
-            <MaterialCommunityIcons name="information" size={24} color={COLORS.primary} />
-            <Text style={styles.actionButtonText}>{t('settings.about')}</Text>
+          <TouchableOpacity 
+            className="flex-row items-center p-5 active:bg-lightGray/10"
+            onPress={handleAbout}
+            activeOpacity={0.7}
+          >
+            <View className="w-10 h-10 rounded-full bg-purple-50 justify-center items-center">
+              <MaterialCommunityIcons name="information" size={20} color="#2196F3" />
+            </View>
+            <Text className="text-base text-dark ml-3 flex-1">{t('settings.about')}</Text>
+            <MaterialCommunityIcons name="chevron-right" size={20} color="#757575" />
           </TouchableOpacity>
         </View>
       </View>
 
       {/* App Info */}
-      <View style={styles.footer}>
-        <Text style={styles.footerText}>{t('app.name')}</Text>
-        <Text style={styles.footerSubtext}>{t('app.version')}</Text>
+      <View className="items-center py-8 mb-4">
+        <MaterialCommunityIcons name="heart-pulse" size={40} color="#2196F3" />
+        <Text className="text-base text-gray mt-3 mb-1">{t('app.name')}</Text>
+        <Text className="text-sm text-lightGray">v1.0.0 • {t('app.description')}</Text>
+        <Text className="text-xs text-lightGray mt-2">© 2024 {t('app.company')}</Text>
       </View>
     </ScrollView>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.light,
-  },
-  section: {
-    marginVertical: 8,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: COLORS.dark,
-    marginHorizontal: 16,
-    marginVertical: 12,
-  },
-  profileCard: {
-    backgroundColor: COLORS.white,
-    marginHorizontal: 16,
-    padding: 20,
-    borderRadius: 16,
-    shadowColor: COLORS.black,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  profileInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  profileText: {
-    marginLeft: 16,
-    flex: 1,
-  },
-  userName: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: COLORS.dark,
-    marginBottom: 4,
-  },
-  userInfo: {
-    fontSize: 14,
-    color: COLORS.gray,
-    marginBottom: 4,
-  },
-  userContact: {
-    fontSize: 14,
-    color: COLORS.primary,
-  },
-  editButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 12,
-    borderWidth: 1,
-    borderColor: COLORS.primary,
-    borderRadius: 8,
-  },
-  editButtonText: {
-    color: COLORS.primary,
-    fontSize: 14,
-    fontWeight: '600',
-    marginLeft: 8,
-  },
-  inputGroup: {
-    marginBottom: 16,
-  },
-  label: {
-    fontSize: 14,
-    color: COLORS.dark,
-    marginBottom: 8,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: COLORS.lightGray,
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    color: COLORS.dark,
-  },
-  buttonRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  button: {
-    flex: 1,
-    padding: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  saveButton: {
-    backgroundColor: COLORS.primary,
-    marginLeft: 8,
-  },
-  saveButtonText: {
-    color: COLORS.white,
-    fontWeight: '600',
-  },
-  cancelButton: {
-    backgroundColor: COLORS.lightGray,
-    marginRight: 8,
-  },
-  cancelButtonText: {
-    color: COLORS.dark,
-    fontWeight: '600',
-  },
-  loginButton: {
-    backgroundColor: COLORS.primary,
-    marginHorizontal: 16,
-    padding: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  loginButtonText: {
-    color: COLORS.white,
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  emergencyCard: {
-    backgroundColor: COLORS.white,
-    marginHorizontal: 16,
-    borderRadius: 16,
-    shadowColor: COLORS.black,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-    overflow: 'hidden',
-  },
-  emergencyItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 20,
-  },
-  emergencyIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: 'rgba(33, 150, 243, 0.1)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 16,
-  },
-  emergencyInfo: {
-    flex: 1,
-  },
-  emergencyTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: COLORS.dark,
-    marginBottom: 4,
-  },
-  emergencyDescription: {
-    fontSize: 12,
-    color: COLORS.gray,
-    lineHeight: 16,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: COLORS.lightGray,
-    marginHorizontal: 20,
-  },
-  settingsCard: {
-    backgroundColor: COLORS.white,
-    marginHorizontal: 16,
-    padding: 20,
-    borderRadius: 16,
-    shadowColor: COLORS.black,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  settingRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.lightGray,
-  },
-  settingInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  settingText: {
-    marginLeft: 12,
-    flex: 1,
-  },
-  settingLabel: {
-    fontSize: 16,
-    color: COLORS.dark,
-  },
-  settingDescription: {
-    fontSize: 12,
-    color: COLORS.gray,
-    marginTop: 2,
-  },
-  deviceCard: {
-    backgroundColor: COLORS.white,
-    marginHorizontal: 16,
-    padding: 20,
-    borderRadius: 16,
-    shadowColor: COLORS.black,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  deviceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  deviceInfo: {
-    flex: 1,
-    marginLeft: 12,
-  },
-  deviceTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: COLORS.dark,
-  },
-  deviceId: {
-    fontSize: 14,
-    color: COLORS.gray,
-    marginTop: 2,
-  },
-  statusDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-  },
-  deviceStats: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    borderTopWidth: 1,
-    borderTopColor: COLORS.lightGray,
-    paddingTop: 16,
-  },
-  statItem: {
-    alignItems: 'center',
-  },
-  statLabel: {
-    fontSize: 12,
-    color: COLORS.gray,
-    marginBottom: 4,
-  },
-  statValue: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: COLORS.dark,
-  },
-  testCard: {
-    backgroundColor: COLORS.white,
-    marginHorizontal: 16,
-    padding: 20,
-    borderRadius: 16,
-    shadowColor: COLORS.black,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  testButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.lightGray,
-  },
-  testButtonText: {
-    fontSize: 16,
-    color: COLORS.dark,
-    marginLeft: 12,
-    flex: 1,
-  },
-  actionsCard: {
-    backgroundColor: COLORS.white,
-    marginHorizontal: 16,
-    borderRadius: 16,
-    shadowColor: COLORS.black,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-    overflow: 'hidden',
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.lightGray,
-  },
-  actionButtonText: {
-    fontSize: 16,
-    color: COLORS.dark,
-    marginLeft: 12,
-    flex: 1,
-  },
-  footer: {
-    alignItems: 'center',
-    padding: 32,
-  },
-  footerText: {
-    fontSize: 16,
-    color: COLORS.gray,
-    marginBottom: 8,
-  },
-  footerSubtext: {
-    fontSize: 14,
-    color: COLORS.lightGray,
-  },
-});

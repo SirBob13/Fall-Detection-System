@@ -5,12 +5,23 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 APP_DIR = BASE_DIR / "app"
 
-# AI paths
+# AI paths - SINGLE MODEL VERSION
 AI_DIR = BASE_DIR.parent / "AI"
-MODEL_PATH = AI_DIR / "models" / "FINAL_LSTM_Attention.keras"
-SCALER_PATH = AI_DIR / "scaler" / "scaler_all.save"
 
-# Database settings - إصلاح لـ MAMP
+# Single model path
+MODEL_PATH = AI_DIR / "models" / "fall_detection_final.keras"
+
+# Single scaler path
+SCALER_PATH = AI_DIR / "scaler" / "scaler_final.save"
+
+# MUST match the trained model (100 time steps)
+TIME_STEPS = 100
+
+print(f"🔍 AI Model Path: {MODEL_PATH}")
+print(f"🔍 AI Scaler Path: {SCALER_PATH}")
+print(f"🔍 Time Steps: {TIME_STEPS}")
+
+# Database settings - Fixed for MAMP
 DB_CONNECTION = os.getenv("DB_CONNECTION", "mysql")
 DB_HOST = os.getenv("DB_HOST", "127.0.0.1")
 DB_PORT = os.getenv("DB_PORT", "8889")  # MAMP default
@@ -18,7 +29,7 @@ DB_DATABASE = os.getenv("DB_DATABASE", "fall_detection")
 DB_USER = os.getenv("DB_USER", "root")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "root")
 
-# إصلاح: استخدام سلسلة اتصال واحدة متوافقة مع MAMP
+# Fix: Using single connection string compatible with MAMP
 if os.path.exists("/Applications/MAMP/tmp/mysql/mysql.sock"):
     DB_SOCKET = "/Applications/MAMP/tmp/mysql/mysql.sock"
 else:
@@ -36,7 +47,6 @@ EMERGENCY_CONTACTS = ["+201234567890"]  # Example contacts
 # Sensor thresholds
 ACCELERATION_THRESHOLD = 2.5  # g
 GYRO_THRESHOLD = 200  # degrees/second
-TIME_STEPS = 50  # للنموذج AI
 
 # API settings
 API_HOST = "0.0.0.0"
@@ -56,7 +66,7 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 43200
 REFRESH_TOKEN_EXPIRE_DAYS = 90
 
-# Email Settings (اختياري)
+# Email Settings (optional)
 SMTP_SERVER = os.getenv("SMTP_SERVER", "")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USERNAME = os.getenv("SMTP_USERNAME", "")
