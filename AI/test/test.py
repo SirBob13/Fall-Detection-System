@@ -16,9 +16,6 @@ from sklearn.metrics import (accuracy_score, precision_score, recall_score,
                            f1_score, confusion_matrix, classification_report,
                            roc_auc_score, roc_curve)
 import json
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
 from datetime import datetime
 import warnings
 warnings.filterwarnings('ignore')
@@ -181,7 +178,7 @@ def prepare_data(num_samples=5000):
     # Convert to numeric
     for col in df.columns:
         df[col] = pd.to_numeric(df[col], errors='coerce')
-    df = df.fillna(method='ffill').fillna(method='bfill').fillna(0)
+    df = df.ffill().bfill().fillna(0)
     
     # Extract sensor data - SAME COLUMNS AS TRAINING
     df['WristAccelerometer_x'] = df.iloc[:, 29]  # Column 29
@@ -384,7 +381,7 @@ def main():
             print(f"✅ Features: {expected_features} (Enhanced)")
             print(f"✅ Test Samples: {len(X_test)}")
             print(f"✅ Fall Now Accuracy: {results['fall_now']['accuracy']*100:.1f}%")
-            print(f"✅ Fall Soon Accuracy: {results['fall_now']['accuracy']*100:.1f}%")
+            print(f"✅ Fall Soon Accuracy: {results['fall_soon']['accuracy']*100:.1f}%")
             
             # Compare with training results
             if results['fall_now']['accuracy'] >= 0.95:

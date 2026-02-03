@@ -164,7 +164,7 @@ def load_and_preprocess_data(filepath):
     for col in df.columns:
         df[col] = pd.to_numeric(df[col], errors='coerce')
     
-    df = df.fillna(method='ffill').fillna(method='bfill').fillna(0)
+    df = df.ffill().bfill().fillna(0)
     
     # Extract sensor data (using column indices from your dataset)
     df['WristAccelerometer_x'] = df.iloc[:, 29]  # Column 29

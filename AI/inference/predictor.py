@@ -45,9 +45,17 @@ def calculate_features(buffer):
     acc_mag = np.sqrt(acc_x**2 + acc_y**2 + acc_z**2)
     gyro_mag = np.sqrt(gx**2 + gy**2 + gz**2)
 
-    # VARIANCE
-    acc_var = (np.var(acc_x) + np.var(acc_y) + np.var(acc_z)) / 3
-    gyro_var = (np.var(gx) + np.var(gy) + np.var(gz)) / 3
+    # VARIANCE (match training: rolling window=10, sample variance)
+    var_window = buf[-VAR_WINDOW:] if len(buf) >= VAR_WINDOW else buf
+    acc_x_w, acc_y_w, acc_z_w = var_window[:, 0], var_window[:, 1], var_window[:, 2]
+    gx_w, gy_w, gz_w = var_window[:, 3], var_window[:, 4], var_window[:, 5]
+
+    if len(acc_x_w) < 2:
+        acc_var = 0.0
+        gyro_var = 0.0
+    else:
+        acc_var = (np.var(acc_x_w, ddof=1) + np.var(acc_y_w, ddof=1) + np.var(acc_z_w, ddof=1)) / 3
+        gyro_var = (np.var(gx_w, ddof=1) + np.var(gy_w, ddof=1) + np.var(gz_w, ddof=1)) / 3
 
     # ENERGY
     acc_energy = acc_x[-1]**2 + acc_y[-1]**2 + acc_z[-1]**2
@@ -69,8 +77,8 @@ def calculate_features(buffer):
     # SMA
     acc_sma = abs(acc_x[-1]) + abs(acc_y[-1]) + abs(acc_z[-1])
 
-    # STD
-    acc_std = np.std([acc_x[-1], acc_y[-1], acc_z[-1]])
+    # STD (match training: sample std)
+    acc_std = np.std([acc_x[-1], acc_y[-1], acc_z[-1]], ddof=1)
 
     return np.array([
         acc_x[-1], acc_y[-1], acc_z[-1],

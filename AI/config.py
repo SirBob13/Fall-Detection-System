@@ -22,6 +22,7 @@ SCALER_PATH = os.path.join(
 # =========================
 TIME_STEPS = 100
 STEP_SIZE = 5
+VAR_WINDOW = 10
 
 # =========================
 # Features (ENHANCED – 16)
