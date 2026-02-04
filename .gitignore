@@ -3,5 +3,8 @@
 __pycache__/
 *.pyc
 .DS_Store.venv/
-
-
+.codex/
+.github
+.gitignore
+DS_Store
+.DS_Store

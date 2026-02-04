@@ -3,6 +3,7 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Provider } from 'react-redux';
 import { PersistGate } from 'redux-persist/integration/react';
 import { store, persistor } from './src/store/store';
+import './global.css';
 import {
   ActivityIndicator,
   View,
@@ -33,7 +34,6 @@ import { SessionTimeout } from './src/components/SessionTimeout';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { LoadingScreen } from './src/components/LoadingScreen';
 import { API_CONFIG } from './src/config/app.config';
-import './global.css';
 
 // الخطوط المخصصة للتطبيق
 const customFonts = {
@@ -398,7 +398,7 @@ export default function App() {
                 />
                 
                 {/* التنقل الرئيسي للتطبيق */}
-                <View className="flex-1 bg-light">
+                <View className="flex-1 bg-light" style={{ flex: 1, backgroundColor: '#F5F5F5' }}>
                   <AppNavigator />
                 </View>
                 

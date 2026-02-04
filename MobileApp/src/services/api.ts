@@ -20,6 +20,25 @@ class ApiService {
     });
   }
 
+  private normalizeAlert(raw: any, userId?: number): Alert {
+    const status = raw?.status === 'active' ? 'pending' : raw?.status;
+
+    return {
+      id: raw?.id,
+      user_id: raw?.user_id ?? userId ?? 0,
+      prediction_id: raw?.prediction_id ?? undefined,
+      timestamp: raw?.timestamp,
+      alert_type: raw?.alert_type || raw?.type || 'fall',
+      severity: raw?.severity || 'medium',
+      message: raw?.message || '',
+      status: status || 'pending',
+      sent_to: raw?.sent_to,
+      acknowledged_by: raw?.acknowledged_by,
+      acknowledged_at: raw?.acknowledged_at,
+      resolved_at: raw?.resolved_at,
+    };
+  }
+
   // Health Check
   async healthCheck(): Promise<ApiResponse<{
     status: string;
@@ -45,8 +64,10 @@ class ApiService {
   // User APIs - NO MOCK DATA
   async getUser(userId: number): Promise<ApiResponse<User>> {
     try {
-      const response: AxiosResponse<ApiResponse<User>> = await this.client.get(`/users/${userId}`);
-      return response.data;
+      const response = await this.client.get(`/users/${userId}`);
+      const payload = response.data;
+      const user = payload?.data ?? payload?.user ?? payload;
+      return { success: payload?.success ?? true, data: user };
     } catch (error: any) {
       console.error('❌ Error getting user:', error.message);
       return {
@@ -60,11 +81,10 @@ class ApiService {
   // ✅ التوابع الجديدة المطلوبة
   async updateUser(userId: number, userData: Partial<User>): Promise<ApiResponse<User>> {
     try {
-      const response: AxiosResponse<ApiResponse<User>> = await this.client.put(
-        `/users/${userId}`, 
-        userData
-      );
-      return response.data;
+      const response = await this.client.put(`/users/${userId}`, userData);
+      const payload = response.data;
+      const user = payload?.data ?? payload?.user ?? payload;
+      return { success: payload?.success ?? true, data: user, message: payload?.message };
     } catch (error: any) {
       console.error('❌ Error updating user:', error.message);
       return {
@@ -80,7 +100,7 @@ class ApiService {
       const response = await this.client.get('/stats');
       return { 
         success: true, 
-        data: response.data 
+        data: response.data?.data ?? response.data 
       };
     } catch (error: any) {
       console.error('❌ Error getting system stats:', error.message);
@@ -98,10 +118,15 @@ class ApiService {
     limit: number = 5
   ): Promise<ApiResponse<Alert[]>> {
     try {
-      const response: AxiosResponse<ApiResponse<Alert[]>> = await this.client.get(
-        `/users/${userId}/alerts?limit=${limit}`
-      );
-      return response.data;
+      const response = await this.client.get(`/alerts/${userId}?limit=${limit}`);
+      const payload = response.data;
+      const rawAlerts = Array.isArray(payload?.alerts)
+        ? payload.alerts
+        : Array.isArray(payload?.data)
+        ? payload.data
+        : [];
+      const alerts = rawAlerts.map((alert: any) => this.normalizeAlert(alert, userId));
+      return { success: payload?.success ?? true, data: alerts };
     } catch (error: any) {
       console.error('❌ Error getting alerts:', error.message);
       return {
@@ -151,16 +176,48 @@ class ApiService {
   // Device APIs - NO MOCK DATA
   async getDevice(deviceId: string): Promise<ApiResponse<Device>> {
     try {
-      const response: AxiosResponse<ApiResponse<Device>> = await this.client.get(
-        `/devices/${deviceId}`
-      );
-      return response.data;
+      const response = await this.client.get(`/devices/${deviceId}`);
+      const payload = response.data;
+      const device = payload?.data ?? payload?.device ?? payload;
+      return { success: payload?.success ?? true, data: device };
     } catch (error: any) {
       console.error('❌ Error getting device:', error.message);
       return {
         success: false,
         error: error.message,
         message: 'فشل تحميل بيانات الجهاز'
+      };
+    }
+  }
+
+  async getUserDevice(userId: number): Promise<ApiResponse<Device>> {
+    try {
+      const response = await this.client.get(`/devices/user/${userId}`);
+      const payload = response.data;
+      const device = payload?.data ?? payload?.device ?? payload;
+      return { success: payload?.success ?? true, data: device };
+    } catch (error: any) {
+      console.error('❌ Error getting user device:', error.message);
+      return {
+        success: false,
+        error: error.message,
+        message: 'فشل تحميل بيانات الجهاز'
+      };
+    }
+  }
+
+  async getUserPredictions(userId: number, limit: number = 1): Promise<ApiResponse<Prediction[]>> {
+    try {
+      const response = await this.client.get(`/predictions/${userId}?limit=${limit}`);
+      const payload = response.data;
+      const data = Array.isArray(payload?.data) ? payload.data : [];
+      return { success: payload?.success ?? true, data };
+    } catch (error: any) {
+      console.error('❌ Error getting predictions:', error.message);
+      return {
+        success: false,
+        error: error.message,
+        message: 'فشل تحميل التنبؤات'
       };
     }
   }

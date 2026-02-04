@@ -41,23 +41,8 @@ export const SessionTimeout: React.FC<SessionTimeoutProps> = ({
 
     const subscription = AppState.addEventListener('change', handleAppStateChange);
     
-    // تحديث النشاط عند التفاعل مع الشاشة
-    const updateActivity = () => {
-      lastActivity.current = Date.now();
-      authService.updateLastActivity();
-    };
-
-    // استمع لأحداث اللمس
-    const events = ['touchstart', 'mousedown', 'keydown'];
-    events.forEach(event => {
-      document.addEventListener(event, updateActivity);
-    });
-
     return () => {
       subscription.remove();
-      events.forEach(event => {
-        document.removeEventListener(event, updateActivity);
-      });
     };
   }, [timeoutMinutes, onTimeout]);
 

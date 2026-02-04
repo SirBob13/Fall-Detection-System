@@ -2,6 +2,8 @@
 module.exports = function(api) {
   api.cache(true);
   return {
-    presets: ['babel-preset-expo'],
+    // NativeWind must run last to set the JSX importSource
+    presets: ['babel-preset-expo', 'nativewind/babel'],
+    plugins: [],
   };
 };

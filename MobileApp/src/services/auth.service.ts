@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
 import { Platform, Alert } from 'react-native';
+import * as LocalAuthentication from 'expo-local-authentication';
 import { API_CONFIG } from '../utils/constants';
 import { AUTH_CONFIG } from '../constants/auth';
 import { 
@@ -11,7 +12,8 @@ import {
   SessionData,
   AccountStatus,
   UserSession,
-  BiometricData
+  BiometricData,
+  SocialLoginData
 } from '../types/auth';
 
 // ==================== Types Enhancements ====================
@@ -126,6 +128,8 @@ class AuthService {
   private readonly CONNECTION_CACHE_DURATION = 60000; // 1 minute
   private connectionCheckInProgress: boolean = false;
   private sessionMonitorInterval: NodeJS.Timeout | null = null;
+  private sessionTimeoutListeners: Set<() => void> = new Set();
+  private authStateListeners: Set<(isAuthenticated: boolean) => void> = new Set();
 
   private constructor() {
     this.baseURL = `${API_CONFIG.BASE_URL}/auth`;
@@ -282,6 +286,13 @@ class AuthService {
         
         if (!validation.isValid) {
           console.log('🔄 [Session Monitor] Session invalid, triggering refresh...');
+          this.sessionTimeoutListeners.forEach((listener) => {
+            try {
+              listener();
+            } catch (err) {
+              console.warn('⚠️ [Session Monitor] Listener error:', err);
+            }
+          });
           // Emit event for UI refresh
           // EventEmitter.emit('session-expired');
           
@@ -308,6 +319,34 @@ class AuthService {
       this.sessionMonitorInterval = null;
       console.log('👁️ [Session Monitor] Stopped');
     }
+  }
+
+  onSessionTimeout(listener: () => void): { remove: () => void } {
+    this.sessionTimeoutListeners.add(listener);
+    return {
+      remove: () => {
+        this.sessionTimeoutListeners.delete(listener);
+      }
+    };
+  }
+
+  onAuthStateChanged(listener: (isAuthenticated: boolean) => void): { remove: () => void } {
+    this.authStateListeners.add(listener);
+    return {
+      remove: () => {
+        this.authStateListeners.delete(listener);
+      }
+    };
+  }
+
+  private emitAuthState(isAuthenticated: boolean): void {
+    this.authStateListeners.forEach((listener) => {
+      try {
+        listener(isAuthenticated);
+      } catch (error) {
+        console.warn('⚠️ [Auth State] Listener error:', error);
+      }
+    });
   }
 
   /**
@@ -600,9 +639,11 @@ class AuthService {
       console.log('🔍 [Connection] Checking database connection...');
       
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const timeoutMs = Math.max(API_CONFIG.TIMEOUT, 8000);
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      const healthBase = API_CONFIG.BASE_URL.replace(/\/auth$/, '');
       
-      const response = await fetch(`${API_CONFIG.BASE_URL.replace('/auth', '')}/health`, {
+      const response = await fetch(`${healthBase}/health`, {
         method: 'GET',
         headers: {
           'Accept': 'application/json',
@@ -628,7 +669,13 @@ class AuthService {
       
       return isConnected;
       
-    } catch (error) {
+    } catch (error: any) {
+      const message = error?.message || '';
+      const isAbort = error?.name === 'AbortError' || message.includes('Abort');
+      if (isAbort && this.lastConnectionCheck > 0) {
+        console.warn('⚠️ [Connection] Health check timed out, using last known status');
+        return true;
+      }
       console.error('❌ Connection check failed:', error);
       return false;
     } finally {
@@ -687,10 +734,7 @@ class AuthService {
       // Quick connection check (without long wait)
       const isConnected = await this.testDatabaseConnection();
       if (!isConnected) {
-        return {
-          success: false,
-          message: 'Cannot connect to database server. Please check your internet connection.',
-        };
+        console.warn('⚠️ [Register] Connection check failed, attempting registration anyway');
       }
 
       // Quick email existence check
@@ -704,19 +748,25 @@ class AuthService {
       }
 
       // Prepare registration payload
-      const registerPayload = {
+      const registerPayload: Record<string, any> = {
         name: userData.name,
         email: userData.email,
         phone: userData.phone || '',
         password: userData.password,
         confirm_password: userData.confirm_password,
-        age: userData.age || null,
-        gender: userData.gender || null,
-        weight: userData.weight || null,
-        height: userData.height || null,
+        age: userData.age ?? undefined,
+        gender: userData.gender ?? undefined,
         medical_conditions: userData.medical_conditions || '',
         emergency_contact: userData.emergency_contact || '',
       };
+
+      if (typeof userData.weight === 'number' && Number.isFinite(userData.weight)) {
+        registerPayload.weight = userData.weight;
+      }
+
+      if (typeof userData.height === 'number' && Number.isFinite(userData.height)) {
+        registerPayload.height = userData.height;
+      }
 
       console.log('📤 [Register] Sending registration request...');
       
@@ -789,6 +839,16 @@ class AuthService {
         // Start session monitoring
         this.startSessionMonitor();
 
+        // Invalidate cached email existence and auth/session checks
+        if (userData.email) {
+          this.invalidateCache(`user-exists-${userData.email}`);
+        }
+        this.invalidateCache('load-session');
+        this.invalidateCache('check-authentication');
+
+        // Notify listeners that auth state changed
+        this.emitAuthState(true);
+
         console.log('✅ [Register] Registration successful, session saved');
         
         return {
@@ -824,10 +884,7 @@ class AuthService {
       // Quick connection check
       const isConnected = await this.testDatabaseConnection();
       if (!isConnected) {
-        return {
-          success: false,
-          message: 'Cannot connect to database server. Please try again later.',
-        };
+        console.warn('⚠️ [Login] Connection check failed, attempting login anyway');
       }
 
       console.log('📤 [Login] Sending login request...');
@@ -904,6 +961,9 @@ class AuthService {
         // Start session monitoring
         this.startSessionMonitor();
 
+        // Notify listeners that auth state changed
+        this.emitAuthState(true);
+
         console.log('✅ [Login] Login successful, session saved');
         
         return {
@@ -922,6 +982,105 @@ class AuthService {
     } catch (error: any) {
       console.error('❌ [Login] Error:', error);
       
+      return {
+        success: false,
+        message: `Connection error: ${error.message || 'Unknown'}`,
+        error: error.message,
+      };
+    }
+  }
+
+  // ==================== Social Login ====================
+
+  async socialLogin(data: SocialLoginData): Promise<AuthResponse> {
+    try {
+      console.log(`🔐 [Social Login] Starting ${data.provider} login...`);
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+      const response = await fetch(`${this.baseURL}/social-login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({
+          provider: data.provider,
+          token: data.token,
+          user_info: data.user_info,
+        }),
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      console.log('📡 [Social Login] Response status:', response.status);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ [Social Login] Failed:', errorText);
+
+        let errorMessage = 'Social login failed';
+        try {
+          const errorData = JSON.parse(errorText);
+          errorMessage = errorData.detail || errorData.message || errorMessage;
+        } catch {
+          errorMessage = `HTTP ${response.status}: ${errorText.substring(0, 100)}`;
+        }
+
+        return {
+          success: false,
+          message: errorMessage,
+        };
+      }
+
+      const result = await response.json();
+      console.log('✅ [Social Login] Response received');
+
+      if (result.success && result.access_token && result.user) {
+        const session: SessionData = {
+          user: {
+            id: result.user.id?.toString() || '',
+            email: result.user.email,
+            name: result.user.name,
+            phone: result.user.phone,
+            age: result.user.age,
+            gender: result.user.gender,
+            weight: result.user.weight,
+            height: result.user.height,
+            medical_conditions: result.user.medical_conditions,
+            emergency_contact: result.user.emergency_contact,
+            created_at: result.user.created_at,
+            updated_at: result.user.updated_at,
+            is_active: result.user.is_active || true,
+            email_verified: result.user.email_verified || false,
+            phone_verified: result.user.phone_verified || false
+          },
+          token: result.access_token,
+          refresh_token: result.refresh_token || result.access_token,
+          expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        };
+
+        await this.saveSession(session);
+        await this.updateLastActivity();
+        this.startSessionMonitor();
+        this.emitAuthState(true);
+
+        return {
+          success: true,
+          user: session.user,
+          token: result.access_token,
+          message: result.message || 'Social login successful',
+        };
+      }
+
+      return {
+        success: false,
+        message: result.message || 'Social login failed',
+      };
+    } catch (error: any) {
+      console.error('❌ [Social Login] Error:', error);
       return {
         success: false,
         message: `Connection error: ${error.message || 'Unknown'}`,
@@ -1100,6 +1259,9 @@ class AuthService {
       
       // Clear session locally
       await this.clearSession();
+
+      // Notify listeners that auth state changed
+      this.emitAuthState(false);
       
       // Clear cache
       this.requestManager.clearCache();
@@ -1125,6 +1287,7 @@ class AuthService {
       await AsyncStorage.removeItem(AUTH_CONFIG.STORAGE_KEYS.LOGIN_ATTEMPTS);
       await AsyncStorage.removeItem(AUTH_CONFIG.STORAGE_KEYS.LAST_ACTIVITY);
       console.log('✅ [Session] Session cleared');
+      this.emitAuthState(false);
     } catch (error) {
       console.error('❌ [Session] Error clearing:', error);
     }
@@ -1138,20 +1301,88 @@ class AuthService {
   // ==================== Helper Functions ====================
   
   async checkBiometricSupport(): Promise<BiometricData> {
-    // This function is for compatibility with systems that support biometrics
-    return {
-      isAvailable: false,
-      biometryType: undefined,
-      keysExist: false
-    };
+    try {
+      const hasHardware = await LocalAuthentication.hasHardwareAsync();
+      const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+      const supportedTypes = await LocalAuthentication.supportedAuthenticationTypesAsync();
+
+      let biometryType: BiometricData['biometryType'] = undefined;
+      if (supportedTypes.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)) {
+        biometryType = 'FaceID';
+      } else if (supportedTypes.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)) {
+        biometryType = 'TouchID';
+      } else if (supportedTypes.length > 0) {
+        biometryType = 'Biometrics';
+      }
+
+      const session = await this.loadSession();
+      const hasValidSession = session ? this.isSessionValid(session) : false;
+
+      return {
+        isAvailable: hasHardware && isEnrolled && hasValidSession,
+        biometryType,
+        keysExist: hasValidSession
+      };
+    } catch (error) {
+      console.warn('⚠️ [Biometric] Support check failed:', error);
+      return {
+        isAvailable: false,
+        biometryType: undefined,
+        keysExist: false
+      };
+    }
   }
 
   async authenticateWithBiometrics(): Promise<AuthResponse> {
-    // Currently biometric authentication is not supported
-    return {
-      success: false,
-      message: 'Biometric authentication is not currently supported'
-    };
+    try {
+      const hasHardware = await LocalAuthentication.hasHardwareAsync();
+      const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+
+      if (!hasHardware || !isEnrolled) {
+        return {
+          success: false,
+          message: 'Biometric authentication is not available on this device'
+        };
+      }
+
+      const authResult = await LocalAuthentication.authenticateAsync({
+        promptMessage: 'Authenticate to continue',
+        fallbackLabel: 'Use Passcode',
+        cancelLabel: 'Cancel',
+      });
+
+      if (!authResult.success) {
+        return {
+          success: false,
+          message: authResult.error || 'Biometric authentication failed'
+        };
+      }
+
+      const session = await this.loadSession();
+      if (!session || !this.isSessionValid(session)) {
+        await this.clearSession();
+        return {
+          success: false,
+          message: 'No valid session found. Please login with your password first.'
+        };
+      }
+
+      this.currentSession = session;
+      this.emitAuthState(true);
+
+      return {
+        success: true,
+        user: session.user,
+        token: session.token,
+        message: 'Biometric authentication successful'
+      };
+    } catch (error: any) {
+      console.error('❌ [Biometric] Error:', error);
+      return {
+        success: false,
+        message: error?.message || 'Biometric authentication failed'
+      };
+    }
   }
 
   async forgotPassword(email: string): Promise<AuthResponse> {

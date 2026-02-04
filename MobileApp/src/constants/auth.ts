@@ -26,6 +26,7 @@ export const AUTH_CONFIG = {
   // مسارات API
   ENDPOINTS: {
     LOGIN: '/auth/login',
+    SOCIAL_LOGIN: '/auth/social-login',
     REGISTER: '/auth/register',
     LOGOUT: '/auth/logout',
     REFRESH_TOKEN: '/auth/refresh',

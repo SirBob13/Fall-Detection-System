@@ -32,6 +32,7 @@ export class AnalyticsService {
   private queue: AnalyticsEvent[] = [];
   private sessionId: string;
   private deviceInfo: DeviceInfo;
+  private userProperties: Record<string, any> = {};
   private config: AnalyticsConfig = {
     enabled: true,
     flushInterval: 30000, // 30 seconds
@@ -155,12 +156,26 @@ export class AnalyticsService {
   }
 
   private async flush(): Promise<void> {
+    if (!this.config.enabled) return;
     if (this.queue.length === 0) return;
 
     const eventsToSend = [...this.queue];
     this.queue = [];
 
     try {
+      // Skip flushing if server URL is not configured (common in dev)
+      if (
+        !this.config.serverUrl ||
+        this.config.serverUrl.includes('analytics.example.com')
+      ) {
+        if (this.config.debug) {
+          console.warn('📊 [Analytics] Server URL not configured, skipping flush');
+        }
+        // Re-queue events to avoid losing data
+        this.queue = [...eventsToSend, ...this.queue];
+        return;
+      }
+
       // Check network connectivity
       const isConnected = await networkService.checkConnectivity();
       if (!isConnected) {
@@ -193,7 +208,10 @@ export class AnalyticsService {
         console.log(`📊 [Analytics] Flushed ${eventsToSend.length} events`);
       }
     } catch (error) {
-      console.error('Analytics flush error:', error);
+      // Avoid red-screen in dev for non-critical analytics failures
+      if (this.config.debug) {
+        console.warn('📊 [Analytics] Flush failed:', error);
+      }
       
       // Re-queue events on failure
       this.queue = [...eventsToSend, ...this.queue];
@@ -241,6 +259,14 @@ export class AnalyticsService {
   setUserId(userId: string): void {
     // Track user identification
     this.track('user_identified', { user_id: userId }, userId);
+  }
+
+  setUserProperties(properties: Record<string, any>): void {
+    if (!properties || typeof properties !== 'object') return;
+    this.userProperties = { ...this.userProperties, ...properties };
+
+    // Track user properties update (non-blocking)
+    this.track('user_properties_updated', { ...this.userProperties });
   }
 
   async flushImmediately(): Promise<void> {

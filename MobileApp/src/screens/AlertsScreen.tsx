@@ -6,6 +6,7 @@ import {
   RefreshControl,
   Alert as RNAlert,
   SafeAreaView,
+  TouchableOpacity,
 } from 'react-native';
 import { AlertCard } from '../components/AlertCard';
 import { apiService } from '../services/api';
@@ -96,6 +97,35 @@ export const AlertsScreen: React.FC = () => {
         },
       ]
     );
+  };
+
+  const handleAcknowledge = async (alertId: number) => {
+    try {
+      const user = await storageService.getUser();
+      const response = await apiService.acknowledgeAlert(alertId, user?.name || 'user');
+      if (response.success) {
+        RNAlert.alert('Success', 'Alert acknowledged');
+        await loadAlerts();
+      } else {
+        RNAlert.alert('Error', response.message || 'Failed to acknowledge alert');
+      }
+    } catch (error) {
+      RNAlert.alert('Error', 'An error occurred while acknowledging alert');
+    }
+  };
+
+  const handleResolve = async (alertId: number) => {
+    try {
+      const response = await apiService.resolveAlert(alertId);
+      if (response.success) {
+        RNAlert.alert('Success', 'Alert resolved');
+        await loadAlerts();
+      } else {
+        RNAlert.alert('Error', response.message || 'Failed to resolve alert');
+      }
+    } catch (error) {
+      RNAlert.alert('Error', 'An error occurred while resolving alert');
+    }
   };
 
   const stats = getAlertStats();
@@ -219,14 +249,8 @@ export const AlertsScreen: React.FC = () => {
               <View key={alert.id} className={`mb-3 ${index > 0 ? 'mt-3' : ''}`}>
                 <AlertCard
                   alert={alert}
-                  onAcknowledge={() => {
-                    // Handle acknowledge
-                    RNAlert.alert('Success', 'Alert acknowledged');
-                  }}
-                  onResolve={() => {
-                    // Handle resolve
-                    RNAlert.alert('Success', 'Alert resolved');
-                  }}
+                  onAcknowledge={() => handleAcknowledge(alert.id)}
+                  onResolve={() => handleResolve(alert.id)}
                 />
               </View>
             ))}
@@ -294,6 +318,3 @@ export const AlertsScreen: React.FC = () => {
     </SafeAreaView>
   );
 };
-
-// We need to import TouchableOpacity
-import { TouchableOpacity } from 'react-native';

@@ -40,7 +40,10 @@ export const HomeScreen: React.FC = () => {
   const loadData = async () => {
     try {
       const storedUser = await storageService.getUser();
+      const storedDevice = await storageService.getDevice();
+
       setUser(storedUser);
+      setDevice(storedDevice);
       
       // If there is a user, try to load data
       if (storedUser) {
@@ -51,6 +54,17 @@ export const HomeScreen: React.FC = () => {
             setConnectionError(false);
           } else {
             setConnectionError(true);
+          }
+
+          const deviceResponse = await apiService.getUserDevice(storedUser.id);
+          if (deviceResponse.success && deviceResponse.data) {
+            setDevice(deviceResponse.data);
+            await storageService.saveDevice(deviceResponse.data);
+          }
+
+          const predictionResponse = await apiService.getUserPredictions(storedUser.id, 1);
+          if (predictionResponse.success && predictionResponse.data && predictionResponse.data.length > 0) {
+            setLastPrediction(predictionResponse.data[0]);
           }
         } catch (apiError) {
           console.warn('⚠️ (Background) Error loading data:', apiError);

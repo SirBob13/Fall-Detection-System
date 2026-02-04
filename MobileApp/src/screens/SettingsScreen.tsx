@@ -15,6 +15,7 @@ import { useLanguage } from '../components/LanguageProvider';
 import { apiService } from '../services/api';
 import { storageService } from '../services/storage';
 import { notificationService } from '../services/notifications';
+import { authService } from '../services/auth.service';
 import { User, Device } from '../types';
 
 type SettingsScreenNavigationProp = StackNavigationProp<any>;
@@ -40,11 +41,29 @@ export const SettingsScreen: React.FC = () => {
   }, []);
 
   const loadData = async () => {
-    const storedUser = await storageService.getUser();
+    const sessionUser = await authService.getCurrentUser();
+    const normalizedSessionUser = sessionUser
+      ? ({
+          id: Number(sessionUser.id ?? 0),
+          name: sessionUser.name || '',
+          age: sessionUser.age ?? 0,
+          gender: (sessionUser.gender as User['gender']) || 'other',
+          weight: sessionUser.weight,
+          height: sessionUser.height,
+          medical_conditions: sessionUser.medical_conditions,
+          emergency_contact: sessionUser.emergency_contact,
+          is_active: sessionUser.is_active ?? true,
+          created_at: sessionUser.created_at || new Date().toISOString(),
+        } as User)
+      : null;
+    const storedUser = normalizedSessionUser || (await storageService.getUser());
     const storedDevice = await storageService.getDevice();
     const storedSettings = await storageService.getSettings();
 
     setUser(storedUser);
+    if (normalizedSessionUser) {
+      await storageService.saveUser(normalizedSessionUser);
+    }
     setDevice(storedDevice);
     if (storedSettings) {
       setSettings(storedSettings);
@@ -90,11 +109,8 @@ export const SettingsScreen: React.FC = () => {
           text: t('settings.logout'),
           style: 'destructive',
           onPress: async () => {
+            await authService.logout();
             await storageService.clearAll();
-            navigation.reset({
-              index: 0,
-              routes: [{ name: 'Login' }],
-            });
           },
         },
       ]
@@ -251,15 +267,11 @@ export const SettingsScreen: React.FC = () => {
             )}
           </View>
         ) : (
-          <TouchableOpacity 
-            className="btn-primary mx-4"
-            onPress={() => navigation.navigate('Login')}
-            activeOpacity={0.7}
-          >
-            <Text className="btn-primary-text">
-              {t('auth.login.title')}
+          <View className="card">
+            <Text className="text-sm text-gray">
+              Profile data will appear here.
             </Text>
-          </TouchableOpacity>
+          </View>
         )}
       </View>
       

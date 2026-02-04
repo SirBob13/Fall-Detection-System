@@ -5,7 +5,6 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { ActivityIndicator, View, Text, AppState, Alert } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
 
 import { AUTH_CONFIG } from '../constants/auth';
 import { authService } from '../services/auth.service';
@@ -437,15 +436,26 @@ export const AppNavigator: React.FC = () => {
     };
   }, []);
 
-  // Check session on focus (when returning to auth screens)
-  useFocusEffect(
-    React.useCallback(() => {
-      if (!isAuthenticated && !isLoading) {
-        console.log('🔍 [Focus] Checking auth on screen focus...');
-        checkAuthentication(true);
+  // Listen for auth state changes (login/logout)
+  useEffect(() => {
+    const listener = authService.onAuthStateChanged(async (authed) => {
+      setIsAuthenticated(authed);
+      if (authed) {
+        const session = await authService.loadSession();
+        if (session?.user) {
+          analyticsService.setUserId(session.user.id);
+          analyticsService.setUserProperties({
+            email: session.user.email,
+            isAuthenticated: true,
+          });
+        }
       }
-    }, [isAuthenticated, isLoading])
-  );
+    });
+
+    return () => {
+      listener?.remove?.();
+    };
+  }, []);
 
   // Handle authentication state changes
   useEffect(() => {

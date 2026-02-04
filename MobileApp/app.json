@@ -3,6 +3,7 @@
     "name": "Fall Detection",
     "slug": "fall-detection-app",
     "version": "1.0.0",
+    "scheme": "fall-detection",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -17,6 +18,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.falldetection.app",
+      "usesAppleSignIn": true,
       "infoPlist": {
         "NSContactsUsageDescription": "يحتاج التطبيق للوصول إلى جهات الاتصال لاستيراد جهات الاتصال الطارئة.",
         "NSLocationWhenInUseUsageDescription": "يحتاج التطبيق للوصول إلى موقعك لإرسال الموقع في حالات الطوارئ.",
@@ -53,16 +55,27 @@
       "expo-location",
       "expo-contacts",
       "expo-notifications",
+      "expo-apple-authentication",
       [
         "expo-camera",
         {
           "cameraPermission": "يحتاج التطبيق للوصول إلى الكاميرا لمسح الرمز الشريطي للجهاز."
         }
-      ]
+      ],
+      "expo-web-browser"
     ],
     "extra": {
       "eas": {
         "projectId": "d33adc67-9b40-45a7-ba77-c1f3907a62ab"
+      },
+      "apiUrl": "https://neighbor-motor-melissa-facility.trycloudflare.com",
+      "googleAuth": {
+        "expoClientId": "967093516556-bhrjudajc066pv4paajmgv3h8ii8n091.apps.googleusercontent.com",
+        "iosClientId": "967093516556-5onccjasolmtq8lhhs15v1onhau68lau.apps.googleusercontent.com",
+        "androidClientId": "967093516556-k36474nr0kmuccoaaudln9nbgbgk13db.apps.googleusercontent.com"
+      },
+      "appleAuth": {
+        "clientId": ""
       }
     },
     "runtimeVersion": {

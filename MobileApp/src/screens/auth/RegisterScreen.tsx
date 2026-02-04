@@ -28,11 +28,59 @@ type AuthStackParamList = {
 
 type RegisterScreenNavigationProp = StackNavigationProp<AuthStackParamList, 'Register'>;
 
+const ARABIC_DIGITS_MAP: Record<string, string> = {
+  '٠': '0',
+  '١': '1',
+  '٢': '2',
+  '٣': '3',
+  '٤': '4',
+  '٥': '5',
+  '٦': '6',
+  '٧': '7',
+  '٨': '8',
+  '٩': '9',
+};
+
+const EASTERN_ARABIC_DIGITS_MAP: Record<string, string> = {
+  '۰': '0',
+  '۱': '1',
+  '۲': '2',
+  '۳': '3',
+  '۴': '4',
+  '۵': '5',
+  '۶': '6',
+  '۷': '7',
+  '۸': '8',
+  '۹': '9',
+};
+
+const normalizeToEnglishDigits = (value: string): string => {
+  if (!value) return '';
+  return value
+    .replace(/[٠-٩]/g, (digit) => ARABIC_DIGITS_MAP[digit] ?? digit)
+    .replace(/[۰-۹]/g, (digit) => EASTERN_ARABIC_DIGITS_MAP[digit] ?? digit);
+};
+
+const normalizeTextInput = (value: string): string => normalizeToEnglishDigits(value);
+
+const normalizeNumericInput = (value: string): string =>
+  normalizeToEnglishDigits(value).replace(/[^0-9]/g, '');
+
+const normalizePhoneInput = (value: string): string => {
+  let normalized = normalizeToEnglishDigits(value).replace(/[^\d+]/g, '');
+  if (normalized.includes('+')) {
+    normalized = normalized.replace(/(?!^)\+/g, '');
+  }
+  return normalized;
+};
+
 // Egyptian phone number validation function
 const validateEgyptianPhone = (phone: string): boolean => {
   if (!phone) return false;
-  const phoneRegex = /^(?:\+20|0)(1[0-2]|5)[0-9]{8}$/;
-  return phoneRegex.test(phone);
+  const normalized = normalizePhoneInput(phone);
+  // Egyptian mobile numbers: 010/011/012/015 + 8 digits
+  const phoneRegex = /^(?:\+20|0)1[0125]\d{8}$/;
+  return phoneRegex.test(normalized);
 };
 
 // Registration data validation schema
@@ -51,6 +99,15 @@ const RegisterSchema = Yup.object().shape({
     )
     .required('Phone number is required'),
   age: Yup.number()
+    .transform((value, originalValue) => {
+      if (originalValue === null || originalValue === undefined || originalValue === '') {
+        return undefined;
+      }
+      const normalized = normalizeNumericInput(String(originalValue));
+      if (!normalized) return NaN;
+      return Number(normalized);
+    })
+    .typeError('Age must be a number')
     .min(18, 'Age must be at least 18 years')
     .max(120, 'Invalid age')
     .required('Age is required'),
@@ -86,9 +143,22 @@ export const RegisterScreen: React.FC = () => {
   const handleRegister = async (values: RegisterData) => {
     try {
       setLoading(true);
+
+      const normalizedValues: RegisterData = {
+        ...values,
+        name: normalizeTextInput(values.name || '').trim(),
+        email: (values.email || '').trim(),
+        phone: normalizePhoneInput(values.phone || ''),
+        age: values.age ? Number(normalizeNumericInput(String(values.age))) : undefined,
+        gender: values.gender,
+        weight: values.weight ? Number(normalizeNumericInput(String(values.weight))) : undefined,
+        height: values.height ? Number(normalizeNumericInput(String(values.height))) : undefined,
+        medical_conditions: normalizeTextInput(values.medical_conditions || '').trim(),
+        emergency_contact: normalizePhoneInput(values.emergency_contact || ''),
+      };
       
       // Attempt registration
-      const response = await authService.register(values);
+      const response = await authService.register(normalizedValues);
       
       if (response.success) {
         Alert.alert(
@@ -102,6 +172,9 @@ export const RegisterScreen: React.FC = () => {
       } else {
         // User-friendly messages
         let userMessage = 'An error occurred during registration. Please try again.';
+        const shouldRedirectToLogin =
+          (response as any)?.shouldRedirectToLogin === true ||
+          response.message?.includes('already registered');
         
         if (response.message?.includes('already registered')) {
           userMessage = 'Email is already registered. You can login instead.';
@@ -110,8 +183,23 @@ export const RegisterScreen: React.FC = () => {
         } else if (response.message?.includes('connection')) {
           userMessage = 'Unable to connect to server. Please check internet connection and try again.';
         }
-        
-        Alert.alert('⚠️ Notice', userMessage);
+
+        Alert.alert(
+          '⚠️ Notice',
+          userMessage,
+          [
+            {
+              text: 'OK',
+              onPress: shouldRedirectToLogin
+                ? () =>
+                    navigation.navigate(
+                      'Login' as never,
+                      { prefilledEmail: normalizedValues.email } as never
+                    )
+                : undefined,
+            },
+          ]
+        );
       }
     } catch (error) {
       console.error('Technical error:', error);
@@ -243,7 +331,7 @@ export const RegisterScreen: React.FC = () => {
                       placeholder="Enter your full name"
                       placeholderTextColor="#BDBDBD"
                       value={values.name}
-                      onChangeText={handleChange('name')}
+                      onChangeText={(text) => setFieldValue('name', normalizeTextInput(text))}
                       onBlur={handleBlur('name')}
                       editable={!loading}
                     />
@@ -279,7 +367,7 @@ export const RegisterScreen: React.FC = () => {
                       placeholder="01012345678"
                       placeholderTextColor="#BDBDBD"
                       value={values.phone}
-                      onChangeText={handleChange('phone')}
+                      onChangeText={(text) => setFieldValue('phone', normalizePhoneInput(text))}
                       onBlur={handleBlur('phone')}
                       keyboardType="phone-pad"
                       editable={!loading}
@@ -292,57 +380,56 @@ export const RegisterScreen: React.FC = () => {
                     </Text>
                   </View>
 
-                  {/* Age and Gender Row */}
-                  <View className="flex-row mb-5">
-                    <View className="flex-1 mr-2">
-                      <Text className="input-label">Age</Text>
-                      <TextInput
-                        className={`input-field ${errors.age && touched.age ? 'border-danger' : ''}`}
-                        placeholder="30"
-                        placeholderTextColor="#BDBDBD"
-                        value={values.age}
-                        onChangeText={handleChange('age')}
-                        onBlur={handleBlur('age')}
-                        keyboardType="numeric"
-                        editable={!loading}
-                      />
-                      {errors.age && touched.age && (
-                        <Text className="error-text">{errors.age}</Text>
-                      )}
-                    </View>
+                  {/* Age Field */}
+                  <View className="mb-5">
+                    <Text className="input-label">Age</Text>
+                    <TextInput
+                      className={`input-field ${errors.age && touched.age ? 'border-danger' : ''}`}
+                      placeholder="30"
+                      placeholderTextColor="#BDBDBD"
+                      value={values.age}
+                      onChangeText={(text) => setFieldValue('age', normalizeNumericInput(text))}
+                      onBlur={handleBlur('age')}
+                      keyboardType="number-pad"
+                      editable={!loading}
+                    />
+                    {errors.age && touched.age && (
+                      <Text className="error-text">{errors.age}</Text>
+                    )}
+                  </View>
 
-                    <View className="flex-1 ml-2">
-                      <Text className="input-label">Gender</Text>
-                      <View className="flex-row">
-                        {genderOptions.map((gender) => (
-                          <TouchableOpacity
-                            key={gender.value}
-                            className={`flex-1 flex-row items-center justify-center py-3 mx-1 rounded-lg border ${
-                              values.gender === gender.value
-                                ? 'bg-primary border-primary'
-                                : 'bg-light border-lightGray'
-                            }`}
-                            onPress={() => setFieldValue('gender', gender.value)}
-                            disabled={loading}
-                            activeOpacity={0.7}
-                          >
-                            <MaterialIcons 
-                              name={gender.icon as any} 
-                              size={16} 
-                              color={values.gender === gender.value ? '#FFFFFF' : '#757575'} 
-                            />
-                            <Text className={`ml-2 text-sm font-medium ${
-                              values.gender === gender.value ? 'text-white' : 'text-dark'
-                            }`}>
-                              {gender.label}
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                      {errors.gender && touched.gender && (
-                        <Text className="error-text">{errors.gender}</Text>
-                      )}
+                  {/* Gender Field */}
+                  <View className="mb-5">
+                    <Text className="input-label">Gender</Text>
+                    <View className="flex-row">
+                      {genderOptions.map((gender) => (
+                        <TouchableOpacity
+                          key={gender.value}
+                          className={`flex-1 flex-row items-center justify-center py-3 mx-1 rounded-lg border ${
+                            values.gender === gender.value
+                              ? 'bg-primary border-primary'
+                              : 'bg-light border-lightGray'
+                          }`}
+                          onPress={() => setFieldValue('gender', gender.value)}
+                          disabled={loading}
+                          activeOpacity={0.7}
+                        >
+                          <MaterialIcons 
+                            name={gender.icon as any} 
+                            size={16} 
+                            color={values.gender === gender.value ? '#FFFFFF' : '#757575'} 
+                          />
+                          <Text className={`ml-2 text-sm font-medium ${
+                            values.gender === gender.value ? 'text-white' : 'text-dark'
+                          }`}>
+                            {gender.label}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
                     </View>
+                    {errors.gender && touched.gender && (
+                      <Text className="error-text">{errors.gender}</Text>
+                    )}
                   </View>
                 </View>
 
@@ -361,7 +448,7 @@ export const RegisterScreen: React.FC = () => {
                         placeholder="••••••••"
                         placeholderTextColor="#BDBDBD"
                         value={values.password}
-                        onChangeText={handleChange('password')}
+                        onChangeText={(text) => setFieldValue('password', normalizeTextInput(text))}
                         onBlur={handleBlur('password')}
                         secureTextEntry={!showPassword}
                         editable={!loading}
@@ -397,7 +484,7 @@ export const RegisterScreen: React.FC = () => {
                         placeholder="••••••••"
                         placeholderTextColor="#BDBDBD"
                         value={values.confirm_password}
-                        onChangeText={handleChange('confirm_password')}
+                        onChangeText={(text) => setFieldValue('confirm_password', normalizeTextInput(text))}
                         onBlur={handleBlur('confirm_password')}
                         secureTextEntry={!showConfirmPassword}
                         editable={!loading}
@@ -460,7 +547,7 @@ export const RegisterScreen: React.FC = () => {
                         placeholder="170"
                         placeholderTextColor="#BDBDBD"
                         value={values.height}
-                        onChangeText={handleChange('height')}
+                        onChangeText={(text) => setFieldValue('height', normalizeNumericInput(text))}
                         onBlur={handleBlur('height')}
                         keyboardType="numeric"
                         editable={!loading}
@@ -474,7 +561,7 @@ export const RegisterScreen: React.FC = () => {
                         placeholder="70"
                         placeholderTextColor="#BDBDBD"
                         value={values.weight}
-                        onChangeText={handleChange('weight')}
+                        onChangeText={(text) => setFieldValue('weight', normalizeNumericInput(text))}
                         onBlur={handleBlur('weight')}
                         keyboardType="numeric"
                         editable={!loading}
@@ -490,7 +577,7 @@ export const RegisterScreen: React.FC = () => {
                       placeholder="Emergency phone number"
                       placeholderTextColor="#BDBDBD"
                       value={values.emergency_contact}
-                      onChangeText={handleChange('emergency_contact')}
+                      onChangeText={(text) => setFieldValue('emergency_contact', normalizePhoneInput(text))}
                       onBlur={handleBlur('emergency_contact')}
                       keyboardType="phone-pad"
                       editable={!loading}
@@ -508,7 +595,7 @@ export const RegisterScreen: React.FC = () => {
                       placeholder="High blood pressure, diabetes, etc..."
                       placeholderTextColor="#BDBDBD"
                       value={values.medical_conditions}
-                      onChangeText={handleChange('medical_conditions')}
+                      onChangeText={(text) => setFieldValue('medical_conditions', normalizeTextInput(text))}
                       onBlur={handleBlur('medical_conditions')}
                       editable={!loading}
                       multiline

@@ -15,9 +15,16 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Formik } from 'formik';
 import * as Yup from 'yup';
 import { StackNavigationProp } from '@react-navigation/stack';
+import Constants from 'expo-constants';
+import * as WebBrowser from 'expo-web-browser';
+import * as AppleAuthentication from 'expo-apple-authentication';
+import * as Google from 'expo-auth-session/providers/google';
+import { jwtDecode } from 'jwt-decode';
 
 import { authService } from '../../services/auth.service';
 import { UserCredentials } from '../../types/auth';
+
+WebBrowser.maybeCompleteAuthSession();
 
 type RootStackParamList = {
   Auth: undefined;
@@ -44,10 +51,21 @@ export const LoginScreen: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [biometricLabel, setBiometricLabel] = useState('Login with Biometrics');
+  const [biometricIcon, setBiometricIcon] = useState<'fingerprint' | 'face-recognition' | 'shield-check'>('fingerprint');
+  const [appleAvailable, setAppleAvailable] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [email, setEmail] = useState(route.params?.prefilledEmail || '');
   const [databaseStatus, setDatabaseStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
   const [isCheckingConnection, setIsCheckingConnection] = useState(false);
+
+  const googleAuthConfig = Constants.expoConfig?.extra?.googleAuth || {};
+  const [googleRequest, googleResponse, googlePromptAsync] = Google.useIdTokenAuthRequest({
+    expoClientId: googleAuthConfig.expoClientId,
+    iosClientId: googleAuthConfig.iosClientId,
+    androidClientId: googleAuthConfig.androidClientId,
+    selectAccount: true,
+  });
   
   // Prevent duplicate actions
   const connectionCheckedRef = useRef(false);
@@ -60,7 +78,26 @@ export const LoginScreen: React.FC = () => {
     }
 
     checkBiometricSupport();
+    checkAppleAvailability();
   }, []);
+
+  useEffect(() => {
+    if (googleResponse?.type === 'success') {
+      const idToken = googleResponse.params?.id_token;
+      if (!idToken) {
+        Alert.alert('Google Login Error', 'Missing ID token from Google');
+        return;
+      }
+      const decoded: any = jwtDecode(idToken);
+      const userInfo = {
+        id: decoded.sub,
+        email: decoded.email,
+        name: decoded.name || decoded.email?.split('@')[0] || 'User',
+        photo: decoded.picture,
+      };
+      handleSocialAuth('google', idToken, userInfo);
+    }
+  }, [googleResponse]);
 
   const checkDatabaseStatus = async () => {
     if (isCheckingConnection) return;
@@ -90,6 +127,60 @@ export const LoginScreen: React.FC = () => {
   const checkBiometricSupport = async () => {
     const biometricData = await authService.checkBiometricSupport();
     setBiometricAvailable(biometricData.isAvailable);
+    if (biometricData.biometryType === 'FaceID') {
+      setBiometricLabel('Login with Face ID');
+      setBiometricIcon('face-recognition');
+    } else if (biometricData.biometryType === 'TouchID') {
+      setBiometricLabel('Login with Fingerprint');
+      setBiometricIcon('fingerprint');
+    } else {
+      setBiometricLabel('Login with Biometrics');
+      setBiometricIcon('shield-check');
+    }
+  };
+
+  const checkAppleAvailability = async () => {
+    if (Platform.OS !== 'ios') return;
+    try {
+      const available = await AppleAuthentication.isAvailableAsync();
+      setAppleAvailable(available);
+    } catch {
+      setAppleAvailable(false);
+    }
+  };
+
+  const handleSocialAuth = async (
+    provider: 'google' | 'apple',
+    token: string,
+    userInfo: { id?: string; email?: string; name?: string; photo?: string }
+  ) => {
+    if (loading) return;
+    setLoading(true);
+    try {
+      const response = await authService.socialLogin({
+        provider,
+        token,
+        user_info: {
+          id: userInfo.id || '',
+          email: userInfo.email || '',
+          name: userInfo.name || '',
+          photo: userInfo.photo,
+        },
+      });
+
+      if (!response.success) {
+        Alert.alert('Login Error', response.message || 'Social login failed');
+        return;
+      }
+
+      await authService.updateLastActivity();
+      authService.invalidateCache('load-session');
+      authService.invalidateCache('check-authentication');
+    } catch (error: any) {
+      Alert.alert('Login Error', error?.message || 'Social login failed');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleLogin = async (values: UserCredentials) => {
@@ -102,29 +193,24 @@ export const LoginScreen: React.FC = () => {
     try {
       console.log('🔐 [Login] Starting login process...');
       
-      // Skip connection check during login - rely on current status
       if (databaseStatus === 'disconnected') {
-        Alert.alert(
-          '❌ Cannot Login',
-          'Cannot login because database connection failed.\n\n' +
-          'Please ensure backend server is running.',
-          [{ text: 'OK' }]
-        );
-        return;
+        console.warn('⚠️ [Login] Connection check failed, attempting login anyway');
       }
 
-      // Quick user existence check
-      console.log(`📧 [Login] Quick email check: ${values.email}`);
-      const userExists = await authService.checkUserExists(values.email);
-      
-      if (!userExists) {
-        Alert.alert(
-          '❌ User Not Found',
-          'Email is not registered in the database.\n\n' +
-          'Please register first.',
-          [{ text: 'OK' }]
-        );
-        return;
+      // Quick user existence check (only when we trust the connection)
+      if (databaseStatus === 'connected') {
+        console.log(`📧 [Login] Quick email check: ${values.email}`);
+        const userExists = await authService.checkUserExists(values.email);
+        
+        if (!userExists) {
+          Alert.alert(
+            '❌ User Not Found',
+            'Email is not registered in the database.\n\n' +
+            'Please register first.',
+            [{ text: 'OK' }]
+          );
+          return;
+        }
       }
 
       console.log('📤 [Login] Sending login request...');
@@ -132,15 +218,14 @@ export const LoginScreen: React.FC = () => {
       
       console.log('📡 [Login] Response received');
       
-      if (response.success && response.user && response.access_token) {
+      if (response.success && response.user && response.token) {
         await authService.updateLastActivity();
         
         console.log('✅ [Login] Successful, navigating...');
-        
-        navigation.reset({
-          index: 0,
-          routes: [{ name: 'MainTabs' }],
-        });
+
+        // Invalidate cached auth/session so AppNavigator picks up the new session
+        authService.invalidateCache('load-session');
+        authService.invalidateCache('check-authentication');
         
       } else {
         Alert.alert('❌ Login Error', response.message || 'Invalid credentials');
@@ -158,11 +243,6 @@ export const LoginScreen: React.FC = () => {
 
   const handleBiometricLogin = async () => {
     try {
-      if (databaseStatus !== 'connected') {
-        Alert.alert('❌ Database Not Connected', 'Cannot use biometric authentication currently');
-        return;
-      }
-
       setLoading(true);
       const response = await authService.authenticateWithBiometrics();
       
@@ -170,10 +250,6 @@ export const LoginScreen: React.FC = () => {
         await authService.updateLastActivity();
         
         console.log('✅ Biometric login successful');
-        navigation.reset({
-          index: 0,
-          routes: [{ name: 'MainTabs' }],
-        });
       } else {
         Alert.alert('❌ Authentication Failed', response.message || 'Biometric authentication failed');
       }
@@ -184,12 +260,55 @@ export const LoginScreen: React.FC = () => {
     }
   };
 
-  const handleSocialLogin = (provider: 'google' | 'apple') => {
-    Alert.alert(
-      'Coming Soon',
-      `Login with ${provider} will be available soon`,
-      [{ text: 'OK' }]
-    );
+  const handleSocialLogin = async (provider: 'google' | 'apple') => {
+    if (provider === 'google') {
+      if (!googleAuthConfig?.expoClientId && !googleAuthConfig?.iosClientId && !googleAuthConfig?.androidClientId) {
+        Alert.alert('Google Login', 'Please set Google client IDs in app.json (extra.googleAuth).');
+        return;
+      }
+      await googlePromptAsync({
+        useProxy: Constants.appOwnership === 'expo',
+      });
+      return;
+    }
+
+    if (provider === 'apple') {
+      if (!appleAvailable) {
+        Alert.alert('Apple Login', 'Apple Sign In is not available on this device.');
+        return;
+      }
+
+      try {
+        const credential = await AppleAuthentication.signInAsync({
+          requestedScopes: [
+            AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+            AppleAuthentication.AppleAuthenticationScope.EMAIL,
+          ],
+        });
+
+        if (!credential.identityToken) {
+          Alert.alert('Apple Login Error', 'Missing identity token');
+          return;
+        }
+
+        const decoded: any = jwtDecode(credential.identityToken);
+        const fullName =
+          credential.fullName?.givenName || credential.fullName?.familyName
+            ? `${credential.fullName?.givenName || ''} ${credential.fullName?.familyName || ''}`.trim()
+            : undefined;
+
+        const userInfo = {
+          id: credential.user || decoded.sub,
+          email: credential.email || decoded.email,
+          name: fullName || decoded.email?.split('@')[0] || 'User',
+        };
+
+        await handleSocialAuth('apple', credential.identityToken, userInfo);
+      } catch (error: any) {
+        if (error?.code === 'ERR_CANCELED') return;
+        Alert.alert('Apple Login Error', error?.message || 'Apple login failed');
+      }
+    }
   };
 
   const handleForgotPassword = () => {
@@ -216,16 +335,18 @@ export const LoginScreen: React.FC = () => {
     password: 'Password',
     remember: 'Remember me',
     forgot: 'Forgot password?',
-    biometric: 'Login with Fingerprint',
+    biometric: biometricLabel,
   };
 
   return (
     <KeyboardAvoidingView
       className="flex-1 bg-white"
+      style={{ flex: 1, backgroundColor: '#FFFFFF' }}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView
         contentContainerStyle={{ flexGrow: 1, padding: 24, paddingBottom: 40 }}
+        style={{ flex: 1, backgroundColor: '#FFFFFF' }}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
@@ -406,7 +527,7 @@ export const LoginScreen: React.FC = () => {
                   disabled={loading}
                   activeOpacity={0.7}
                 >
-                  <MaterialCommunityIcons name="fingerprint" size={24} color="#2196F3" />
+                  <MaterialCommunityIcons name={biometricIcon} size={24} color="#2196F3" />
                   <Text className="text-primary font-semibold text-base ml-3">
                     {texts.biometric}
                   </Text>
@@ -445,14 +566,14 @@ export const LoginScreen: React.FC = () => {
                 <TouchableOpacity
                   className="flex-row items-center justify-center bg-red-500 rounded-xl py-3 px-6 mx-2"
                   onPress={() => handleSocialLogin('google')}
-                  disabled={loading}
+                  disabled={loading || !googleRequest}
                   activeOpacity={0.7}
                 >
                   <MaterialCommunityIcons name="google" size={20} color="#FFF" />
                   <Text className="text-white font-semibold ml-2">Google</Text>
                 </TouchableOpacity>
 
-                {Platform.OS === 'ios' && (
+                {Platform.OS === 'ios' && appleAvailable && (
                   <TouchableOpacity
                     className="flex-row items-center justify-center bg-black rounded-xl py-3 px-6 mx-2"
                     onPress={() => handleSocialLogin('apple')}

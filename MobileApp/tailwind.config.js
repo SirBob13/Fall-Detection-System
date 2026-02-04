@@ -1,11 +1,12 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   darkMode: 'class',
+  presets: [require('nativewind/preset')],
   content: [
-    "./App.{js,jsx,ts,tsx}",
-    "./src/**/*.{js,jsx,ts,tsx}",
-    "./components/**/*.{js,jsx,ts,tsx}",
-    "./screens/**/*.{js,jsx,ts,tsx}"
+    './App.{js,jsx,ts,tsx}',
+    './src/**/*.{js,jsx,ts,tsx}',
+    './components/**/*.{js,jsx,ts,tsx}',
+    './screens/**/*.{js,jsx,ts,tsx}',
   ],
   theme: {
     extend: {
@@ -26,11 +27,12 @@ module.exports = {
         emergency: '#D32F2F',
         safe: '#388E3C',
         caution: '#FFA000',
-        dark: {
+        darkTheme: {
           primary: '#0A84FF',
           background: '#000000',
           surface: '#1C1C1E',
           text: '#FFFFFF',
+        },
       },
       spacing: {
         '18': '72px',
@@ -42,34 +44,33 @@ module.exports = {
         '42': '168px',
       },
       borderRadius: {
-        'xl': '12px',
+        xl: '12px',
         '2xl': '16px',
         '3xl': '24px',
         '4xl': '32px',
-        'full': '9999px',
+        full: '9999px',
       },
       fontSize: {
-        'xxs': '10px',
+        xxs: '10px',
         '2xs': '11px',
         '3xs': '9px',
       },
       boxShadow: {
-        'sm': '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
-        'DEFAULT': '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
-        'md': '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
-        'lg': '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
-        'xl': '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
-        '2xl': '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
-        'inner': 'inset 0 2px 4px 0 rgba(0, 0, 0, 0.06)',
-        'none': 'none',
-        // ظلال مخصصة لمشروع الإسعافات
-        'emergency': '0 0 0 3px rgba(244, 67, 54, 0.3), 0 10px 15px -3px rgba(244, 67, 54, 0.1)',
-        'card': '0 4px 20px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.12)',
-        'button': '0 4px 12px rgba(33, 150, 243, 0.25)',
+        sm: '0 1px 2px rgba(0, 0, 0, 0.05)',
+        DEFAULT: '0 2px 4px rgba(0, 0, 0, 0.1)',
+        md: '0 4px 6px rgba(0, 0, 0, 0.1)',
+        lg: '0 8px 12px rgba(0, 0, 0, 0.12)',
+        xl: '0 12px 20px rgba(0, 0, 0, 0.12)',
+        '2xl': '0 20px 32px rgba(0, 0, 0, 0.15)',
+        none: 'none',
+        // ظلال مخصصة لمشروع الإسعافات (قيم مبسطة متوافقة مع React Native)
+        emergency: '0 0px 8px rgba(244, 67, 54, 0.35)',
+        card: '0 6px 12px rgba(0, 0, 0, 0.12)',
+        button: '0 4px 8px rgba(33, 150, 243, 0.25)',
       },
       animation: {
-        'pulse': 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-        'bounce': 'bounce 1s infinite',
+        pulse: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+        bounce: 'bounce 1s infinite',
         'spin-slow': 'spin 3s linear infinite',
         'ping-slow': 'ping 3s cubic-bezier(0, 0, 0.2, 1) infinite',
         'fade-in': 'fadeIn 0.5s ease-in-out',
@@ -78,7 +79,7 @@ module.exports = {
         'slide-in-down': 'slideInDown 0.3s ease-out',
         'slide-in-left': 'slideInLeft 0.3s ease-out',
         'slide-in-right': 'slideInRight 0.3s ease-out',
-        'shake': 'shake 0.5s ease-in-out',
+        shake: 'shake 0.5s ease-in-out',
         'emergency-pulse': 'emergencyPulse 1.5s ease-in-out infinite',
       },
       keyframes: {
@@ -136,49 +137,49 @@ module.exports = {
           '20%, 40%, 60%, 80%': { transform: 'translateX(5px)' },
         },
         emergencyPulse: {
-          '0%, 100%': { 
+          '0%, 100%': {
             boxShadow: '0 0 0 0 rgba(244, 67, 54, 0.7)',
             transform: 'scale(1)',
           },
-          '50%': { 
+          '50%': {
             boxShadow: '0 0 0 20px rgba(244, 67, 54, 0)',
             transform: 'scale(1.05)',
           },
         },
       },
       transitionDuration: {
-        '0': '0ms',
-        '75': '75ms',
-        '100': '100ms',
-        '150': '150ms',
-        '200': '200ms',
-        '300': '300ms',
-        '500': '500ms',
-        '700': '700ms',
-        '1000': '1000ms',
+        0: '0ms',
+        75: '75ms',
+        100: '100ms',
+        150: '150ms',
+        200: '200ms',
+        300: '300ms',
+        500: '500ms',
+        700: '700ms',
+        1000: '1000ms',
       },
       transitionTimingFunction: {
-        'emergency': 'cubic-bezier(0.4, 0, 0.2, 1)',
+        emergency: 'cubic-bezier(0.4, 0, 0.2, 1)',
         'bounce-in': 'cubic-bezier(0.68, -0.55, 0.265, 1.55)',
       },
       opacity: {
-        '15': '0.15',
-        '35': '0.35',
-        '65': '0.65',
-        '85': '0.85',
+        15: '0.15',
+        35: '0.35',
+        65: '0.65',
+        85: '0.85',
       },
       zIndex: {
-        '60': '60',
-        '70': '70',
-        '80': '80',
-        '90': '90',
-        '100': '100',
-        'max': '9999',
+        60: '60',
+        70: '70',
+        80: '80',
+        90: '90',
+        100: '100',
+        max: '9999',
       },
       borderWidth: {
-        '3': '3px',
-        '5': '5px',
-        '6': '6px',
+        3: '3px',
+        5: '5px',
+        6: '6px',
       },
       fontFamily: {
         'sans-arabic': ['Cairo', 'Arial', 'sans-serif'],
@@ -186,8 +187,8 @@ module.exports = {
       },
     },
   },
-plugins: [
-    function({ addUtilities }) {
+  plugins: [
+    function ({ addUtilities }) {
       const newUtilities = {
         '.text-start': {
           'text-align': 'start',
@@ -207,24 +208,24 @@ plugins: [
       };
       addUtilities(newUtilities, ['responsive', 'hover']);
     },
-  ],  // إضافة دعم للـ RTL (اللغة العربية)
+  ],
   corePlugins: {
-    preflight: false, // تعطيل لإصلاح مشاكل RTL
+    preflight: false,
   },
-  // إعدادات للغة العربية
-  ...(process.env.NODE_ENV === 'production' ? {} : {
-    safelist: [
-      // إضافة الفئات التي تستخدمها ديناميكياً
-      'text-right',
-      'text-left',
-      'flex-row-reverse',
-      'border-r-2',
-      'border-l-2',
-      'mr-*',
-      'ml-*',
-      'pr-*',
-      'pl-*',
-      'rtl:*',
-    ],
-  }),
-}
+  ...(process.env.NODE_ENV === 'production'
+    ? {}
+    : {
+        safelist: [
+          'text-right',
+          'text-left',
+          'flex-row-reverse',
+          'border-r-2',
+          'border-l-2',
+          'mr-*',
+          'ml-*',
+          'pr-*',
+          'pl-*',
+          'rtl:*',
+        ],
+      }),
+};

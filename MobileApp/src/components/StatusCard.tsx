@@ -58,7 +58,7 @@ export const StatusCard: React.FC<StatusCardProps> = ({
         <View className="mb-6">
           <View className="flex-row items-center mb-3">
             <MaterialCommunityIcons name="watch" size={20} color="#757575" />
-            <Text className="text-base text-dark ml-2">{device.name || 'Smart Watch'}</Text>
+            <Text className="text-base text-dark ml-2">{device.device_id || 'Smart Device'}</Text>
             <View className="flex-1 items-end">
               <Text className="text-xs text-gray">{device.device_id}</Text>
             </View>
@@ -77,11 +77,11 @@ export const StatusCard: React.FC<StatusCardProps> = ({
 
             <View className="items-center flex-1 border-x border-lightGray">
               <View className="flex-row items-center mb-1">
-                <MaterialCommunityIcons name="signal" size={16} color="#757575" />
-                <Text className="text-xs text-gray ml-1">{t('system.signal')}</Text>
+                <MaterialCommunityIcons name="chip" size={16} color="#757575" />
+                <Text className="text-xs text-gray ml-1">Firmware</Text>
               </View>
               <Text className="text-lg font-bold text-dark">
-                {device.signal_strength || '--'}
+                {device.firmware_version || '--'}
               </Text>
             </View>
 
@@ -91,7 +91,9 @@ export const StatusCard: React.FC<StatusCardProps> = ({
                 <Text className="text-xs text-gray ml-1">{t('system.lastSeen')}</Text>
               </View>
               <Text className="text-lg font-bold text-dark">
-                {new Date(device.last_seen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                {device.last_seen
+                  ? new Date(device.last_seen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                  : '--'}
               </Text>
             </View>
           </View>
@@ -108,15 +110,21 @@ export const StatusCard: React.FC<StatusCardProps> = ({
             </Text>
           </View>
           <View className="flex-row justify-between">
-            <Text className="text-sm text-gray">{t('system.accuracy')}</Text>
+            <Text className="text-sm text-gray">Fall Now</Text>
             <Text className="text-sm font-semibold text-dark">
-              {(lastPrediction.accuracy * 100).toFixed(1)}%
+              {((lastPrediction.fall_now_probability || 0) * 100).toFixed(1)}%
+            </Text>
+          </View>
+          <View className="flex-row justify-between">
+            <Text className="text-sm text-gray">Fall Soon</Text>
+            <Text className="text-sm font-semibold text-dark">
+              {((lastPrediction.fall_soon_probability || 0) * 100).toFixed(1)}%
             </Text>
           </View>
           <View className="flex-row justify-between">
             <Text className="text-sm text-gray">{t('system.confidence')}</Text>
             <Text className="text-sm font-semibold text-dark">
-              {(lastPrediction.confidence * 100).toFixed(1)}%
+              {((lastPrediction.confidence_score || 0) * 100).toFixed(1)}%
             </Text>
           </View>
         </View>

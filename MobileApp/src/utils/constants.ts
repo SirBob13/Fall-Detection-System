@@ -1,8 +1,46 @@
 
+import Constants from 'expo-constants';
+
+const getDevHost = () => {
+  const hostUri =
+    Constants.expoConfig?.hostUri ||
+    Constants.manifest?.debuggerHost ||
+    Constants.manifest2?.extra?.expoClient?.hostUri;
+
+  if (!hostUri) return null;
+  return hostUri.split(':')[0];
+};
+
+const CONFIG_BASE_URL =
+  Constants.expoConfig?.extra?.apiUrl ||
+  Constants.expoConfig?.extra?.apiBaseUrl ||
+  '';
+
+const PUBLIC_BASE_URL =
+  process.env.EXPO_PUBLIC_API_URL ||
+  process.env.EXPO_PUBLIC_BASE_URL ||
+  CONFIG_BASE_URL ||
+  '';
+
+const normalizeBaseUrl = (url: string) => {
+  if (!url) return '';
+  let trimmed = url.replace(/\/+$/, '');
+  if (!/\/api\/v1$/.test(trimmed)) {
+    trimmed = `${trimmed}/api/v1`;
+  }
+  return trimmed;
+};
+
+const DEFAULT_BASE_URL = 'http://192.168.1.7:8000/api/v1';
+const DEV_HOST = getDevHost();
+const DEV_BASE_URL = DEV_HOST ? `http://${DEV_HOST}:8000/api/v1` : DEFAULT_BASE_URL;
+const RAW_BASE_URL = PUBLIC_BASE_URL || DEV_BASE_URL;
+
 export const API_CONFIG = {
-  BASE_URL: 'http://192.168.1.4:8000/api/v1',
+  BASE_URL: normalizeBaseUrl(RAW_BASE_URL),
   TIMEOUT: 15000,
   RETRY_ATTEMPTS: 3,
+  VERSION: '1.0.0',
 };
 
 export const COLORS = {

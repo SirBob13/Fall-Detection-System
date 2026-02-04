@@ -4,7 +4,9 @@
     "strict": true,
     "allowSyntheticDefaultImports": true,
     "jsx": "react-native",
-    "lib": ["esnext"],
+    "lib": [
+      "esnext"
+    ],
     "moduleResolution": "node",
     "allowJs": true,
     "noEmit": true,
@@ -15,22 +17,43 @@
     "target": "esnext",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"],
-      "@components/*": ["src/components/*"],
-      "@screens/*": ["src/screens/*"],
-      "@services/*": ["src/services/*"],
-      "@navigation/*": ["src/navigation/*"],
-      "@utils/*": ["src/utils/*"],
-      "@types/*": ["src/types/*"],
-      "@constants/*": ["src/constants/*"],
-      "@i18n/*": ["src/i18n/*"],
-      "@store/*": ["src/store/*"]
+      "@/*": [
+        "src/*"
+      ],
+      "@components/*": [
+        "src/components/*"
+      ],
+      "@screens/*": [
+        "src/screens/*"
+      ],
+      "@services/*": [
+        "src/services/*"
+      ],
+      "@navigation/*": [
+        "src/navigation/*"
+      ],
+      "@utils/*": [
+        "src/utils/*"
+      ],
+      "@types/*": [
+        "src/types/*"
+      ],
+      "@constants/*": [
+        "src/constants/*"
+      ],
+      "@i18n/*": [
+        "src/i18n/*"
+      ],
+      "@store/*": [
+        "src/store/*"
+      ]
     }
   },
   "include": [
     "src/**/*.ts",
     "src/**/*.tsx",
-    "App.tsx"
+    "App.tsx",
+    "nativewind-env.d.ts"
   ],
   "exclude": [
     "node_modules",

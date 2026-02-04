@@ -72,6 +72,12 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 43200
 REFRESH_TOKEN_EXPIRE_DAYS = 90
 
+# Social Login Settings
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_IDS = os.getenv("GOOGLE_CLIENT_IDS", "")
+APPLE_CLIENT_ID = os.getenv("APPLE_CLIENT_ID", "")
+ALLOW_UNVERIFIED_SOCIAL_LOGIN = os.getenv("ALLOW_UNVERIFIED_SOCIAL_LOGIN", "true").lower() == "true"
+
 # Email Settings (optional)
 SMTP_SERVER = os.getenv("SMTP_SERVER", "")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))

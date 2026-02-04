@@ -1016,7 +1016,10 @@ async def get_user_alerts(
         for alert in alerts:
             formatted_alerts.append({
                 "id": alert.id,
+                "user_id": alert.user_id,
+                "prediction_id": alert.prediction_id,
                 "type": alert.alert_type,
+                "alert_type": alert.alert_type,
                 "severity": alert.severity,
                 "message": alert.message,
                 "status": alert.status,
@@ -1121,6 +1124,99 @@ async def update_alert_status(
             }
         )
 
+@router.post("/alerts/{alert_id}/acknowledge", response_model=Dict[str, Any])
+async def acknowledge_alert(
+    alert_id: int,
+    ack_data: Dict[str, Any],
+    db: Session = Depends(get_db)
+):
+    """Acknowledge an alert (compatibility endpoint for mobile app)."""
+    try:
+        acknowledged_by = ack_data.get("acknowledged_by", "")
+
+        alert = crud.update_alert_status(
+            db,
+            alert_id=alert_id,
+            status="acknowledged",
+            acknowledged_by=acknowledged_by
+        )
+
+        if not alert:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "success": False,
+                    "error": f"Alert with ID {alert_id} not found"
+                }
+            )
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "message": "Alert acknowledged",
+                "alert_id": alert_id,
+                "status": alert.status,
+                "acknowledged_by": alert.acknowledged_by,
+                "acknowledged_at": alert.acknowledged_at.isoformat() if alert.acknowledged_at else None,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error acknowledging alert: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "success": False,
+                "error": f"Failed to acknowledge alert: {str(e)}"
+            }
+        )
+
+@router.post("/alerts/{alert_id}/resolve", response_model=Dict[str, Any])
+async def resolve_alert(
+    alert_id: int,
+    db: Session = Depends(get_db)
+):
+    """Resolve an alert (compatibility endpoint for mobile app)."""
+    try:
+        alert = crud.update_alert_status(db, alert_id=alert_id, status="resolved")
+
+        if not alert:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "success": False,
+                    "error": f"Alert with ID {alert_id} not found"
+                }
+            )
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "message": "Alert resolved",
+                "alert_id": alert_id,
+                "status": alert.status,
+                "resolved_at": alert.resolved_at.isoformat() if alert.resolved_at else None,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error resolving alert: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "success": False,
+                "error": f"Failed to resolve alert: {str(e)}"
+            }
+        )
+
 @router.get("/alerts/{user_id}/stats", response_model=Dict[str, Any])
 async def get_alert_statistics(
     user_id: int,
@@ -1196,5 +1292,279 @@ async def get_alert_statistics(
             detail={
                 "success": False,
                 "error": f"Failed to get alert statistics: {str(e)}"
+            }
+        )
+
+# ======================
+# User Routes - Mobile App Support
+# ======================
+
+@router.get("/users/{user_id}", response_model=Dict[str, Any])
+async def get_user_profile(
+    user_id: int,
+    db: Session = Depends(get_db)
+):
+    """Get user profile by ID."""
+    try:
+        user = crud.get_user(db, user_id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "success": False,
+                    "error": f"User with ID {user_id} not found"
+                }
+            )
+
+        user_data = {
+            "id": user.id,
+            "name": user.name,
+            "email": user.auth.email if getattr(user, "auth", None) else None,
+            "age": user.age,
+            "gender": user.gender,
+            "weight": user.weight,
+            "height": user.height,
+            "medical_conditions": user.medical_conditions,
+            "emergency_contact": user.emergency_contact,
+            "is_active": user.is_active,
+            "created_at": user.created_at.isoformat() if user.created_at else None,
+            "updated_at": user.updated_at.isoformat() if user.updated_at else None
+        }
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "data": user_data,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting user profile: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "success": False,
+                "error": f"Failed to get user profile: {str(e)}"
+            }
+        )
+
+@router.put("/users/{user_id}", response_model=Dict[str, Any])
+async def update_user_profile(
+    user_id: int,
+    user_update: schemas.UserUpdate,
+    db: Session = Depends(get_db)
+):
+    """Update user profile by ID."""
+    try:
+        user = crud.get_user(db, user_id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "success": False,
+                    "error": f"User with ID {user_id} not found"
+                }
+            )
+
+        update_data = user_update.dict(exclude_unset=True)
+        if not update_data:
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                content={
+                    "success": True,
+                    "message": "No changes provided",
+                    "data": {
+                        "id": user.id,
+                        "name": user.name,
+                        "age": user.age,
+                        "gender": user.gender,
+                        "weight": user.weight,
+                        "height": user.height,
+                        "medical_conditions": user.medical_conditions,
+                        "emergency_contact": user.emergency_contact,
+                        "is_active": user.is_active,
+                        "created_at": user.created_at.isoformat() if user.created_at else None,
+                        "updated_at": user.updated_at.isoformat() if user.updated_at else None
+                    }
+                }
+            )
+
+        for field, value in update_data.items():
+            setattr(user, field, value)
+
+        user.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(user)
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "message": "User updated successfully",
+                "data": {
+                    "id": user.id,
+                    "name": user.name,
+                    "age": user.age,
+                    "gender": user.gender,
+                    "weight": user.weight,
+                    "height": user.height,
+                    "medical_conditions": user.medical_conditions,
+                    "emergency_contact": user.emergency_contact,
+                    "is_active": user.is_active,
+                    "created_at": user.created_at.isoformat() if user.created_at else None,
+                    "updated_at": user.updated_at.isoformat() if user.updated_at else None
+                },
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating user profile: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "success": False,
+                "error": f"Failed to update user profile: {str(e)}"
+            }
+        )
+
+# ======================
+# Device Routes - Mobile App Support
+# ======================
+
+@router.get("/devices/{device_id}", response_model=Dict[str, Any])
+async def get_device(
+    device_id: str,
+    db: Session = Depends(get_db)
+):
+    """Get device by device_id."""
+    try:
+        device = crud.get_device_by_id(db, device_id)
+        if not device:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "success": False,
+                    "error": f"Device with ID {device_id} not found"
+                }
+            )
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "data": {
+                    "id": device.id,
+                    "user_id": device.user_id,
+                    "device_id": device.device_id,
+                    "mac_address": device.mac_address,
+                    "firmware_version": device.firmware_version,
+                    "battery_level": device.battery_level,
+                    "is_connected": device.is_connected,
+                    "last_seen": device.last_seen.isoformat() if device.last_seen else None,
+                    "created_at": device.created_at.isoformat() if device.created_at else None
+                },
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting device: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "success": False,
+                "error": f"Failed to get device: {str(e)}"
+            }
+        )
+
+@router.get("/devices/user/{user_id}", response_model=Dict[str, Any])
+async def get_device_for_user(
+    user_id: int,
+    db: Session = Depends(get_db)
+):
+    """Get device for a user (first/primary device)."""
+    try:
+        device = crud.get_device_by_user(db, user_id)
+        if not device:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "success": False,
+                    "error": f"No device found for user ID {user_id}"
+                }
+            )
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "data": {
+                    "id": device.id,
+                    "user_id": device.user_id,
+                    "device_id": device.device_id,
+                    "mac_address": device.mac_address,
+                    "firmware_version": device.firmware_version,
+                    "battery_level": device.battery_level,
+                    "is_connected": device.is_connected,
+                    "last_seen": device.last_seen.isoformat() if device.last_seen else None,
+                    "created_at": device.created_at.isoformat() if device.created_at else None
+                },
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting user device: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "success": False,
+                "error": f"Failed to get user device: {str(e)}"
+            }
+        )
+
+# ======================
+# System Stats (Optional)
+# ======================
+
+@router.get("/stats", response_model=Dict[str, Any])
+async def get_system_stats(
+    db: Session = Depends(get_db)
+):
+    """Get lightweight system statistics for dashboard views."""
+    try:
+        stats = {
+            "total_users": db.query(User).count(),
+            "total_alerts": db.query(Alert).count(),
+            "total_predictions": db.query(Prediction).count()
+        }
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "data": stats,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Error getting system stats: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "success": False,
+                "error": f"Failed to get system stats: {str(e)}"
             }
         )

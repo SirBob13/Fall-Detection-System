@@ -19,9 +19,10 @@ export interface Device {
   device_id: string;
   mac_address?: string;
   firmware_version?: string;
-  battery_level: number;
-  is_connected: boolean;
-  last_seen: string;
+  battery_level?: number;
+  is_connected?: boolean;
+  last_seen?: string;
+  created_at?: string;
 }
 
 // Motion Data Types
@@ -79,10 +80,10 @@ export interface Alert {
   user_id: number;
   prediction_id?: number;
   timestamp: string;
-  alert_type: 'fall' | 'vital_abnormal' | 'device_offline';
+  alert_type: 'fall' | 'vital_abnormal' | 'device_offline' | 'heart_rate' | 'blood_pressure' | 'temperature' | 'battery';
   severity: 'low' | 'medium' | 'high' | 'critical';
   message: string;
-  status: 'pending' | 'sent' | 'acknowledged' | 'resolved';
+  status: 'pending' | 'sent' | 'acknowledged' | 'resolved' | 'active' | 'failed' | 'cancelled';
   sent_to?: string;
   acknowledged_by?: string;
   acknowledged_at?: string;
