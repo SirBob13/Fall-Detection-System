@@ -55,7 +55,7 @@ export const LoginScreen: React.FC = () => {
   const [biometricIcon, setBiometricIcon] = useState<'fingerprint' | 'face-recognition' | 'shield-check'>('fingerprint');
   const [appleAvailable, setAppleAvailable] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
-  const [email, setEmail] = useState(route.params?.prefilledEmail || '');
+  const prefilledEmail = route.params?.prefilledEmail || '';
   const [databaseStatus, setDatabaseStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
   const [isCheckingConnection, setIsCheckingConnection] = useState(false);
 
@@ -393,7 +393,8 @@ export const LoginScreen: React.FC = () => {
 
         {/* Login Form */}
         <Formik
-          initialValues={{ email: email, password: '' }}
+          initialValues={{ email: prefilledEmail, password: '' }}
+          enableReinitialize
           validationSchema={LoginSchema}
           onSubmit={handleLogin}
         >

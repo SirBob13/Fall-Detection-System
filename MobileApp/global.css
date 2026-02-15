@@ -90,7 +90,7 @@
   }
 
   .error-text {
-    @apply text-2xs text-danger mt-1;
+    @apply text-3xs text-danger mt-1 font-medium;
   }
   
   .input-error {
@@ -181,6 +181,14 @@
   
   .setting-item:last-child {
     @apply border-b-0 mb-0;
+  }
+
+  .setting-row {
+    @apply flex-row items-center justify-between py-3 border-b border-lightGray;
+  }
+
+  .setting-row:last-child {
+    @apply border-b-0;
   }
   
   .stat-card {

@@ -16,13 +16,136 @@ from ..database import get_db
 from ..services.ai_model import load_model_and_scaler, predict_from_sample
 from .. import crud, schemas
 from ..services.auth_service import AuthService
-from ..models import User, Alert, Prediction
+from ..models import User, Alert, Prediction, Device
+from ..device_auth import device_auth
 from ..double_verification import DoubleVerificationSystem
 from ..services.notification_service import NotificationService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 notification_service = NotificationService()
+
+# ======================
+# Helper functions
+# ======================
+
+def _ensure_device_for_ingest(
+    db: Session,
+    device_id: str,
+    user_id: Optional[int],
+    battery_level: Optional[float] = None,
+    firmware_version: Optional[str] = None
+) -> Device:
+    """Ensure device exists and belongs to user."""
+    device = crud.get_device_by_id(db, device_id)
+    if device is None:
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"success": False, "error": "user_id is required for new device"}
+            )
+        device_payload = schemas.DeviceCreate(
+            user_id=user_id,
+            device_id=device_id,
+            firmware_version=firmware_version,
+            battery_level=battery_level,
+        )
+        device = crud.create_device(db, device_payload)
+    else:
+        if user_id and device.user_id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"success": False, "error": "Device ID already registered to another user"}
+            )
+
+    # Update device metadata if provided
+    updated = False
+    if battery_level is not None:
+        device.battery_level = battery_level
+        updated = True
+    if firmware_version:
+        device.firmware_version = firmware_version
+        updated = True
+
+    if updated:
+        device.is_connected = True
+        device.last_seen = datetime.utcnow()
+        db.commit()
+        db.refresh(device)
+
+    return device
+
+def _handle_device_payload(
+    payload: schemas.DeviceIngestPayload,
+    db: Session
+) -> Dict[str, Any]:
+    """Process a single device payload (motion + vitals)."""
+    device = _ensure_device_for_ingest(
+        db,
+        device_id=payload.device_id,
+        user_id=payload.user_id,
+        battery_level=payload.battery_level,
+        firmware_version=payload.firmware_version,
+    )
+
+    user_id = payload.user_id or device.user_id
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"success": False, "error": "user_id could not be resolved"}
+        )
+
+    result: Dict[str, Any] = {
+        "device_id": device.device_id,
+        "user_id": user_id,
+        "motion": None,
+        "vitals": None,
+    }
+
+    if payload.motion:
+        motion_dict = payload.motion.dict()
+        motion_dict["user_id"] = user_id
+        motion_dict["device_id"] = device.device_id
+        if payload.timestamp and not motion_dict.get("timestamp"):
+            motion_dict["timestamp"] = payload.timestamp
+        result["motion"] = process_motion_data(motion_dict, db)
+
+    if payload.vitals:
+        vitals_dict = payload.vitals.dict(exclude_unset=True)
+        if payload.timestamp and not vitals_dict.get("timestamp"):
+            vitals_dict["timestamp"] = payload.timestamp
+        vital_schema = schemas.VitalDataCreate(user_id=user_id, **vitals_dict)
+        stored_vital = crud.create_vital_data(db, vital_schema)
+
+        alert_id = None
+        if stored_vital.is_abnormal:
+            alert = Alert(
+                user_id=user_id,
+                alert_type="vital_abnormal",
+                severity="high",
+                message=f"Abnormal {stored_vital.abnormality_type} detected",
+                status="active",
+                timestamp=datetime.utcnow()
+            )
+            db.add(alert)
+            db.commit()
+            db.refresh(alert)
+            alert_id = alert.id
+            notification_service.notify_vital_abnormality(
+                user_id=user_id,
+                vitals=vitals_dict,
+                message=alert.message
+            )
+
+        result["vitals"] = {
+            "id": stored_vital.id,
+            "is_abnormal": bool(stored_vital.is_abnormal),
+            "abnormality_type": stored_vital.abnormality_type,
+            "alert_id": alert_id,
+            "timestamp": stored_vital.timestamp.isoformat() if stored_vital.timestamp else None,
+        }
+
+    return result
 
 # ======================
 # Health & System Routes
@@ -114,7 +237,8 @@ async def root():
                 "predictions": "/api/v1/predictions/{user_id}",
                 "alerts": "/api/v1/alerts",
                 "users": "/api/v1/users",
-                "emergency": "/api/v1/emergency/*"
+                "emergency": "/api/v1/emergency/*",
+                "care_links": "/api/v1/care/links"
             },
             "status": "operational",
             "timestamp": datetime.utcnow().isoformat()
@@ -591,7 +715,8 @@ def process_motion_data(
             gyro_x=gyro_x,
             gyro_y=gyro_y,
             gyro_z=gyro_z,
-            temperature=temperature
+            temperature=temperature,
+            timestamp=data.get('timestamp')
         )
         stored_motion = crud.create_motion_data(db, motion_data_schema)
 
@@ -668,6 +793,63 @@ def process_motion_data(
         )
 
 # ======================
+# Device Ingest Routes (ESP32 WiFi / BLE Gateway)
+# ======================
+
+@router.post("/device-data", response_model=Dict[str, Any])
+def ingest_device_data(
+    payload: schemas.DeviceIngestPayload,
+    db: Session = Depends(get_db)
+):
+    """Ingest combined device data (motion + vitals)."""
+    try:
+        result = _handle_device_payload(payload, db)
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "message": "Device data ingested",
+                "data": result,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error ingesting device data: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Error ingesting device data: {str(e)}"
+        )
+
+@router.post("/device-data/batch", response_model=Dict[str, Any])
+def ingest_device_data_batch(
+    batch: schemas.DeviceIngestBatch,
+    db: Session = Depends(get_db)
+):
+    """Ingest batch device data for offline sync."""
+    results = []
+    errors = []
+
+    for idx, item in enumerate(batch.items):
+        try:
+            res = _handle_device_payload(item, db)
+            results.append(res)
+        except Exception as e:
+            errors.append({"index": idx, "error": str(e)})
+
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={
+            "success": len(errors) == 0,
+            "received": len(batch.items),
+            "stored": len(results),
+            "errors": errors,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    )
+
+# ======================
 # Vital Signs Routes - WITH PROPER STATUS CODES
 # ======================
 
@@ -739,7 +921,8 @@ async def process_vital_data(
             # Store in database
             vital_data = schemas.VitalDataCreate(
                 user_id=user_id,
-                **vital_readings
+                **vital_readings,
+                timestamp=data.get('timestamp')
             )
             
             stored_vital = crud.create_vital_data(db, vital_data)
@@ -1435,8 +1618,302 @@ async def update_user_profile(
         )
 
 # ======================
+# Caregiver / Monitoring Routes
+# ======================
+
+@router.post("/care/links", response_model=Dict[str, Any])
+async def create_care_link(
+    link_data: schemas.CareLinkCreate,
+    db: Session = Depends(get_db)
+):
+    """Create caregiver to patient link."""
+    try:
+        caregiver = crud.get_user(db, link_data.caregiver_id)
+        if not caregiver:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"success": False, "error": "Caregiver not found"}
+            )
+
+        patient = None
+        if link_data.patient_id:
+            patient = crud.get_user(db, link_data.patient_id)
+        elif link_data.patient_email:
+            patient = crud.get_user_by_email(db, link_data.patient_email)
+
+        if not patient:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"success": False, "error": "Patient not found"}
+            )
+
+        if caregiver.id == patient.id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"success": False, "error": "Cannot link self"}
+            )
+
+        link = crud.create_care_link(
+            db,
+            caregiver_id=caregiver.id,
+            patient_id=patient.id,
+            relationship=link_data.relationship
+        )
+
+        patient_email = patient.auth.email if getattr(patient, "auth", None) else None
+
+        return JSONResponse(
+            status_code=status.HTTP_201_CREATED,
+            content={
+                "success": True,
+                "message": "Link created successfully",
+                "data": {
+                    "id": link.id,
+                    "caregiver_id": link.caregiver_id,
+                    "patient_id": link.patient_id,
+                    "relationship": link.relationship_type,
+                    "is_active": link.is_active,
+                    "created_at": link.created_at.isoformat() if link.created_at else None,
+                    "patient": {
+                        "id": patient.id,
+                        "name": patient.name,
+                        "email": patient_email,
+                        "age": patient.age,
+                        "gender": patient.gender,
+                    },
+                },
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating care link: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"success": False, "error": f"Failed to create care link: {str(e)}"}
+        )
+
+
+@router.get("/care/links/{caregiver_id}", response_model=Dict[str, Any])
+async def list_care_links(
+    caregiver_id: int,
+    db: Session = Depends(get_db)
+):
+    """List caregiver links."""
+    try:
+        caregiver = crud.get_user(db, caregiver_id)
+        if not caregiver:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"success": False, "error": "Caregiver not found"}
+            )
+
+        links = crud.get_care_links_by_caregiver(db, caregiver_id)
+        data = []
+        for link in links:
+            patient = link.patient
+            patient_email = patient.auth.email if getattr(patient, "auth", None) else None
+            data.append({
+                "id": link.id,
+                "caregiver_id": link.caregiver_id,
+                "patient_id": link.patient_id,
+                "relationship": link.relationship_type,
+                "is_active": link.is_active,
+                "created_at": link.created_at.isoformat() if link.created_at else None,
+                "patient": {
+                    "id": patient.id,
+                    "name": patient.name,
+                    "email": patient_email,
+                    "age": patient.age,
+                    "gender": patient.gender,
+                },
+            })
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "data": data,
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error listing care links: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"success": False, "error": f"Failed to list care links: {str(e)}"}
+        )
+
+
+@router.delete("/care/links/{link_id}", response_model=Dict[str, Any])
+async def remove_care_link(
+    link_id: int,
+    caregiver_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """Delete care link."""
+    try:
+        deleted = crud.delete_care_link(db, link_id, caregiver_id)
+        if not deleted:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"success": False, "error": "Link not found"}
+            )
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "message": "Link deleted successfully",
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting care link: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"success": False, "error": f"Failed to delete care link: {str(e)}"}
+        )
+
+# ======================
 # Device Routes - Mobile App Support
 # ======================
+
+@router.post("/devices/connect", response_model=Dict[str, Any])
+async def connect_device(
+    payload: schemas.DeviceConnect,
+    db: Session = Depends(get_db)
+):
+    """Link a device to a user and mark it connected."""
+    try:
+        user = db.query(User).filter(User.id == payload.user_id).first()
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "success": False,
+                    "error": f"User with ID {payload.user_id} not found"
+                }
+            )
+
+        device = crud.get_device_by_id(db, payload.device_id)
+
+        if device:
+            device.user_id = payload.user_id
+            device.mac_address = payload.mac_address or device.mac_address
+            device.firmware_version = payload.firmware_version or device.firmware_version
+            if payload.battery_level is not None:
+                device.battery_level = payload.battery_level
+            device.is_connected = True
+            device.last_seen = datetime.utcnow()
+            db.commit()
+            db.refresh(device)
+        else:
+            device = Device(
+                user_id=payload.user_id,
+                device_id=payload.device_id,
+                mac_address=payload.mac_address,
+                firmware_version=payload.firmware_version,
+                battery_level=payload.battery_level,
+                is_connected=True,
+                last_seen=datetime.utcnow()
+            )
+            db.add(device)
+            db.commit()
+            db.refresh(device)
+
+        device_token = device_auth.generate_device_token(device.device_id, device.user_id)
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "message": "Device connected successfully",
+                "data": {
+                    "id": device.id,
+                    "user_id": device.user_id,
+                    "device_id": device.device_id,
+                    "mac_address": device.mac_address,
+                    "firmware_version": device.firmware_version,
+                    "battery_level": device.battery_level,
+                    "is_connected": device.is_connected,
+                    "last_seen": device.last_seen.isoformat() if device.last_seen else None,
+                    "created_at": device.created_at.isoformat() if device.created_at else None
+                },
+                "device_token": device_token,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error connecting device: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "success": False,
+                "error": f"Failed to connect device: {str(e)}"
+            }
+        )
+
+@router.post("/devices/disconnect", response_model=Dict[str, Any])
+async def disconnect_device(
+    payload: schemas.DeviceDisconnect,
+    db: Session = Depends(get_db)
+):
+    """Mark device as disconnected."""
+    try:
+        device = crud.get_device_by_id(db, payload.device_id)
+        if not device:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "success": False,
+                    "error": f"Device with ID {payload.device_id} not found"
+                }
+            )
+
+        device.is_connected = False
+        device.last_seen = datetime.utcnow()
+        db.commit()
+        db.refresh(device)
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "message": "Device disconnected",
+                "data": {
+                    "id": device.id,
+                    "user_id": device.user_id,
+                    "device_id": device.device_id,
+                    "mac_address": device.mac_address,
+                    "firmware_version": device.firmware_version,
+                    "battery_level": device.battery_level,
+                    "is_connected": device.is_connected,
+                    "last_seen": device.last_seen.isoformat() if device.last_seen else None,
+                    "created_at": device.created_at.isoformat() if device.created_at else None
+                },
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error disconnecting device: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "success": False,
+                "error": f"Failed to disconnect device: {str(e)}"
+            }
+        )
 
 @router.get("/devices/{device_id}", response_model=Dict[str, Any])
 async def get_device(

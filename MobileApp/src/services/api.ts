@@ -2,7 +2,7 @@ import axios, { AxiosInstance, AxiosResponse } from 'axios';
 import { API_CONFIG } from '../utils/constants';
 import { 
   User, Device, MotionData, VitalData, 
-  Prediction, Alert, ApiResponse 
+  Prediction, Alert, ApiResponse, CareLink, DeviceIngestPayload 
 } from '../types';
 
 class ApiService {
@@ -206,6 +206,44 @@ class ApiService {
     }
   }
 
+  async connectDevice(payload: {
+    user_id: number;
+    device_id: string;
+    mac_address?: string;
+    firmware_version?: string;
+    battery_level?: number;
+  }): Promise<ApiResponse<Device>> {
+    try {
+      const response = await this.client.post('/devices/connect', payload);
+      const data = response.data;
+      const device = data?.data ?? data?.device ?? data;
+      return { success: data?.success ?? true, data: device, message: data?.message };
+    } catch (error: any) {
+      console.error('❌ Error connecting device:', error.message);
+      return {
+        success: false,
+        error: error.message,
+        message: 'فشل ربط الجهاز'
+      };
+    }
+  }
+
+  async disconnectDevice(deviceId: string): Promise<ApiResponse<Device>> {
+    try {
+      const response = await this.client.post('/devices/disconnect', { device_id: deviceId });
+      const data = response.data;
+      const device = data?.data ?? data?.device ?? data;
+      return { success: data?.success ?? true, data: device, message: data?.message };
+    } catch (error: any) {
+      console.error('❌ Error disconnecting device:', error.message);
+      return {
+        success: false,
+        error: error.message,
+        message: 'فشل فصل الجهاز'
+      };
+    }
+  }
+
   async getUserPredictions(userId: number, limit: number = 1): Promise<ApiResponse<Prediction[]>> {
     try {
       const response = await this.client.get(`/predictions/${userId}?limit=${limit}`);
@@ -218,6 +256,103 @@ class ApiService {
         success: false,
         error: error.message,
         message: 'فشل تحميل التنبؤات'
+      };
+    }
+  }
+
+  async getUserVitals(userId: number, limit: number = 1): Promise<ApiResponse<VitalData[]>> {
+    try {
+      const response = await this.client.get(`/vitals/${userId}?limit=${limit}`);
+      const payload = response.data;
+      const data = Array.isArray(payload?.data) ? payload.data : [];
+      return { success: payload?.success ?? true, data };
+    } catch (error: any) {
+      console.error('❌ Error getting vitals:', error.message);
+      return {
+        success: false,
+        error: error.message,
+        message: 'فشل تحميل المؤشرات الحيوية'
+      };
+    }
+  }
+
+  // Caregiver / Monitoring APIs
+  async getCareLinks(caregiverId: number): Promise<ApiResponse<CareLink[]>> {
+    try {
+      const response = await this.client.get(`/care/links/${caregiverId}`);
+      const payload = response.data;
+      const links = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload?.links) ? payload.links : [];
+      return { success: payload?.success ?? true, data: links };
+    } catch (error: any) {
+      console.error('❌ Error getting care links:', error.message);
+      return {
+        success: false,
+        error: error.message,
+        message: 'فشل تحميل بيانات المتابعة'
+      };
+    }
+  }
+
+  async createCareLink(params: {
+    caregiver_id: number;
+    patient_email?: string;
+    patient_id?: number;
+    relationship?: string;
+  }): Promise<ApiResponse<CareLink>> {
+    try {
+      const response = await this.client.post(`/care/links`, params);
+      const payload = response.data;
+      const link = payload?.data ?? payload?.link ?? payload;
+      return { success: payload?.success ?? true, data: link, message: payload?.message };
+    } catch (error: any) {
+      console.error('❌ Error creating care link:', error.message);
+      return {
+        success: false,
+        error: error.message,
+        message: 'فشل ربط الحساب'
+      };
+    }
+  }
+
+  async deleteCareLink(linkId: number): Promise<ApiResponse<void>> {
+    try {
+      const response = await this.client.delete(`/care/links/${linkId}`);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ Error deleting care link:', error.message);
+      return {
+        success: false,
+        error: error.message,
+        message: 'فشل حذف الربط'
+      };
+    }
+  }
+
+  // Device Ingest APIs (ESP32 / BLE)
+  async ingestDeviceData(payload: DeviceIngestPayload): Promise<ApiResponse<any>> {
+    try {
+      const response = await this.client.post('/device-data', payload);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ Error ingesting device data:', error.message);
+      return {
+        success: false,
+        error: error.message,
+        message: 'فشل إرسال بيانات الجهاز'
+      };
+    }
+  }
+
+  async ingestDeviceDataBatch(items: DeviceIngestPayload[]): Promise<ApiResponse<any>> {
+    try {
+      const response = await this.client.post('/device-data/batch', { items });
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ Error ingesting device batch:', error.message);
+      return {
+        success: false,
+        error: error.message,
+        message: 'فشل إرسال بيانات الجهاز (دفعة)'
       };
     }
   }

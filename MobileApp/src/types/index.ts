@@ -2,6 +2,8 @@
 export interface User {
   id: number;
   name: string;
+  email?: string;
+  phone?: string;
   age: number;
   gender: 'male' | 'female' | 'other';
   weight?: number;
@@ -105,4 +107,50 @@ export interface ApiResponse<T> {
   data?: T;
   message?: string;
   error?: string;
+}
+
+// Device Ingest Payload (ESP32 / BLE)
+export interface DeviceIngestPayload {
+  device_id: string;
+  user_id?: number;
+  timestamp?: string;
+  motion?: {
+    acc_x: number;
+    acc_y: number;
+    acc_z: number;
+    gyro_x: number;
+    gyro_y: number;
+    gyro_z: number;
+    temperature?: number;
+  };
+  vitals?: {
+    heart_rate?: number;
+    blood_pressure_systolic?: number;
+    blood_pressure_diastolic?: number;
+    oxygen_saturation?: number;
+    body_temperature?: number;
+    respiration_rate?: number;
+  };
+  battery_level?: number;
+  firmware_version?: string;
+}
+
+// Caregiver / Monitoring Types
+export interface CareLink {
+  id: number;
+  caregiver_id: number;
+  patient_id: number;
+  relationship?: string;
+  is_active: boolean;
+  created_at: string;
+  patient?: User;
+}
+
+// Chat Types
+export interface ChatMessage {
+  id: string;
+  text: string;
+  senderId: number;
+  senderName?: string;
+  createdAt: string;
 }

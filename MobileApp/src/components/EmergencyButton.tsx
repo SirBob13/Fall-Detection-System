@@ -64,14 +64,14 @@ export const EmergencyButton: React.FC<EmergencyButtonProps> = ({
         <View className="flex-row mt-4">
           <View className="items-center mr-6">
             <View className="w-10 h-10 rounded-full bg-blue-50 justify-center items-center mb-1">
-              <Text className="text-primary font-bold">Tap</Text>
+              <Text className="text-primary font-bold">{t('emergency.tapLabel')}</Text>
             </View>
             <Text className="text-xs text-gray">{t('emergency.tapForHelp')}</Text>
           </View>
           
           <View className="items-center">
             <View className="w-10 h-10 rounded-full bg-red-50 justify-center items-center mb-1">
-              <Text className="text-danger font-bold">Hold</Text>
+              <Text className="text-danger font-bold">{t('emergency.holdLabel')}</Text>
             </View>
             <Text className="text-xs text-gray">{t('emergency.holdForEmergency')}</Text>
           </View>

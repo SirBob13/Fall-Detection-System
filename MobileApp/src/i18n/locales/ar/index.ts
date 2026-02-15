@@ -3,7 +3,9 @@ export default {
   app: {
     name: "كشف السقوط",
     tagline: "نظام ذكي لاكتشاف السقوط",
-    version: "الإصدار 2.0"
+    version: "الإصدار 2.0",
+    description: "نظام ذكي لاكتشاف السقوط والاستجابة للطوارئ",
+    company: "كشف السقوط"
   },
     
 
@@ -29,6 +31,7 @@ export default {
     yes: "نعم",
     no: "لا",
     ok: "حسناً",
+    viewAll: "عرض الكل",
     select: "اختيار",
     all: "الكل",
     none: "لا شيء",
@@ -38,6 +41,8 @@ export default {
     failed: "فشل",
     warning: "تحذير",
     info: "معلومات",
+    syncing: "جاري المزامنة",
+    pleaseWait: "يرجى الانتظار",
     years: "سنة",
     male: "ذكر",
     female: "أنثى",
@@ -123,19 +128,32 @@ export default {
   // الشاشة الرئيسية
   home: {
     title: "الرئيسية",
+    systemStatus: "حالة النظام",
     status: "حالة النظام",
     deviceConnected: "جهاز متصل",
     deviceDisconnected: "جهاز غير متصل",
     battery: "البطارية",
     fallRisk: "خطر السقوط",
+    lastPrediction: "آخر توقع",
+    fallNow: "سقوط الآن",
+    fallSoon: "سقوط قريباً",
     recentAlerts: "الإنذارات الأخيرة",
     noAlerts: "لا توجد إنذارات حالياً",
     everythingOk: "كل شيء على ما يرام 👍",
     safetyTips: "نصائح للسلامة",
+    tip1Title: "إزالة العوائق",
     tip1: "تأكد من إزالة العوائق من مسارات المشي",
+    tip2Title: "تحسين الإضاءة",
     tip2: "استخدم إضاءة جيدة في المنزل ليلاً",
+    tip3Title: "أحذية مناسبة",
     tip3: "ارتد أحذية مناسبة وغير زلقة",
-    tip4: "احتفظ بجهاز الإنذار معك دائماً"
+    tip4Title: "احتفظ بالجهاز",
+    tip4: "احتفظ بجهاز الإنذار معك دائماً",
+    quickStats: "إحصائيات سريعة",
+    todayAlerts: "إنذارات اليوم",
+    fromYesterday: "عن أمس",
+    responseTime: "زمن الاستجابة",
+    faster: "أسرع"
   },
 
   // الإنذارات
@@ -156,13 +174,92 @@ export default {
     fallDetected: "تم اكتشاف سقوط",
     vitalAbnormal: "مؤشرات حيوية غير طبيعية",
     deviceOffline: "اتصال الجهاز مقطوع",
-    recentAlerts: "الإنذارات الأخيرة"
+    recentAlerts: "الإنذارات الأخيرة",
+    historyTitle: "سجل الإنذارات",
+    historySubtitle: "راجع جميع التنبيهات والإشعارات الطارئة",
+    lastUpdated: "آخر تحديث",
+    filterAlerts: "تصفية الإنذارات",
+    showing: "عرض",
+    alerts: "إنذارات",
+    clearAll: "مسح الكل",
+    clearAllTitle: "مسح كل الإنذارات",
+    clearAllConfirm: "هل أنت متأكد من مسح سجل الإنذارات بالكامل؟",
+    cleared: "تم مسح سجل الإنذارات",
+    loadMore: "تحميل المزيد من الإنذارات",
+    loading: "جاري تحميل الإنذارات...",
+    loadFailed: "فشل تحميل الإنذارات",
+    acknowledgeFailed: "فشل تأكيد الإنذار",
+    resolveFailed: "فشل حل الإنذار",
+    acknowledged: "تم تأكيد الإنذار",
+    refreshAlerts: "تحديث الإنذارات",
+    noAlertsAll: "لا توجد إنذارات مسجلة بعد",
+    noAlertsPending: "لا توجد إنذارات معلقة",
+    noAlertsResolved: "لا توجد إنذارات محلولة",
+    noAlertsAllDesc: "كل شيء تمام! لا توجد إنذارات طارئة.",
+    noAlertsPendingDesc: "رائع! لا توجد إنذارات تحتاج انتباهك.",
+    noAlertsResolvedDesc: "لا توجد إنذارات محلولة في السجل.",
+    importantNotes: "ملاحظات مهمة",
+    noteCritical: "الإنذارات الحرجة تحتاج تدخلاً فورياً",
+    noteRetention: "الإنذارات المحلولة تُحفظ لمدة 30 يومًا",
+    noteContact: "اتصل بخدمات الطوارئ إذا استمر الإنذار",
+    alertId: "رقم الإنذار",
+    type: "النوع",
+    time: "الوقت",
+    defaultMessage: "تم اكتشاف حالة طارئة تتطلب تدخلًا فوريًا",
+    resolvedMessage: "تم {{status}} هذا الإنذار",
+    status: {
+      pending: "قيد الانتظار",
+      sent: "تم الإرسال",
+      resolved: "تم الحل",
+      failed: "فشل",
+      acknowledged: "تم التأكيد"
+    },
+    severity: {
+      critical: "حرج",
+      high: "عالٍ",
+      medium: "متوسط",
+      low: "منخفض"
+    },
+    types: {
+      fall: "تم اكتشاف سقوط",
+      heartRate: "تنبيه معدل النبض",
+      bloodPressure: "تنبيه ضغط الدم",
+      temperature: "تنبيه الحرارة",
+      battery: "تنبيه البطارية",
+      emergency: "تنبيه طارئ"
+    }
+  },
+
+  // Chat
+  chat: {
+    title: "الدردشة",
+    with: "الدردشة مع",
+    patient: "المريض",
+    placeholder: "اكتب رسالتك",
+    open: "دردشة"
+  },
+
+  video: {
+    title: "مكالمة فيديو",
+    start: "ابدأ",
+    end: "إنهاء",
+    ready: "جاهز للانضمام للمكالمة",
+    waiting: "في انتظار الطرف الآخر...",
+    connected: "تم الاتصال",
+    channel: "القناة",
+    missingConfig: "معلومات الفيديو غير مُعدة. أضيفي Agora App ID."
   },
 
   // الطوارئ
   emergency: {
     title: "الطوارئ",
     sosButton: "طلب المساعدة",
+    sosDescription: "اضغط للمساعدة أو اضغط مطولاً للطوارئ",
+    loginRequired: "يلزم تسجيل الدخول لطلب المساعدة",
+    tapLabel: "اضغط",
+    holdLabel: "مطول",
+    tapForHelp: "اضغط للمساعدة",
+    holdForEmergency: "اضغط مطولاً للطوارئ",
     sosCountdown: "العد التنازلي للطوارئ",
     sosSending: "جاري إرسال الطلب...",
     emergencyContacts: "جهات الاتصال الطارئة",
@@ -207,20 +304,37 @@ export default {
   settings: {
     title: "الإعدادات",
     profile: "الملف الشخصي",
+    personalInfo: "المعلومات الشخصية",
+    personalInfoDesc: "عرض وتعديل بياناتك الشخصية",
     deviceInfo: "معلومات الجهاز",
+    deviceManagement: "إدارة الجهاز",
+    deviceManagementDesc: "ربط وفصل وإدارة الجهاز",
+    careManagement: "إدارة المتابعة",
+    careManagementDesc: "ربط ومتابعة أشخاصك",
     language: "اللغة", 
     changeLanguage: "تغيير اللغة", 
     generalSettings: "الإعدادات العامة",
     testSystem: "اختبار النظام",
     testNotifications: "اختبار الإشعارات",
+    testNotificationsDesc: "إرسال إشعار تجريبي للتحقق من التنبيهات",
     refreshData: "تحديث البيانات",
+    refreshDataDesc: "مزامنة أحدث البيانات من الخادم",
     actions: "الإجراءات",
     notifications: "الإشعارات",
     vibration: "الاهتزاز",
     sound: "الصوت",
     autoConnect: "الاتصال التلقائي",
     fallDetection: "كشف السقوط",
+    fallDetectionDesc: "اكتشاف السقوط تلقائياً وإنشاء تنبيهات",
     vitalMonitoring: "مراقبة المؤشرات الحيوية",
+    vitalMonitoringDesc: "مراقبة النبض والأكسجين وغيرها",
+    age: "العمر",
+    gender: "النوع",
+    height: "الطول (سم)",
+    weight: "الوزن (كجم)",
+    emergencyContact: "جهة اتصال للطوارئ",
+    medicalConditions: "الحالات المرضية",
+    medicalConditionsPlaceholder: "ضغط مرتفع، سكر، إلخ...",
     logout: "تسجيل الخروج",
     help: "المساعدة والدعم",
     privacy: "سياسة الخصوصية",
@@ -230,11 +344,15 @@ export default {
   // أخطاء
   errors: {
     network: "تعذر الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت",
+    connection: "مشكلة في الاتصال",
+    connectionDesc: "يرجى التحقق من اتصال الإنترنت والمحاولة مرة أخرى.",
+    loginRequired: "يرجى تسجيل الدخول أولاً",
     server: "خطأ في الخادم",
     unauthorized: "غير مصرح به",
     forbidden: "ممنوع الوصول",
     notFound: "غير موجود",
     timeout: "انتهت مهلة الاتصال",
+    syncFailed: "فشلت مزامنة البيانات",
     unknown: "حدث خطأ غير معروف"
   },
 
@@ -247,7 +365,9 @@ export default {
     connected: "تم الاتصال بنجاح",
     registered: "تم التسجيل بنجاح",
     loggedIn: "تم تسجيل الدخول بنجاح",
-    loggedOut: "تم تسجيل الخروج بنجاح"
+    loggedOut: "تم تسجيل الخروج بنجاح",
+    synced: "تمت المزامنة بنجاح",
+    dataUpdated: "تم تحديث البيانات"
   },
 
   // التواريخ والأوقات
@@ -264,6 +384,24 @@ export default {
   system: {
     connected: "متصل",
     disconnected: "غير متصل",
+    offline: "غير متصل",
+    lowBattery: "بطارية منخفضة",
+    noDevice: "لا يوجد جهاز متصل",
+    connectDevice: "اربط الجهاز",
+    connectAction: "ربط الجهاز",
+    connecting: "جاري الربط...",
+    reconnect: "إعادة الربط",
+    disconnectAction: "فصل الجهاز",
+    scanBluetooth: "بحث عن أجهزة البلوتوث",
+    enterDeviceId: "أو أدخل معرف الجهاز",
+    deviceIdPlaceholder: "معرف الجهاز (Bluetooth)",
+    deviceIdRequired: "معرف الجهاز مطلوب",
+    noDevicesFound: "لم يتم العثور على أجهزة",
+    tryManual: "جرّبي إدخال معرف الجهاز يدويًا",
+    deviceConnected: "تم ربط الجهاز بنجاح",
+    bluetoothRequiresDevBuild: "البلوتوث يحتاج نسخة تطوير (غير مدعومة في Expo Go).",
+    firmware: "البرنامج",
+    confidence: "الثقة",
     good: "جيدة",
     medium: "متوسطة",
     low: "منخفضة",
@@ -277,5 +415,48 @@ export default {
     unknown: "غير معروف",
     lastSeen: "آخر ظهور",
     version: "الإصدار"
+  },
+
+  // المؤشرات الحيوية
+  vitals: {
+    title: "المؤشرات الحيوية",
+    heartRate: "النبض",
+    bloodPressure: "ضغط الدم",
+    oxygen: "الأكسجين",
+    temperature: "الحرارة",
+    noData: "لا توجد بيانات مؤشرات حيوية بعد",
+    notAvailable: "غير متاحة بعد",
+    normal: "طبيعي",
+    abnormal: "غير طبيعي",
+    bpm: "نبضة/د",
+    mmHg: "مم زئبق",
+    percent: "%",
+    celsius: "°م"
+  },
+
+  // الرعاية والمتابعة
+  care: {
+    title: "إدارة المتابعة",
+    addTitle: "إضافة شخص للمراقبة",
+    emailLabel: "البريد الإلكتروني للشخص",
+    emailPlaceholder: "example@email.com",
+    relationshipLabel: "صلة القرابة (اختياري)",
+    relationshipPlaceholder: "مثلًا: أم، أب، جار",
+    addButton: "إضافة",
+    listTitle: "الأشخاص الذين أتابعهم",
+    noLinked: "لا يوجد أشخاص مرتبطون بعد",
+    select: "اختيار للمراقبة",
+    selected: "المُراقَب الحالي",
+    remove: "إزالة الربط",
+    monitoring: "تراقبين الآن",
+    selfMonitoring: "أنتِ تراقبين بياناتك",
+    switchBack: "العودة لبياناتي",
+    linkSuccess: "تم ربط الحساب بنجاح",
+    unlinkSuccess: "تم فك الربط بنجاح",
+    linkFailed: "فشل ربط الحساب",
+    unlinkConfirmTitle: "تأكيد الإزالة",
+    unlinkConfirmBody: "هل تريدين فك ربط هذا الشخص؟",
+    invalidEmail: "البريد الإلكتروني غير صالح",
+    cannotSelf: "لا يمكن ربط حسابك بنفسك"
   }
 };

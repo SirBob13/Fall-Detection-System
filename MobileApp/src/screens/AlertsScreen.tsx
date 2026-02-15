@@ -11,14 +11,17 @@ import {
 import { AlertCard } from '../components/AlertCard';
 import { apiService } from '../services/api';
 import { storageService } from '../services/storage';
-import { Alert as AlertType } from '../types';
+import { Alert as AlertType, User } from '../types';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useLanguage } from '../components/LanguageProvider';
 
 export const AlertsScreen: React.FC = () => {
+  const { t } = useLanguage();
   const [refreshing, setRefreshing] = useState(false);
   const [alerts, setAlerts] = useState<AlertType[]>([]);
   const [filter, setFilter] = useState<'all' | 'pending' | 'resolved'>('all');
   const [isLoading, setIsLoading] = useState(true);
+  const [monitoredUser, setMonitoredUser] = useState<User | null>(null);
   
   // Get safe area insets
   const insets = useSafeAreaInsets();
@@ -31,13 +34,17 @@ export const AlertsScreen: React.FC = () => {
     try {
       setIsLoading(true);
       const user = await storageService.getUser();
-      if (!user) {
-        RNAlert.alert('Error', 'Please login first');
+      const monitoredUser = await storageService.getMonitoredUser();
+      setMonitoredUser(monitoredUser || null);
+      const activeUser = monitoredUser || user;
+
+      if (!activeUser) {
+        RNAlert.alert(t('common.error'), t('errors.loginRequired'));
         setIsLoading(false);
         return;
       }
 
-      const response = await apiService.getUserAlerts(user.id, 50);
+      const response = await apiService.getUserAlerts(activeUser.id, 50);
       if (response.success && response.data) {
         let filteredAlerts = response.data;
         
@@ -53,11 +60,11 @@ export const AlertsScreen: React.FC = () => {
         
         setAlerts(filteredAlerts);
       } else {
-        RNAlert.alert('Error', response.message || 'Failed to load alerts');
+        RNAlert.alert(t('common.error'), response.message || t('alerts.loadFailed'));
       }
     } catch (error) {
       console.error('Error loading alerts:', error);
-      RNAlert.alert('Error', 'An error occurred while loading alerts');
+      RNAlert.alert(t('common.error'), t('alerts.loadFailed'));
     } finally {
       setIsLoading(false);
     }
@@ -82,16 +89,16 @@ export const AlertsScreen: React.FC = () => {
 
   const handleClearAllAlerts = () => {
     RNAlert.alert(
-      'Clear All Alerts',
-      'Are you sure you want to clear all alert history?',
+      t('alerts.clearAllTitle'),
+      t('alerts.clearAllConfirm'),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Clear',
+          text: t('alerts.clearAll'),
           style: 'destructive',
           onPress: async () => {
             // Implement clear logic here
-            RNAlert.alert('Success', 'Alert history cleared');
+            RNAlert.alert(t('common.success'), t('alerts.cleared'));
             setAlerts([]);
           },
         },
@@ -104,13 +111,13 @@ export const AlertsScreen: React.FC = () => {
       const user = await storageService.getUser();
       const response = await apiService.acknowledgeAlert(alertId, user?.name || 'user');
       if (response.success) {
-        RNAlert.alert('Success', 'Alert acknowledged');
+        RNAlert.alert(t('common.success'), t('alerts.acknowledged'));
         await loadAlerts();
       } else {
-        RNAlert.alert('Error', response.message || 'Failed to acknowledge alert');
+        RNAlert.alert(t('common.error'), response.message || t('alerts.acknowledgeFailed'));
       }
     } catch (error) {
-      RNAlert.alert('Error', 'An error occurred while acknowledging alert');
+      RNAlert.alert(t('common.error'), t('alerts.acknowledgeFailed'));
     }
   };
 
@@ -118,13 +125,13 @@ export const AlertsScreen: React.FC = () => {
     try {
       const response = await apiService.resolveAlert(alertId);
       if (response.success) {
-        RNAlert.alert('Success', 'Alert resolved');
+        RNAlert.alert(t('common.success'), t('alerts.resolved'));
         await loadAlerts();
       } else {
-        RNAlert.alert('Error', response.message || 'Failed to resolve alert');
+        RNAlert.alert(t('common.error'), response.message || t('alerts.resolveFailed'));
       }
     } catch (error) {
-      RNAlert.alert('Error', 'An error occurred while resolving alert');
+      RNAlert.alert(t('common.error'), t('alerts.resolveFailed'));
     }
   };
 
@@ -147,49 +154,56 @@ export const AlertsScreen: React.FC = () => {
       >
         {/* Header */}
         <View className="mx-4 mt-4 mb-6">
-          <Text className="text-2xl font-bold text-dark">Alert History</Text>
+          <Text className="text-2xl font-bold text-dark">{t('alerts.historyTitle')}</Text>
           <Text className="text-sm text-gray mt-1">
-            Review all emergency alerts and notifications
+            {t('alerts.historySubtitle')}
           </Text>
         </View>
+
+        {monitoredUser && (
+          <View className="mx-4 mb-4 bg-purple-50 border border-purple-100 rounded-xl p-3">
+            <Text className="text-xs text-gray">{t('care.monitoring')}</Text>
+            <Text className="text-sm font-semibold text-dark mt-1">{monitoredUser.name}</Text>
+          </View>
+        )}
 
         {/* Statistics Overview */}
         <View className="mx-4 mb-6">
           <View className="flex-row justify-between mb-3">
             <View className="items-center flex-1 p-4 bg-primary rounded-2xl mx-1 shadow-lg">
               <Text className="text-3xl font-bold text-white">{stats.total}</Text>
-              <Text className="text-sm text-white/90 mt-1">Total Alerts</Text>
+              <Text className="text-sm text-white/90 mt-1">{t('alerts.totalAlerts')}</Text>
             </View>
             
             <View className="items-center flex-1 p-4 bg-warning rounded-2xl mx-1 shadow-lg">
               <Text className="text-3xl font-bold text-white">{stats.pending}</Text>
-              <Text className="text-sm text-white/90 mt-1">Pending</Text>
+              <Text className="text-sm text-white/90 mt-1">{t('alerts.pending')}</Text>
             </View>
           </View>
           
           <View className="flex-row justify-between">
             <View className="items-center flex-1 p-4 bg-success rounded-2xl mx-1 shadow-lg">
               <Text className="text-3xl font-bold text-white">{stats.resolved}</Text>
-              <Text className="text-sm text-white/90 mt-1">Resolved</Text>
+              <Text className="text-sm text-white/90 mt-1">{t('alerts.resolved')}</Text>
             </View>
             
             <View className="items-center flex-1 p-4 bg-danger rounded-2xl mx-1 shadow-lg">
               <Text className="text-3xl font-bold text-white">{stats.critical}</Text>
-              <Text className="text-sm text-white/90 mt-1">Critical</Text>
+              <Text className="text-sm text-white/90 mt-1">{t('alerts.critical')}</Text>
             </View>
           </View>
           
           {/* Last Updated */}
           <View className="mt-4 items-center">
             <Text className="text-xs text-gray">
-              Last updated: {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              {t('alerts.lastUpdated')}: {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </Text>
           </View>
         </View>
 
         {/* Filter Section */}
         <View className="card mx-4 mb-6">
-          <Text className="section-title">Filter Alerts</Text>
+          <Text className="section-title">{t('alerts.filterAlerts')}</Text>
           
           <View className="flex-row justify-between mb-4">
             {(['all', 'pending', 'resolved'] as const).map((filterType) => (
@@ -210,9 +224,9 @@ export const AlertsScreen: React.FC = () => {
                 <Text className={`font-semibold ${
                   filter === filterType ? 'text-white' : 'text-dark'
                 }`}>
-                  {filterType === 'all' && 'All'}
-                  {filterType === 'pending' && 'Pending'}
-                  {filterType === 'resolved' && 'Resolved'}
+                  {filterType === 'all' && t('alerts.all')}
+                  {filterType === 'pending' && t('alerts.pending')}
+                  {filterType === 'resolved' && t('alerts.resolved')}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -221,7 +235,7 @@ export const AlertsScreen: React.FC = () => {
           {/* Filter Summary */}
           <View className="flex-row items-center justify-between p-3 bg-blue-50 rounded-lg">
             <Text className="text-sm font-medium text-dark">
-              Showing: <Text className="text-primary">{alerts.length}</Text> alerts
+              {t('alerts.showing')}: <Text className="text-primary">{alerts.length}</Text> {t('alerts.alerts')}
             </Text>
             {alerts.length > 0 && (
               <TouchableOpacity
@@ -229,7 +243,7 @@ export const AlertsScreen: React.FC = () => {
                 className="px-3 py-1.5 bg-red-50 rounded-lg"
                 activeOpacity={0.7}
               >
-                <Text className="text-sm font-medium text-danger">Clear All</Text>
+                <Text className="text-sm font-medium text-danger">{t('alerts.clearAll')}</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -241,7 +255,7 @@ export const AlertsScreen: React.FC = () => {
             <View className="w-16 h-16 rounded-full bg-blue-50 justify-center items-center mb-4">
               <Text className="text-primary text-2xl">⏳</Text>
             </View>
-            <Text className="text-base text-gray">Loading alerts...</Text>
+            <Text className="text-base text-gray">{t('alerts.loading')}</Text>
           </View>
         ) : alerts.length > 0 ? (
           <View className="mx-2 mb-8">
@@ -259,7 +273,7 @@ export const AlertsScreen: React.FC = () => {
             {alerts.length >= 50 && (
               <View className="items-center mt-6 mb-4">
                 <TouchableOpacity className="px-6 py-3 bg-primary/10 rounded-full">
-                  <Text className="text-primary font-semibold">Load More Alerts</Text>
+                  <Text className="text-primary font-semibold">{t('alerts.loadMore')}</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -270,16 +284,16 @@ export const AlertsScreen: React.FC = () => {
               <Text className="text-4xl">✅</Text>
             </View>
             <Text className="text-xl text-gray font-medium mb-2">
-              {filter === 'all' && 'No alerts recorded yet'}
-              {filter === 'pending' && 'No pending alerts'}
-              {filter === 'resolved' && 'No resolved alerts'}
+              {filter === 'all' && t('alerts.noAlertsAll')}
+              {filter === 'pending' && t('alerts.noAlertsPending')}
+              {filter === 'resolved' && t('alerts.noAlertsResolved')}
             </Text>
             <Text className="text-sm text-lightGray text-center max-w-xs">
               {filter === 'all' 
-                ? 'All clear! No emergency alerts have been detected.'
+                ? t('alerts.noAlertsAllDesc')
                 : filter === 'pending'
-                ? 'Great! You have no pending alerts that need attention.'
-                : 'You have no resolved alerts in history.'
+                ? t('alerts.noAlertsPendingDesc')
+                : t('alerts.noAlertsResolvedDesc')
               }
             </Text>
             
@@ -289,7 +303,7 @@ export const AlertsScreen: React.FC = () => {
               onPress={loadAlerts}
               activeOpacity={0.7}
             >
-              <Text className="text-white font-semibold">Refresh Alerts</Text>
+              <Text className="text-white font-semibold">{t('alerts.refreshAlerts')}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -298,16 +312,16 @@ export const AlertsScreen: React.FC = () => {
         {alerts.length > 0 && (
           <View className="mx-4 mb-8 p-4 bg-blue-50 rounded-2xl border border-blue-200">
             <View className="flex-row items-center mb-3">
-              <Text className="text-lg font-semibold text-dark">⚠️ Important Notes</Text>
+              <Text className="text-lg font-semibold text-dark">⚠️ {t('alerts.importantNotes')}</Text>
             </View>
             <Text className="text-sm text-gray mb-2">
-              • Critical alerts require immediate attention
+              • {t('alerts.noteCritical')}
             </Text>
             <Text className="text-sm text-gray mb-2">
-              • Resolved alerts are kept for 30 days
+              • {t('alerts.noteRetention')}
             </Text>
             <Text className="text-sm text-gray">
-              • Contact emergency services if alert persists
+              • {t('alerts.noteContact')}
             </Text>
           </View>
         )}

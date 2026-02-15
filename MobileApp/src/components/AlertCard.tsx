@@ -2,6 +2,7 @@ import React, { useRef } from 'react';
 import { View, Text, TouchableOpacity, Animated } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Alert } from '../types';
+import { useLanguage } from '../components/LanguageProvider';
 
 interface AlertCardProps {
   alert: Alert;
@@ -15,6 +16,7 @@ export const AlertCard: React.FC<AlertCardProps> = ({
   onResolve,
 }) => {
   const scaleAnim = useRef(new Animated.Value(1)).current;
+  const { t } = useLanguage();
 
   const getSeverityColor = () => {
     switch (alert.severity) {
@@ -47,6 +49,37 @@ export const AlertCard: React.FC<AlertCardProps> = ({
     }
   };
 
+  const getAlertTypeLabel = () => {
+    switch (alert.alert_type) {
+      case 'fall': return t('alerts.types.fall');
+      case 'heart_rate': return t('alerts.types.heartRate');
+      case 'blood_pressure': return t('alerts.types.bloodPressure');
+      case 'temperature': return t('alerts.types.temperature');
+      case 'battery': return t('alerts.types.battery');
+      default: return t('alerts.types.emergency');
+    }
+  };
+
+  const getStatusLabel = () => {
+    switch (alert.status) {
+      case 'pending': return t('alerts.status.pending');
+      case 'sent': return t('alerts.status.sent');
+      case 'resolved': return t('alerts.status.resolved');
+      case 'failed': return t('alerts.status.failed');
+      default: return t('common.unknown');
+    }
+  };
+
+  const getSeverityLabel = () => {
+    switch (alert.severity) {
+      case 'critical': return t('alerts.severity.critical');
+      case 'high': return t('alerts.severity.high');
+      case 'medium': return t('alerts.severity.medium');
+      case 'low': return t('alerts.severity.low');
+      default: return t('common.unknown');
+    }
+  };
+
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
     const now = new Date();
@@ -56,11 +89,11 @@ export const AlertCard: React.FC<AlertCardProps> = ({
     const diffDays = Math.floor(diffMs / 86400000);
 
     if (diffMins < 60) {
-      return `${diffMins} min ago`;
+      return t('datetime.minutesAgo', { count: diffMins });
     } else if (diffHours < 24) {
-      return `${diffHours} hours ago`;
+      return t('datetime.hoursAgo', { count: diffHours });
     } else if (diffDays < 7) {
-      return `${diffDays} days ago`;
+      return t('datetime.daysAgo', { count: diffDays });
     } else {
       return date.toLocaleDateString();
     }
@@ -114,12 +147,7 @@ export const AlertCard: React.FC<AlertCardProps> = ({
           
           <View className="flex-1">
             <Text className="text-base font-semibold text-dark">
-              {alert.alert_type === 'fall' && 'Fall Detected'}
-              {alert.alert_type === 'heart_rate' && 'Heart Rate Alert'}
-              {alert.alert_type === 'blood_pressure' && 'Blood Pressure Alert'}
-              {alert.alert_type === 'temperature' && 'Temperature Alert'}
-              {alert.alert_type === 'battery' && 'Battery Alert'}
-              {!['fall', 'heart_rate', 'blood_pressure', 'temperature', 'battery'].includes(alert.alert_type) && 'Emergency Alert'}
+              {getAlertTypeLabel()}
             </Text>
             
             <View className="flex-row items-center mt-1">
@@ -127,7 +155,7 @@ export const AlertCard: React.FC<AlertCardProps> = ({
               <Text className="text-xs text-gray">
                 {formatDate(alert.timestamp)} • 
                 <Text className="font-medium" style={{ color: getStatusColor() }}>
-                  {' '}{alert.status.charAt(0).toUpperCase() + alert.status.slice(1)}
+                  {' '}{getStatusLabel()}
                 </Text>
               </Text>
             </View>
@@ -149,34 +177,34 @@ export const AlertCard: React.FC<AlertCardProps> = ({
               alert.severity === 'medium' ? 'text-yellow-800' :
               'text-green-800'}
           `}>
-            {alert.severity.toUpperCase()}
+            {getSeverityLabel()}
           </Text>
         </View>
       </View>
 
       {/* Alert Message */}
       <Text className="text-sm text-dark mb-4 leading-5">
-        {alert.message || 'Emergency situation detected requiring immediate attention'}
+        {alert.message || t('alerts.defaultMessage')}
       </Text>
 
       {/* Alert Details */}
       <View className="flex-row justify-between mb-4 p-3 bg-lightGray/20 rounded-lg">
         <View className="items-center flex-1">
-          <Text className="text-xs text-gray">Alert ID</Text>
+          <Text className="text-xs text-gray">{t('alerts.alertId')}</Text>
           <Text className="text-sm font-medium text-dark">
             #{alert.id.toString().slice(-6)}
           </Text>
         </View>
         
         <View className="items-center flex-1 border-x border-lightGray">
-          <Text className="text-xs text-gray">Type</Text>
+          <Text className="text-xs text-gray">{t('alerts.type')}</Text>
           <Text className="text-sm font-medium text-dark">
-            {alert.alert_type.replace('_', ' ')}
+            {getAlertTypeLabel()}
           </Text>
         </View>
         
         <View className="items-center flex-1">
-          <Text className="text-xs text-gray">Time</Text>
+          <Text className="text-xs text-gray">{t('alerts.time')}</Text>
           <Text className="text-sm font-medium text-dark">
             {new Date(alert.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </Text>
@@ -194,7 +222,7 @@ export const AlertCard: React.FC<AlertCardProps> = ({
             activeOpacity={0.7}
           >
             <MaterialCommunityIcons name="check" size={18} color="#2196F3" />
-            <Text className="text-primary font-semibold ml-2">Acknowledge</Text>
+            <Text className="text-primary font-semibold ml-2">{t('alerts.acknowledge')}</Text>
           </TouchableOpacity>
           
           <TouchableOpacity
@@ -205,7 +233,7 @@ export const AlertCard: React.FC<AlertCardProps> = ({
             activeOpacity={0.7}
           >
             <MaterialCommunityIcons name="check-circle" size={18} color="#4CAF50" />
-            <Text className="text-success font-semibold ml-2">Resolve</Text>
+            <Text className="text-success font-semibold ml-2">{t('alerts.resolve')}</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -215,7 +243,11 @@ export const AlertCard: React.FC<AlertCardProps> = ({
         <View className="flex-row items-center p-3 bg-green-50 rounded-lg">
           <MaterialCommunityIcons name="check-circle" size={20} color="#4CAF50" />
           <Text className="text-sm text-success ml-2 flex-1">
-            This alert has been {alert.status === 'resolved' ? 'resolved' : 'acknowledged'}
+            {t('alerts.resolvedMessage', {
+              status: alert.status === 'resolved'
+                ? t('alerts.status.resolved')
+                : t('alerts.status.acknowledged'),
+            })}
           </Text>
         </View>
       )}

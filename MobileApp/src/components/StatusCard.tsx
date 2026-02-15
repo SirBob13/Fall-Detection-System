@@ -8,12 +8,16 @@ interface StatusCardProps {
   device: Device | null;
   lastPrediction: Prediction | null;
   onRefresh: () => void;
+  onConnect?: () => void;
+  isConnecting?: boolean;
 }
 
 export const StatusCard: React.FC<StatusCardProps> = ({ 
   device, 
   lastPrediction, 
-  onRefresh 
+  onRefresh,
+  onConnect,
+  isConnecting = false
 }) => {
   const { t } = useLanguage();
 
@@ -78,7 +82,7 @@ export const StatusCard: React.FC<StatusCardProps> = ({
             <View className="items-center flex-1 border-x border-lightGray">
               <View className="flex-row items-center mb-1">
                 <MaterialCommunityIcons name="chip" size={16} color="#757575" />
-                <Text className="text-xs text-gray ml-1">Firmware</Text>
+                <Text className="text-xs text-gray ml-1">{t('system.firmware')}</Text>
               </View>
               <Text className="text-lg font-bold text-dark">
                 {device.firmware_version || '--'}
@@ -110,13 +114,13 @@ export const StatusCard: React.FC<StatusCardProps> = ({
             </Text>
           </View>
           <View className="flex-row justify-between">
-            <Text className="text-sm text-gray">Fall Now</Text>
+            <Text className="text-sm text-gray">{t('home.fallNow')}</Text>
             <Text className="text-sm font-semibold text-dark">
               {((lastPrediction.fall_now_probability || 0) * 100).toFixed(1)}%
             </Text>
           </View>
           <View className="flex-row justify-between">
-            <Text className="text-sm text-gray">Fall Soon</Text>
+            <Text className="text-sm text-gray">{t('home.fallSoon')}</Text>
             <Text className="text-sm font-semibold text-dark">
               {((lastPrediction.fall_soon_probability || 0) * 100).toFixed(1)}%
             </Text>
@@ -136,6 +140,34 @@ export const StatusCard: React.FC<StatusCardProps> = ({
           <MaterialCommunityIcons name="devices" size={40} color="#BDBDBD" />
           <Text className="text-base text-gray mt-2">{t('system.noDevice')}</Text>
           <Text className="text-sm text-lightGray mt-1">{t('system.connectDevice')}</Text>
+          {onConnect && (
+            <TouchableOpacity
+              onPress={onConnect}
+              className="mt-3 px-4 py-2 bg-primary rounded-full"
+              activeOpacity={0.8}
+              disabled={isConnecting}
+            >
+              <Text className="text-white text-sm font-semibold">
+                {isConnecting ? t('system.connecting') : t('system.connectAction')}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      {/* Device disconnected */}
+      {device && !device.is_connected && onConnect && (
+        <View className="mt-2 items-center">
+          <TouchableOpacity
+            onPress={onConnect}
+            className="px-4 py-2 bg-warning rounded-full"
+            activeOpacity={0.8}
+            disabled={isConnecting}
+          >
+            <Text className="text-white text-sm font-semibold">
+              {isConnecting ? t('system.connecting') : t('system.reconnect')}
+            </Text>
+          </TouchableOpacity>
         </View>
       )}
     </View>

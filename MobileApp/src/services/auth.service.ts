@@ -1298,6 +1298,32 @@ class AuthService {
     return session?.user || null;
   }
 
+  async updateCurrentUser(updates: Partial<UserProfile>): Promise<UserProfile | null> {
+    const session = await this.loadSession();
+    if (!session?.user) {
+      return null;
+    }
+
+    const normalizedUpdates: Partial<UserProfile> = {
+      ...updates,
+      id: updates.id !== undefined ? String(updates.id) : session.user.id,
+    };
+
+    const updatedUser: UserProfile = {
+      ...session.user,
+      ...normalizedUpdates,
+    };
+
+    const updatedSession: SessionData = {
+      ...session,
+      user: updatedUser,
+    };
+
+    await this.saveSession(updatedSession);
+    this.requestManager.clearCache('load-session');
+    return updatedUser;
+  }
+
   // ==================== Helper Functions ====================
   
   async checkBiometricSupport(): Promise<BiometricData> {

@@ -28,6 +28,7 @@ export type SettingsStackParamList = {
   SettingsMain: undefined;
   EmergencyContacts: undefined;
   EmergencySettings: undefined;
+  DeviceManagement: undefined;
 };
 
 // أنواع التنقل للطوارئ

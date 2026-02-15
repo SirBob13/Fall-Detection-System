@@ -3,7 +3,9 @@ export default {
   app: {
     name: "Fall Detection",
     tagline: "Smart fall detection system",
-    version: "Version 2.0"
+    version: "Version 2.0",
+    description: "Smart fall detection and emergency response",
+    company: "Fall Detection"
   },
 
   // Common parts
@@ -28,6 +30,7 @@ export default {
     yes: "Yes",
     no: "No",
     ok: "OK",
+    viewAll: "View All",
     select: "Select",
     all: "All",
     none: "None",
@@ -37,6 +40,8 @@ export default {
     failed: "Failed",
     warning: "Warning",
     info: "Info",
+    syncing: "Syncing",
+    pleaseWait: "Please wait",
     years: "years",
     male: "Male",
     female: "Female",
@@ -122,19 +127,32 @@ export default {
   // Home screen
   home: {
     title: "Home",
+    systemStatus: "System Status",
     status: "System Status",
     deviceConnected: "Device connected",
     deviceDisconnected: "Device disconnected",
     battery: "Battery",
     fallRisk: "Fall Risk",
+    lastPrediction: "Last Prediction",
+    fallNow: "Fall Now",
+    fallSoon: "Fall Soon",
     recentAlerts: "Recent Alerts",
     noAlerts: "No alerts currently",
     everythingOk: "Everything is OK 👍",
     safetyTips: "Safety Tips",
+    tip1Title: "Clear walkways",
     tip1: "Ensure walkways are clear of obstacles",
+    tip2Title: "Improve lighting",
     tip2: "Use good lighting at home during night",
+    tip3Title: "Wear safe shoes",
     tip3: "Wear appropriate non-slip shoes",
-    tip4: "Always keep the alert device with you"
+    tip4Title: "Keep device with you",
+    tip4: "Always keep the alert device with you",
+    quickStats: "Quick Stats",
+    todayAlerts: "Today's Alerts",
+    fromYesterday: "from yesterday",
+    responseTime: "Response Time",
+    faster: "faster"
   },
 
   // Alerts
@@ -155,13 +173,92 @@ export default {
     fallDetected: "Fall detected",
     vitalAbnormal: "Abnormal vitals",
     deviceOffline: "Device offline",
-    recentAlerts: "Recent Alerts"
+    recentAlerts: "Recent Alerts",
+    historyTitle: "Alert History",
+    historySubtitle: "Review all emergency alerts and notifications",
+    lastUpdated: "Last updated",
+    filterAlerts: "Filter Alerts",
+    showing: "Showing",
+    alerts: "alerts",
+    clearAll: "Clear All",
+    clearAllTitle: "Clear All Alerts",
+    clearAllConfirm: "Are you sure you want to clear all alert history?",
+    cleared: "Alert history cleared",
+    loadMore: "Load More Alerts",
+    loading: "Loading alerts...",
+    loadFailed: "Failed to load alerts",
+    acknowledgeFailed: "Failed to acknowledge alert",
+    resolveFailed: "Failed to resolve alert",
+    acknowledged: "Alert acknowledged",
+    refreshAlerts: "Refresh Alerts",
+    noAlertsAll: "No alerts recorded yet",
+    noAlertsPending: "No pending alerts",
+    noAlertsResolved: "No resolved alerts",
+    noAlertsAllDesc: "All clear! No emergency alerts have been detected.",
+    noAlertsPendingDesc: "Great! You have no pending alerts that need attention.",
+    noAlertsResolvedDesc: "You have no resolved alerts in history.",
+    importantNotes: "Important Notes",
+    noteCritical: "Critical alerts require immediate attention",
+    noteRetention: "Resolved alerts are kept for 30 days",
+    noteContact: "Contact emergency services if alert persists",
+    alertId: "Alert ID",
+    type: "Type",
+    time: "Time",
+    defaultMessage: "Emergency situation detected requiring immediate attention",
+    resolvedMessage: "This alert has been {{status}}",
+    status: {
+      pending: "Pending",
+      sent: "Sent",
+      resolved: "Resolved",
+      failed: "Failed",
+      acknowledged: "Acknowledged"
+    },
+    severity: {
+      critical: "CRITICAL",
+      high: "HIGH",
+      medium: "MEDIUM",
+      low: "LOW"
+    },
+    types: {
+      fall: "Fall Detected",
+      heartRate: "Heart Rate Alert",
+      bloodPressure: "Blood Pressure Alert",
+      temperature: "Temperature Alert",
+      battery: "Battery Alert",
+      emergency: "Emergency Alert"
+    }
+  },
+
+  // Chat
+  chat: {
+    title: "Chat",
+    with: "Chat with",
+    patient: "patient",
+    placeholder: "Type your message",
+    open: "Chat"
+  },
+
+  video: {
+    title: "Video Call",
+    start: "Start",
+    end: "End",
+    ready: "Ready to join call",
+    waiting: "Waiting for the other user...",
+    connected: "Connected",
+    channel: "Channel",
+    missingConfig: "Video config is missing. Please add Agora App ID."
   },
 
   // Emergency
   emergency: {
     title: "Emergency",
     sosButton: "Request Help",
+    sosDescription: "Tap for help or hold for emergency",
+    loginRequired: "Login required to request help",
+    tapLabel: "Tap",
+    holdLabel: "Hold",
+    tapForHelp: "Tap for help",
+    holdForEmergency: "Hold for emergency",
     sosCountdown: "SOS Countdown",
     sosSending: "Sending request...",
     emergencyContacts: "Emergency Contacts",
@@ -208,18 +305,35 @@ export default {
   settings: {
     title: "Settings",
     profile: "Profile",
+    personalInfo: "Personal Information",
+    personalInfoDesc: "View and update your personal details",
     deviceInfo: "Device Info",
+    deviceManagement: "Device Management",
+    deviceManagementDesc: "Connect, disconnect, and manage your device",
+    careManagement: "Care Management",
+    careManagementDesc: "Link and monitor loved ones",
     generalSettings: "General Settings",
     testSystem: "Test System",
     testNotifications: "Test Notifications",
+    testNotificationsDesc: "Send a test notification to verify alerts",
     refreshData: "Refresh Data",
+    refreshDataDesc: "Sync the latest data from the server",
     actions: "Actions",
     notifications: "Notifications",
     vibration: "Vibration",
     sound: "Sound",
     autoConnect: "Auto connect",
     fallDetection: "Fall detection",
+    fallDetectionDesc: "Detect falls automatically and generate alerts",
     vitalMonitoring: "Vital monitoring",
+    vitalMonitoringDesc: "Monitor vital signs like heart rate and oxygen",
+    age: "Age",
+    gender: "Gender",
+    height: "Height (cm)",
+    weight: "Weight (kg)",
+    emergencyContact: "Emergency Contact",
+    medicalConditions: "Medical Conditions",
+    medicalConditionsPlaceholder: "High blood pressure, diabetes, etc...",
     logout: "Logout",
     help: "Help & Support",
     privacy: "Privacy Policy",
@@ -229,11 +343,15 @@ export default {
   // Errors
   errors: {
     network: "Cannot connect to server. Please check your internet connection",
+    connection: "Connection problem",
+    connectionDesc: "Please check your internet connection and try again.",
+    loginRequired: "Please login first",
     server: "Server error",
     unauthorized: "Unauthorized",
     forbidden: "Access forbidden",
     notFound: "Not found",
     timeout: "Connection timeout",
+    syncFailed: "Failed to sync data",
     unknown: "Unknown error occurred"
   },
 
@@ -246,7 +364,9 @@ export default {
     connected: "Connected successfully",
     registered: "Registered successfully",
     loggedIn: "Logged in successfully",
-    loggedOut: "Logged out successfully"
+    loggedOut: "Logged out successfully",
+    synced: "Synced successfully",
+    dataUpdated: "Data updated"
   },
 
   // Dates and times
@@ -263,6 +383,24 @@ export default {
   system: {
     connected: "Connected",
     disconnected: "Disconnected",
+    offline: "Offline",
+    lowBattery: "Low battery",
+    noDevice: "No device connected",
+    connectDevice: "Connect your device",
+    connectAction: "Connect device",
+    connecting: "Connecting...",
+    reconnect: "Reconnect device",
+    disconnectAction: "Disconnect device",
+    scanBluetooth: "Scan Bluetooth devices",
+    enterDeviceId: "Or enter device ID",
+    deviceIdPlaceholder: "Device ID (from Bluetooth)",
+    deviceIdRequired: "Device ID is required",
+    noDevicesFound: "No devices found",
+    tryManual: "Try entering the device ID manually",
+    deviceConnected: "Device linked successfully",
+    bluetoothRequiresDevBuild: "Bluetooth requires a Development Build (not supported in Expo Go).",
+    firmware: "Firmware",
+    confidence: "Confidence",
     good: "Good",
     medium: "Medium",
     low: "Low",
@@ -276,5 +414,48 @@ export default {
     unknown: "Unknown",
     lastSeen: "Last seen",
     version: "Version"
+  },
+
+  // Vitals
+  vitals: {
+    title: "Vital Signs",
+    heartRate: "Heart Rate",
+    bloodPressure: "Blood Pressure",
+    oxygen: "Oxygen Saturation",
+    temperature: "Body Temperature",
+    notAvailable: "Not available yet",
+    normal: "Normal",
+    abnormal: "Abnormal",
+    bpm: "bpm",
+    mmHg: "mmHg",
+    percent: "%",
+    celsius: "°C",
+    noData: "No vital data available yet"
+  },
+
+  // Care / Monitoring
+  care: {
+    title: "Care Management",
+    addTitle: "Add Person to Monitor",
+    emailLabel: "Person Email",
+    emailPlaceholder: "example@email.com",
+    relationshipLabel: "Relationship (optional)",
+    relationshipPlaceholder: "e.g., Mom, Dad, Neighbor",
+    addButton: "Add",
+    listTitle: "People I Monitor",
+    noLinked: "No linked people yet",
+    select: "Monitor",
+    selected: "Currently Monitored",
+    remove: "Unlink",
+    monitoring: "Monitoring",
+    selfMonitoring: "Monitoring yourself",
+    switchBack: "Back to my data",
+    linkSuccess: "Account linked successfully",
+    unlinkSuccess: "Unlinked successfully",
+    linkFailed: "Failed to link account",
+    unlinkConfirmTitle: "Confirm unlink",
+    unlinkConfirmBody: "Do you want to unlink this person?",
+    invalidEmail: "Invalid email",
+    cannotSelf: "You cannot link yourself"
   }
 };

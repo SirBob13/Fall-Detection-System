@@ -203,6 +203,45 @@ class UserResponse(UserBase):
     class Config:
         from_attributes = True
 
+# ==================== Care Links Schemas ====================
+
+class CareLinkCreate(BaseModel):
+    caregiver_id: int
+    patient_id: Optional[int] = None
+    patient_email: Optional[EmailStr] = None
+    relationship: Optional[str] = None
+
+    @validator('patient_email')
+    def validate_patient_email(cls, v):
+        if v:
+            email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+            if not re.match(email_regex, v):
+                raise ValueError('بريد إلكتروني غير صالح')
+            return v.lower()
+        return v
+
+class CareLinkUser(BaseModel):
+    id: int
+    name: str
+    email: Optional[str] = None
+    age: Optional[int] = None
+    gender: Optional[Gender] = None
+
+    class Config:
+        from_attributes = True
+
+class CareLinkResponse(BaseModel):
+    id: int
+    caregiver_id: int
+    patient_id: int
+    relationship: Optional[str] = None
+    is_active: bool
+    created_at: datetime
+    patient: Optional[CareLinkUser] = None
+
+    class Config:
+        from_attributes = True
+
 # ==================== Device Schemas ====================
 
 class DeviceBase(BaseModel):
@@ -229,6 +268,16 @@ class DeviceUpdate(BaseModel):
     is_connected: Optional[bool] = None
     firmware_version: Optional[str] = None
 
+class DeviceConnect(BaseModel):
+    user_id: int
+    device_id: str
+    mac_address: Optional[str] = None
+    firmware_version: Optional[str] = None
+    battery_level: Optional[float] = Field(None, ge=0, le=100)
+
+class DeviceDisconnect(BaseModel):
+    device_id: str
+
 # ==================== Motion Sensor Schemas ====================
 
 class MotionDataBase(BaseModel):
@@ -240,6 +289,7 @@ class MotionDataBase(BaseModel):
     gyro_y: float
     gyro_z: float
     temperature: Optional[float] = None
+    timestamp: Optional[datetime] = None
 
 class MotionDataCreate(MotionDataBase):
     user_id: int
@@ -269,6 +319,7 @@ class VitalDataBase(BaseModel):
     oxygen_saturation: Optional[float] = Field(None, ge=0, le=100)
     body_temperature: Optional[float] = Field(None, gt=20, lt=45)
     respiration_rate: Optional[float] = Field(None, gt=0, lt=100)
+    timestamp: Optional[datetime] = None
 
 class VitalDataCreate(VitalDataBase):
     user_id: int
@@ -286,6 +337,30 @@ class VitalDataResponse(VitalDataBase):
 class BatchVitalData(BaseModel):
     user_id: int
     data: List[VitalDataBase]
+
+# ==================== Device Ingest Schemas ====================
+
+class DeviceMotionPayload(BaseModel):
+    acc_x: float
+    acc_y: float
+    acc_z: float
+    gyro_x: float
+    gyro_y: float
+    gyro_z: float
+    temperature: Optional[float] = None
+    timestamp: Optional[datetime] = None
+
+class DeviceIngestPayload(BaseModel):
+    device_id: str
+    user_id: Optional[int] = None
+    timestamp: Optional[datetime] = None
+    motion: Optional[DeviceMotionPayload] = None
+    vitals: Optional[VitalDataBase] = None
+    battery_level: Optional[float] = Field(None, ge=0, le=100)
+    firmware_version: Optional[str] = None
+
+class DeviceIngestBatch(BaseModel):
+    items: List[DeviceIngestPayload]
 
 # ==================== Prediction Schemas ====================
 

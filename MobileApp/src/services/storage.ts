@@ -59,6 +59,31 @@ class StorageService {
     }
   }
 
+  // Monitored User (Caregiver mode)
+  async saveMonitoredUser(user: User | null): Promise<boolean> {
+    try {
+      if (!user) {
+        await AsyncStorage.removeItem(STORAGE_KEYS.MONITORED_USER);
+        return true;
+      }
+      await AsyncStorage.setItem(STORAGE_KEYS.MONITORED_USER, JSON.stringify(user));
+      return true;
+    } catch (error) {
+      console.error('Error saving monitored user:', error);
+      return false;
+    }
+  }
+
+  async getMonitoredUser(): Promise<User | null> {
+    try {
+      const userString = await AsyncStorage.getItem(STORAGE_KEYS.MONITORED_USER);
+      return userString ? JSON.parse(userString) : null;
+    } catch (error) {
+      console.error('Error getting monitored user:', error);
+      return null;
+    }
+  }
+
   // Alerts History
   async saveAlert(alert: Alert): Promise<boolean> {
     try {
@@ -123,6 +148,7 @@ class StorageService {
         STORAGE_KEYS.SETTINGS,
         STORAGE_KEYS.ALERTS_HISTORY,
         STORAGE_KEYS.FALL_HISTORY,
+        STORAGE_KEYS.MONITORED_USER,
       ]);
     } catch (error) {
       console.error('Error clearing all data:', error);

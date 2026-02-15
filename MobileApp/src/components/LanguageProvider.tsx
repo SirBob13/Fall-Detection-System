@@ -25,7 +25,7 @@ interface LanguageProviderProps {
 
 export const LanguageProvider: React.FC<LanguageProviderProps> = ({ children }) => {
   const [language, setLanguage] = useState(getCurrentLanguage());
-  const [isRTL, setIsRTL] = useState(false); // Always LTR for English
+  const [isRTL, setIsRTL] = useState(getCurrentLanguage() === 'ar');
 
   const changeLanguage = useCallback((lang: string) => {
     console.log(`🌐 Changing language to: ${lang}`);
@@ -37,7 +37,7 @@ export const LanguageProvider: React.FC<LanguageProviderProps> = ({ children }) 
       const currentLang = getCurrentLanguage();
       
       setLanguage(currentLang);
-      setIsRTL(false); // Always false for English-only
+      setIsRTL(currentLang === 'ar');
       
       console.log(`🌐 Language set to: ${currentLang}`);
     };
@@ -69,7 +69,7 @@ export const LanguageProvider: React.FC<LanguageProviderProps> = ({ children }) 
       <View 
         style={{ 
           flex: 1,
-          direction: 'ltr' // Always LTR for English
+          direction: isRTL ? 'rtl' : 'ltr'
         }}
       >
         {children}

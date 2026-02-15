@@ -6,13 +6,11 @@ import {
   Switch,
   TouchableOpacity,
   Alert,
-  TextInput,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { useLanguage } from '../components/LanguageProvider';
-import { apiService } from '../services/api';
 import { storageService } from '../services/storage';
 import { notificationService } from '../services/notifications';
 import { authService } from '../services/auth.service';
@@ -33,8 +31,6 @@ export const SettingsScreen: React.FC = () => {
     fallDetection: true,
     vitalMonitoring: true,
   });
-  const [isEditing, setIsEditing] = useState(false);
-  const [editedUser, setEditedUser] = useState<Partial<User>>({});
 
   useEffect(() => {
     loadData();
@@ -80,23 +76,12 @@ export const SettingsScreen: React.FC = () => {
     }
   };
 
-  const handleUpdateUser = async () => {
-    if (!user) return;
+  const handlePersonalInfo = () => {
+    navigation.navigate('PersonalInfo');
+  };
 
-    try {
-      const response = await apiService.updateUser(user.id, editedUser);
-      if (response.success && response.data) {
-        setUser(response.data);
-        await storageService.saveUser(response.data);
-        setIsEditing(false);
-        setEditedUser({});
-        Alert.alert(t('success.updated'), t('success.saved'));
-      } else {
-        Alert.alert(t('common.error'), response.message || t('errors.unknown'));
-      }
-    } catch (error) {
-      Alert.alert(t('common.error'), t('errors.unknown'));
-    }
+  const handleCareManagement = () => {
+    navigation.navigate('CareManagement');
   };
 
   const handleLogout = () => {
@@ -111,6 +96,11 @@ export const SettingsScreen: React.FC = () => {
           onPress: async () => {
             await authService.logout();
             await storageService.clearAll();
+            const rootNavigation: any = navigation.getParent?.()?.getParent?.();
+            rootNavigation?.reset?.({
+              index: 0,
+              routes: [{ name: 'Auth' }],
+            });
           },
         },
       ]
@@ -147,6 +137,10 @@ export const SettingsScreen: React.FC = () => {
     navigation.navigate('LanguageSettings');
   };
 
+  const handleDeviceManagement = () => {
+    navigation.navigate('DeviceManagement');
+  };
+
   const handleHelp = () => {
     Alert.alert(t('settings.help'), t('settings.helpMessage'));
   };
@@ -174,105 +168,56 @@ export const SettingsScreen: React.FC = () => {
 
   return (
     <ScrollView className="flex-1 bg-light" showsVerticalScrollIndicator={false}>
-      {/* Profile Section */}
+      {/* Personal Info Section */}
       <View className="my-2">
         <Text className="section-title">
-          {t('settings.profile')}
+          {t('settings.personalInfo')}
         </Text>
         
-        {user ? (
-          <View className="card">
-            {isEditing ? (
-              <>
-                <View className="mb-4">
-                  <Text className="text-sm text-dark mb-2">{t('auth.register.name')}</Text>
-                  <TextInput
-                    className="input-field"
-                    value={editedUser.name || user.name}
-                    onChangeText={(text) => setEditedUser({ ...editedUser, name: text })}
-                    placeholder={t('auth.register.name')}
-                    placeholderTextColor="#BDBDBD"
-                  />
-                </View>
-                
-                <View className="mb-4">
-                  <Text className="text-sm text-dark mb-2">{t('settings.emergencyContact')}</Text>
-                  <TextInput
-                    className="input-field"
-                    value={editedUser.emergency_contact || user.emergency_contact || ''}
-                    onChangeText={(text) => setEditedUser({ ...editedUser, emergency_contact: text })}
-                    placeholder="+201234567890"
-                    placeholderTextColor="#BDBDBD"
-                    keyboardType="phone-pad"
-                  />
-                </View>
-                
-                <View className="flex-row justify-between mt-2">
-                  <TouchableOpacity
-                    className="flex-1 bg-lightGray p-3 rounded-lg mr-2"
-                    onPress={() => {
-                      setIsEditing(false);
-                      setEditedUser({});
-                    }}
-                  >
-                    <Text className="text-dark font-semibold text-center">
-                      {t('common.cancel')}
-                    </Text>
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity
-                    className="flex-1 bg-primary p-3 rounded-lg ml-2"
-                    onPress={handleUpdateUser}
-                  >
-                    <Text className="text-white font-semibold text-center">
-                      {t('common.save')}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </>
-            ) : (
-              <>
-                <View className="flex-row items-center mb-4">
-                  <View className="relative">
-                    <MaterialCommunityIcons name="account-circle" size={60} color="#2196F3" />
-                    {user.profile_image && (
-                      <View className="absolute inset-0 rounded-full bg-primary opacity-10" />
-                    )}
-                  </View>
-                  <View className="ml-4 flex-1">
-                    <Text className="text-xl font-bold text-dark mb-1">{user.name}</Text>
-                    <Text className="text-sm text-gray mb-1">
-                      {user.age} {t('common.years')} • {user.gender === 'male' ? t('common.male') : t('common.female')}
-                    </Text>
-                    {user.emergency_contact && (
-                      <View className="flex-row items-center mt-1">
-                        <MaterialCommunityIcons name="phone" size={14} color="#2196F3" />
-                        <Text className="text-sm text-primary ml-1">{user.emergency_contact}</Text>
-                      </View>
-                    )}
-                  </View>
-                </View>
-                
-                <TouchableOpacity
-                  className="flex-row items-center justify-center p-3 border border-primary rounded-lg"
-                  onPress={() => setIsEditing(true)}
-                  activeOpacity={0.7}
-                >
-                  <MaterialCommunityIcons name="pencil" size={20} color="#2196F3" />
-                  <Text className="text-primary text-sm font-semibold ml-2">
-                    {t('common.edit')}
-                  </Text>
-                </TouchableOpacity>
-              </>
-            )}
+        <TouchableOpacity
+          className="flex-row items-center justify-between bg-white mx-4 p-5 rounded-2xl shadow-lg active:opacity-80"
+          onPress={handlePersonalInfo}
+          activeOpacity={0.7}
+        >
+          <View className="flex-row items-center flex-1">
+            <View className="w-12 h-12 rounded-full bg-purple-50 justify-center items-center">
+              <MaterialCommunityIcons name="account-circle" size={24} color="#7E57C2" />
+            </View>
+            <View className="ml-3 flex-1">
+              <Text className="text-base font-semibold text-dark">{t('settings.personalInfo')}</Text>
+              <Text className="text-xs text-gray mt-1">
+                {user ? `${user.name} • ${user.age} ${t('common.years')}` : t('settings.personalInfoDesc')}
+              </Text>
+            </View>
           </View>
-        ) : (
-          <View className="card">
-            <Text className="text-sm text-gray">
-              Profile data will appear here.
-            </Text>
+          <MaterialCommunityIcons name="chevron-right" size={24} color="#757575" />
+        </TouchableOpacity>
+      </View>
+
+      {/* Care Management Section */}
+      <View className="my-2">
+        <Text className="section-title">
+          {t('care.title')}
+        </Text>
+
+        <TouchableOpacity
+          className="flex-row items-center justify-between bg-white mx-4 p-5 rounded-2xl shadow-lg active:opacity-80"
+          onPress={handleCareManagement}
+          activeOpacity={0.7}
+        >
+          <View className="flex-row items-center flex-1">
+            <View className="w-12 h-12 rounded-full bg-green-50 justify-center items-center">
+              <MaterialCommunityIcons name="account-multiple" size={24} color="#4CAF50" />
+            </View>
+            <View className="ml-3 flex-1">
+              <Text className="text-base font-semibold text-dark">{t('settings.careManagement')}</Text>
+              <Text className="text-xs text-gray mt-1">
+                {t('settings.careManagementDesc')}
+              </Text>
+            </View>
           </View>
-        )}
+          <MaterialCommunityIcons name="chevron-right" size={24} color="#757575" />
+        </TouchableOpacity>
       </View>
       
       {/* Language Section */}
@@ -351,19 +296,38 @@ export const SettingsScreen: React.FC = () => {
       </View>
 
       {/* Device Information Section */}
-      {device && (
-        <View className="my-2">
-          <Text className="section-title">
-            {t('settings.deviceInfo')}
-          </Text>
-          <View className="card">
+      <View className="my-2">
+        <Text className="section-title">
+          {t('settings.deviceInfo')}
+        </Text>
+        <TouchableOpacity
+          className="flex-row items-center justify-between bg-white mx-4 p-5 rounded-2xl shadow-lg active:opacity-80"
+          onPress={handleDeviceManagement}
+          activeOpacity={0.7}
+        >
+          <View className="flex-row items-center flex-1">
+            <View className="w-12 h-12 rounded-full bg-green-50 justify-center items-center">
+              <MaterialCommunityIcons name="devices" size={24} color="#4CAF50" />
+            </View>
+            <View className="ml-3 flex-1">
+              <Text className="text-base font-semibold text-dark">{t('settings.deviceManagement')}</Text>
+              <Text className="text-xs text-gray mt-1">
+                {t('settings.deviceManagementDesc')}
+              </Text>
+            </View>
+          </View>
+          <MaterialCommunityIcons name="chevron-right" size={24} color="#757575" />
+        </TouchableOpacity>
+
+        {device && (
+          <View className="card mt-3">
             <View className="flex-row items-center mb-4">
               <View className="w-12 h-12 rounded-full bg-green-50 justify-center items-center">
                 <MaterialCommunityIcons name="devices" size={24} color="#4CAF50" />
               </View>
               <View className="ml-3 flex-1">
                 <Text className="text-base font-semibold text-dark">
-                  {device.name || t('settings.deviceInfo')}
+                  {device.device_id}
                 </Text>
                 <Text className="text-sm text-gray mt-1">{device.device_id}</Text>
               </View>
@@ -394,7 +358,9 @@ export const SettingsScreen: React.FC = () => {
                   <Text className="text-xs text-gray ml-1">{t('system.lastSeen')}</Text>
                 </View>
                 <Text className="text-base font-semibold text-dark">
-                  {new Date(device.last_seen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  {device.last_seen
+                    ? new Date(device.last_seen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                    : '--'}
                 </Text>
               </View>
               
@@ -409,8 +375,8 @@ export const SettingsScreen: React.FC = () => {
               </View>
             </View>
           </View>
-        </View>
-      )}
+        )}
+      </View>
 
       {/* General Settings Section */}
       <View className="my-2">

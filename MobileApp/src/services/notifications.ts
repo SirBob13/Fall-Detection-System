@@ -1,15 +1,33 @@
-import * as Notifications from 'expo-notifications';
-import { Platform, Vibration } from 'react-native';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
+import { Platform, Vibration, Alert as RNAlert } from 'react-native';
 import { Alert } from '../types';
 
-// تكوين الإشعارات
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-  }),
-});
+const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
+let notificationsModule: typeof import('expo-notifications') | null = null;
+let notificationsInitialized = false;
+
+const getNotificationsModule = async () => {
+  if (isExpoGo && Platform.OS === 'android') {
+    return null;
+  }
+
+  if (!notificationsModule) {
+    notificationsModule = await import('expo-notifications');
+  }
+
+  if (!notificationsInitialized && notificationsModule) {
+    notificationsModule.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowAlert: true,
+        shouldPlaySound: true,
+        shouldSetBadge: true,
+      }),
+    });
+    notificationsInitialized = true;
+  }
+
+  return notificationsModule;
+};
 
 export class NotificationService {
   private static instance: NotificationService;
@@ -23,16 +41,25 @@ export class NotificationService {
 
   async requestPermissions(): Promise<boolean> {
     try {
+      const Notifications = await getNotificationsModule();
+      if (!Notifications) {
+        return false;
+      }
       const { status } = await Notifications.requestPermissionsAsync();
       return status === 'granted';
     } catch (error) {
-      console.error('Error requesting notification permissions:', error);
+      console.warn('Notification permissions not available:', error);
       return false;
     }
   }
 
   async sendFallAlert(alert: Alert) {
     try {
+      const Notifications = await getNotificationsModule();
+      if (!Notifications) {
+        Vibration.vibrate([500, 500, 500]);
+        return;
+      }
       await Notifications.scheduleNotificationAsync({
         content: {
           title: '⚠️ اكتشاف سقوط!',
@@ -49,12 +76,17 @@ export class NotificationService {
       }
       
     } catch (error) {
-      console.error('Error sending fall alert:', error);
+      console.warn('Error sending fall alert:', error);
     }
   }
 
   async sendFallSoonWarning(probability: number) {
     try {
+      const Notifications = await getNotificationsModule();
+      if (!Notifications) {
+        Vibration.vibrate([300, 300, 300]);
+        return;
+      }
       await Notifications.scheduleNotificationAsync({
         content: {
           title: '⚠️ تنبيه!',
@@ -69,12 +101,16 @@ export class NotificationService {
         Vibration.vibrate([300, 300, 300]);
       }
     } catch (error) {
-      console.error('Error sending fall soon warning:', error);
+      console.warn('Error sending fall soon warning:', error);
     }
   }
 
   async sendLowBatteryWarning(batteryLevel: number) {
     try {
+      const Notifications = await getNotificationsModule();
+      if (!Notifications) {
+        return;
+      }
       await Notifications.scheduleNotificationAsync({
         content: {
           title: '🔋 بطارية منخفضة',
@@ -84,16 +120,20 @@ export class NotificationService {
         trigger: null,
       });
     } catch (error) {
-      console.error('Error sending low battery warning:', error);
+      console.warn('Error sending low battery warning:', error);
     }
   }
 
   async cancelAllNotifications() {
     try {
+      const Notifications = await getNotificationsModule();
+      if (!Notifications) {
+        return;
+      }
       await Notifications.cancelAllScheduledNotificationsAsync();
       await Notifications.dismissAllNotificationsAsync();
     } catch (error) {
-      console.error('Error cancelling notifications:', error);
+      console.warn('Error cancelling notifications:', error);
     }
   }
 

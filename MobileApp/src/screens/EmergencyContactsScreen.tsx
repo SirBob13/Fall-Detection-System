@@ -18,6 +18,11 @@ export const EmergencyContactsScreen: React.FC = () => {
   const [contacts, setContacts] = useState<EmergencyContact[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
+  const [importModalVisible, setImportModalVisible] = useState(false);
+  const [phoneContacts, setPhoneContacts] = useState<EmergencyContact[]>([]);
+  const [contactSearch, setContactSearch] = useState('');
+  const [selectedContactIds, setSelectedContactIds] = useState<Set<string>>(new Set());
+  const [editablePhones, setEditablePhones] = useState<Record<string, string>>({});
   const [editingContact, setEditingContact] = useState<EmergencyContact | null>(null);
   const [formData, setFormData] = useState({
     name: '',
@@ -147,11 +152,16 @@ export const EmergencyContactsScreen: React.FC = () => {
             onPress: async () => {
               const importedContacts = await emergencyService.importPhoneContacts();
               if (importedContacts.length > 0) {
-                Alert.alert(
-                  'Import Successful',
-                  `Imported ${importedContacts.length} contacts`
+                setPhoneContacts(importedContacts);
+                setSelectedContactIds(new Set());
+                setEditablePhones(
+                  importedContacts.reduce<Record<string, string>>((acc, contact) => {
+                    acc[contact.id] = contact.phone || '';
+                    return acc;
+                  }, {})
                 );
-                // Can display them for selection
+                setContactSearch('');
+                setImportModalVisible(true);
               } else {
                 Alert.alert('Note', 'No contacts found to import');
               }
@@ -161,6 +171,58 @@ export const EmergencyContactsScreen: React.FC = () => {
       );
     } catch (error) {
       Alert.alert('Error', 'Failed to import contacts');
+    }
+  };
+
+  const normalizePhoneInput = (value: string): string => {
+    let normalized = value.replace(/[^\d+]/g, '');
+    if (normalized.includes('+')) {
+      normalized = normalized.replace(/(?!^)\+/g, '');
+    }
+    return normalized;
+  };
+
+  const handleToggleSelect = (contactId: string) => {
+    setSelectedContactIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(contactId)) {
+        next.delete(contactId);
+      } else {
+        next.add(contactId);
+      }
+      return next;
+    });
+  };
+
+  const handleSaveSelectedContacts = async () => {
+    if (selectedContactIds.size === 0) {
+      Alert.alert('Note', 'Select at least one contact');
+      return;
+    }
+
+    try {
+      const selectedContacts = phoneContacts.filter((contact) => selectedContactIds.has(contact.id));
+      for (const contact of selectedContacts) {
+        const phone = normalizePhoneInput(editablePhones[contact.id] || contact.phone || '');
+        if (!phone) {
+          continue;
+        }
+        await emergencyService.addEmergencyContact({
+          name: contact.name || 'Contact',
+          phone,
+          relationship: 'family',
+          priority: 3,
+          is_active: true,
+        });
+      }
+      setImportModalVisible(false);
+      setPhoneContacts([]);
+      setSelectedContactIds(new Set());
+      setEditablePhones({});
+      loadContacts();
+      Alert.alert('Success', 'Contacts added from phone');
+    } catch (error) {
+      Alert.alert('Error', 'Failed to add contacts');
     }
   };
 
@@ -549,6 +611,99 @@ export const EmergencyContactsScreen: React.FC = () => {
             <Text className="text-xs text-center text-gray mt-4">
               This contact will be notified during emergency situations
             </Text>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal for importing phone contacts */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={importModalVisible}
+        onRequestClose={() => setImportModalVisible(false)}
+      >
+        <View className="flex-1 justify-center items-center bg-black/50">
+          <View className="bg-white rounded-2xl w-11/12 max-w-md p-6 max-h-[80%]">
+            <View className="flex-row items-center justify-between mb-4">
+              <Text className="text-lg font-bold text-dark">Select a contact</Text>
+              <TouchableOpacity onPress={() => setImportModalVisible(false)}>
+                <MaterialCommunityIcons name="close" size={22} color="#757575" />
+              </TouchableOpacity>
+            </View>
+
+            <View className="mb-3">
+              <TextInput
+                className="input-field"
+                placeholder="Search contacts"
+                value={contactSearch}
+                onChangeText={setContactSearch}
+                placeholderTextColor="#BDBDBD"
+              />
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {phoneContacts
+                .filter((contact) => {
+                  if (!contactSearch.trim()) return true;
+                  const term = contactSearch.toLowerCase();
+                  return (
+                    (contact.name || '').toLowerCase().includes(term) ||
+                    (editablePhones[contact.id] || contact.phone || '').toLowerCase().includes(term)
+                  );
+                })
+                .map((contact) => {
+                  const isSelected = selectedContactIds.has(contact.id);
+                  return (
+                    <View
+                      key={`${contact.id}-${contact.phone}`}
+                      className="py-3 border-b border-lightGray"
+                    >
+                      <TouchableOpacity
+                        className="flex-row items-center"
+                        onPress={() => handleToggleSelect(contact.id)}
+                        activeOpacity={0.7}
+                      >
+                        <MaterialCommunityIcons
+                          name={isSelected ? 'checkbox-marked' : 'checkbox-blank-outline'}
+                          size={22}
+                          color={isSelected ? '#2196F3' : '#9E9E9E'}
+                        />
+                        <Text className="text-base font-medium text-dark ml-3 flex-1">
+                          {contact.name}
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TextInput
+                        className="input-field mt-2"
+                        value={editablePhones[contact.id] ?? contact.phone ?? ''}
+                        onChangeText={(text) =>
+                          setEditablePhones((prev) => ({ ...prev, [contact.id]: text }))
+                        }
+                        placeholder="Phone Number"
+                        keyboardType="phone-pad"
+                        placeholderTextColor="#BDBDBD"
+                      />
+                    </View>
+                  );
+                })}
+            </ScrollView>
+
+            <View className="flex-row justify-between mt-4">
+              <TouchableOpacity
+                className="flex-1 bg-lightGray py-3 rounded-lg mr-2 items-center"
+                onPress={() => setImportModalVisible(false)}
+                activeOpacity={0.7}
+              >
+                <Text className="text-dark font-semibold">Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                className="flex-1 bg-primary py-3 rounded-lg ml-2 items-center"
+                onPress={handleSaveSelectedContacts}
+                activeOpacity={0.7}
+              >
+                <Text className="text-white font-bold">Add Selected</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>

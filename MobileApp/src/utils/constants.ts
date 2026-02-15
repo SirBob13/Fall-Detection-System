@@ -31,7 +31,7 @@ const normalizeBaseUrl = (url: string) => {
   return trimmed;
 };
 
-const DEFAULT_BASE_URL = 'http://192.168.1.7:8000/api/v1';
+const DEFAULT_BASE_URL = 'http://192.168.1.148:8000/api/v1';
 const DEV_HOST = getDevHost();
 const DEV_BASE_URL = DEV_HOST ? `http://${DEV_HOST}:8000/api/v1` : DEFAULT_BASE_URL;
 const RAW_BASE_URL = PUBLIC_BASE_URL || DEV_BASE_URL;
@@ -70,4 +70,11 @@ export const STORAGE_KEYS = {
   SETTINGS: '@FallDetection:settings',
   ALERTS_HISTORY: '@FallDetection:alerts',
   FALL_HISTORY: '@FallDetection:falls',
+  MONITORED_USER: '@FallDetection:monitoredUser',
+  DEVICE_QUEUE: '@FallDetection:deviceQueue',
+};
+
+export const BLE_CONFIG = {
+  SERVICE_UUID: process.env.EXPO_PUBLIC_BLE_SERVICE_UUID || '',
+  CHARACTERISTIC_UUID: process.env.EXPO_PUBLIC_BLE_CHARACTERISTIC_UUID || '',
 };

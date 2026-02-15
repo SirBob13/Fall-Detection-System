@@ -8,6 +8,7 @@ import { ActivityIndicator, View, Text, AppState, Alert } from 'react-native';
 
 import { AUTH_CONFIG } from '../constants/auth';
 import { authService } from '../services/auth.service';
+import { deviceService } from '../services/device.service';
 import { useLanguage } from '../components/LanguageProvider';
 import { analyticsService } from '../services/analytics.service';
 
@@ -24,6 +25,11 @@ import { SettingsScreen } from '../screens/SettingsScreen';
 import { EmergencyContactsScreen } from '../screens/EmergencyContactsScreen';
 import { EmergencySettingsScreen } from '../screens/EmergencySettingsScreen';
 import { LanguageSettingsScreen } from '../screens/LanguageSettingsScreen';
+import { DeviceManagementScreen } from '../screens/DeviceManagementScreen';
+import { PersonalInfoScreen } from '../screens/PersonalInfoScreen';
+import { CareManagementScreen } from '../screens/CareManagementScreen';
+import { ChatScreen } from '../screens/ChatScreen';
+import { VideoCallScreen } from '../screens/VideoCallScreen';
 
 // Define navigation types
 type RootStackParamList = {
@@ -47,9 +53,14 @@ type MainTabParamList = {
 
 type SettingsStackParamList = {
   SettingsMain: undefined;
+  PersonalInfo: undefined;
+  CareManagement: undefined;
+  Chat: { patientId: number; patientName?: string };
+  VideoCall: { channel: string; title?: string };
   EmergencyContacts: undefined;
   EmergencySettings: undefined;
   LanguageSettings: undefined;
+  DeviceManagement: undefined;
 };
 
 type EmergencyStackParamList = {
@@ -161,6 +172,26 @@ const SettingsNavigator = () => {
           title: t('settings.title'),
         }}
       />
+      <SettingsStack.Screen
+        name="PersonalInfo"
+        component={PersonalInfoScreen}
+        options={{ title: t('settings.personalInfo') }}
+      />
+      <SettingsStack.Screen
+        name="CareManagement"
+        component={CareManagementScreen}
+        options={{ title: t('settings.careManagement') }}
+      />
+      <SettingsStack.Screen
+        name="Chat"
+        component={ChatScreen}
+        options={{ title: t('chat.title') }}
+      />
+      <SettingsStack.Screen
+        name="VideoCall"
+        component={VideoCallScreen}
+        options={{ title: t('video.title') }}
+      />
       <SettingsStack.Screen 
         name="EmergencyContacts" 
         component={EmergencyContactsScreen}
@@ -175,6 +206,11 @@ const SettingsNavigator = () => {
         name="LanguageSettings" 
         component={LanguageSettingsScreen}
         options={{ title: t('language.title') }}
+      />
+      <SettingsStack.Screen 
+        name="DeviceManagement" 
+        component={DeviceManagementScreen}
+        options={{ title: t('settings.deviceManagement') }}
       />
     </SettingsStack.Navigator>
   );
@@ -297,6 +333,7 @@ export const AppNavigator: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const appState = useRef(AppState.currentState);
   const navigationRef = useRef<any>(null);
+  const autoConnectRef = useRef(false);
 
   // Enhanced authentication check with session validation
   const checkAuthentication = async (backgroundCheck: boolean = false) => {
@@ -317,10 +354,12 @@ export const AppNavigator: React.FC = () => {
           
           // Update user in analytics
           analyticsService.setUserId(session.user.id);
-          analyticsService.setUserProperties({
-            email: session.user.email,
-            isAuthenticated: true,
-          });
+          if (typeof analyticsService.setUserProperties === 'function') {
+            analyticsService.setUserProperties({
+              email: session.user.email,
+              isAuthenticated: true,
+            });
+          }
           
           setIsAuthenticated(true);
           
@@ -444,11 +483,14 @@ export const AppNavigator: React.FC = () => {
         const session = await authService.loadSession();
         if (session?.user) {
           analyticsService.setUserId(session.user.id);
-          analyticsService.setUserProperties({
-            email: session.user.email,
-            isAuthenticated: true,
-          });
+          if (typeof analyticsService.setUserProperties === 'function') {
+            analyticsService.setUserProperties({
+              email: session.user.email,
+              isAuthenticated: true,
+            });
+          }
         }
+        await deviceService.autoConnectIfEnabled();
       }
     });
 
@@ -466,6 +508,13 @@ export const AppNavigator: React.FC = () => {
       analyticsService.track('authentication_state_change', {
         isAuthenticated,
       });
+    }
+  }, [isAuthenticated, isLoading]);
+
+  useEffect(() => {
+    if (!isLoading && isAuthenticated && !autoConnectRef.current) {
+      autoConnectRef.current = true;
+      deviceService.autoConnectIfEnabled();
     }
   }, [isAuthenticated, isLoading]);
 

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>API_KEY</key>
+	<string>AIzaSyDSZ67MSepb8FIugDWpzsiVmjG_TBtRZDk</string>
+	<key>GCM_SENDER_ID</key>
+	<string>377081293473</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>com.falldetection.app</string>
+	<key>PROJECT_ID</key>
+	<string>fall-detection-1b77c</string>
+	<key>STORAGE_BUCKET</key>
+	<string>fall-detection-1b77c.firebasestorage.app</string>
+	<key>IS_ADS_ENABLED</key>
+	<false></false>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false></false>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true></true>
+	<key>IS_GCM_ENABLED</key>
+	<true></true>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:377081293473:ios:7ea1152a3c1cee50901ee0</string>
+</dict>
+</plist>

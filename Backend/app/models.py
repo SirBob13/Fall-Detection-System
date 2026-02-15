@@ -181,6 +181,40 @@ class SocialAccount(Base):
     def __repr__(self):
         return f"<SocialAccount(id={self.id}, provider='{self.provider}', user_id={self.user_id})>"
 
+# ==================== Caregiver Links ====================
+
+class CareLink(Base):
+    """Links between caregivers and monitored users"""
+    __tablename__ = "care_links"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    caregiver_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    patient_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    # Use attribute name different from "relationship" to avoid clashing with SQLAlchemy function
+    relationship_type = Column("relationship", String(50))
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    caregiver = relationship(
+        "User",
+        foreign_keys=[caregiver_id],
+        backref=backref("care_links_as_caregiver", cascade="all, delete-orphan")
+    )
+    patient = relationship(
+        "User",
+        foreign_keys=[patient_id],
+        backref=backref("care_links_as_patient", cascade="all, delete-orphan")
+    )
+
+    __table_args__ = (
+        UniqueConstraint('caregiver_id', 'patient_id', name='uq_caregiver_patient'),
+        Index('idx_care_caregiver', 'caregiver_id'),
+        Index('idx_care_patient', 'patient_id'),
+    )
+
+    def __repr__(self):
+        return f"<CareLink(id={self.id}, caregiver_id={self.caregiver_id}, patient_id={self.patient_id})>"
+
 # ==================== Device Models ====================
 
 class Device(Base):

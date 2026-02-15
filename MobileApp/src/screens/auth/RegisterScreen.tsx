@@ -19,6 +19,7 @@ import { StackNavigationProp } from '@react-navigation/stack';
 
 import { authService } from '../../services/auth.service';
 import { RegisterData } from '../../types/auth';
+import { transliterateArabic } from '../../utils/transliteration';
 
 type AuthStackParamList = {
   Login: { prefilledEmail?: string };
@@ -61,7 +62,9 @@ const normalizeToEnglishDigits = (value: string): string => {
     .replace(/[۰-۹]/g, (digit) => EASTERN_ARABIC_DIGITS_MAP[digit] ?? digit);
 };
 
-const normalizeTextInput = (value: string): string => normalizeToEnglishDigits(value);
+const normalizeTextInput = (value: string): string =>
+  normalizeToEnglishDigits(transliterateArabic(value));
+const normalizeEmailInput = (value: string): string => normalizeToEnglishDigits(value).trim();
 
 const normalizeNumericInput = (value: string): string =>
   normalizeToEnglishDigits(value).replace(/[^0-9]/g, '');
@@ -79,7 +82,7 @@ const validateEgyptianPhone = (phone: string): boolean => {
   if (!phone) return false;
   const normalized = normalizePhoneInput(phone);
   // Egyptian mobile numbers: 010/011/012/015 + 8 digits
-  const phoneRegex = /^(?:\+20|0)1[0125]\d{8}$/;
+  const phoneRegex = /^(?:\+20|0)?1[0125]\d{8}$/;
   return phoneRegex.test(normalized);
 };
 
@@ -98,19 +101,24 @@ const RegisterSchema = Yup.object().shape({
       (value) => !value || validateEgyptianPhone(value)
     )
     .required('Phone number is required'),
-  age: Yup.number()
-    .transform((value, originalValue) => {
-      if (originalValue === null || originalValue === undefined || originalValue === '') {
-        return undefined;
-      }
-      const normalized = normalizeNumericInput(String(originalValue));
-      if (!normalized) return NaN;
-      return Number(normalized);
+  age: Yup.string()
+    .required('Age is required')
+    .test('age-number', 'Age must be a number', (value) => {
+      const normalized = normalizeNumericInput(value || '');
+      return normalized.length > 0;
     })
-    .typeError('Age must be a number')
-    .min(18, 'Age must be at least 18 years')
-    .max(120, 'Invalid age')
-    .required('Age is required'),
+    .test('age-min', 'Age must be at least 18 years', (value) => {
+      const normalized = normalizeNumericInput(value || '');
+      if (!normalized) return false;
+      const numericAge = Number(normalized);
+      return Number.isFinite(numericAge) && numericAge >= 18;
+    })
+    .test('age-max', 'Invalid age', (value) => {
+      const normalized = normalizeNumericInput(value || '');
+      if (!normalized) return false;
+      const numericAge = Number(normalized);
+      return Number.isFinite(numericAge) && numericAge <= 120;
+    }),
   gender: Yup.string()
     .oneOf(['male', 'female'], 'Must select male or female')
     .required('Gender is required'),
@@ -147,7 +155,7 @@ export const RegisterScreen: React.FC = () => {
       const normalizedValues: RegisterData = {
         ...values,
         name: normalizeTextInput(values.name || '').trim(),
-        email: (values.email || '').trim(),
+        email: normalizeToEnglishDigits(values.email || '').trim().toLowerCase(),
         phone: normalizePhoneInput(values.phone || ''),
         age: values.age ? Number(normalizeNumericInput(String(values.age))) : undefined,
         gender: values.gender,
@@ -166,9 +174,13 @@ export const RegisterScreen: React.FC = () => {
           'Your account has been created successfully. You can now login and use all app features.',
           [{ 
             text: 'Login', 
-            onPress: () => navigation.navigate('Login' as never) 
-          }]
-        );
+          onPress: () =>
+            navigation.navigate(
+              'Login' as never,
+              { prefilledEmail: normalizedValues.email } as never
+            )
+        }]
+      );
       } else {
         // User-friendly messages
         let userMessage = 'An error occurred during registration. Please try again.';
@@ -348,7 +360,7 @@ export const RegisterScreen: React.FC = () => {
                       placeholder="example@email.com"
                       placeholderTextColor="#BDBDBD"
                       value={values.email}
-                      onChangeText={handleChange('email')}
+                      onChangeText={(text) => setFieldValue('email', normalizeEmailInput(text))}
                       onBlur={handleBlur('email')}
                       autoCapitalize="none"
                       keyboardType="email-address"
@@ -370,6 +382,7 @@ export const RegisterScreen: React.FC = () => {
                       onChangeText={(text) => setFieldValue('phone', normalizePhoneInput(text))}
                       onBlur={handleBlur('phone')}
                       keyboardType="phone-pad"
+                      maxLength={13}
                       editable={!loading}
                     />
                     {errors.phone && touched.phone && (
@@ -391,6 +404,7 @@ export const RegisterScreen: React.FC = () => {
                       onChangeText={(text) => setFieldValue('age', normalizeNumericInput(text))}
                       onBlur={handleBlur('age')}
                       keyboardType="number-pad"
+                      maxLength={3}
                       editable={!loading}
                     />
                     {errors.age && touched.age && (
@@ -448,7 +462,7 @@ export const RegisterScreen: React.FC = () => {
                         placeholder="••••••••"
                         placeholderTextColor="#BDBDBD"
                         value={values.password}
-                        onChangeText={(text) => setFieldValue('password', normalizeTextInput(text))}
+                        onChangeText={(text) => setFieldValue('password', text)}
                         onBlur={handleBlur('password')}
                         secureTextEntry={!showPassword}
                         editable={!loading}
@@ -484,7 +498,7 @@ export const RegisterScreen: React.FC = () => {
                         placeholder="••••••••"
                         placeholderTextColor="#BDBDBD"
                         value={values.confirm_password}
-                        onChangeText={(text) => setFieldValue('confirm_password', normalizeTextInput(text))}
+                        onChangeText={(text) => setFieldValue('confirm_password', text)}
                         onBlur={handleBlur('confirm_password')}
                         secureTextEntry={!showConfirmPassword}
                         editable={!loading}

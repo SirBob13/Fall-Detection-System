@@ -62,6 +62,17 @@ def get_users(db: Session, skip: int = 0, limit: int = 100) -> List[models.User]
         logger.error(f"Database error getting users: {e}")
         return []
 
+def get_user_by_email(db: Session, email: str) -> Optional[models.User]:
+    """Get user by email."""
+    try:
+        if not email:
+            return None
+        user_auth = db.query(models.UserAuth).filter(models.UserAuth.email == email.lower()).first()
+        return user_auth.user if user_auth else None
+    except SQLAlchemyError as e:
+        logger.error(f"Database error getting user by email {email}: {e}")
+        return None
+
 def update_user(db: Session, user_id: int, user_update: schemas.UserUpdate) -> Optional[models.User]:
     """Update user information."""
     try:
@@ -113,6 +124,85 @@ def delete_user(db: Session, user_id: int) -> bool:
     except Exception as e:
         db.rollback()
         logger.error(f"Unexpected error deleting user {user_id}: {e}")
+        raise
+
+# ======================
+# Care Links Operations
+# ======================
+
+def create_care_link(
+    db: Session,
+    caregiver_id: int,
+    patient_id: int,
+    relationship: Optional[str] = None
+) -> models.CareLink:
+    """Create caregiver to patient link."""
+    try:
+        if caregiver_id == patient_id:
+            raise ValueError("Caregiver and patient cannot be the same user")
+
+        existing = db.query(models.CareLink).filter(
+            models.CareLink.caregiver_id == caregiver_id,
+            models.CareLink.patient_id == patient_id
+        ).first()
+        if existing:
+            if relationship:
+                existing.relationship_type = relationship
+            existing.is_active = True
+            db.commit()
+            db.refresh(existing)
+            return existing
+
+        link = models.CareLink(
+            caregiver_id=caregiver_id,
+            patient_id=patient_id,
+            relationship_type=relationship,
+            is_active=True,
+            created_at=datetime.utcnow()
+        )
+        db.add(link)
+        db.commit()
+        db.refresh(link)
+        return link
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error creating care link: {e}")
+        raise RuntimeError(f"Database error: {str(e)}")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Unexpected error creating care link: {e}")
+        raise
+
+def get_care_links_by_caregiver(db: Session, caregiver_id: int) -> List[models.CareLink]:
+    """List care links for a caregiver."""
+    try:
+        return db.query(models.CareLink).filter(
+            models.CareLink.caregiver_id == caregiver_id,
+            models.CareLink.is_active == True
+        ).all()
+    except SQLAlchemyError as e:
+        logger.error(f"Database error getting care links for caregiver {caregiver_id}: {e}")
+        return []
+
+def delete_care_link(db: Session, link_id: int, caregiver_id: Optional[int] = None) -> bool:
+    """Delete a care link."""
+    try:
+        query = db.query(models.CareLink).filter(models.CareLink.id == link_id)
+        if caregiver_id:
+            query = query.filter(models.CareLink.caregiver_id == caregiver_id)
+        link = query.first()
+        if not link:
+            return False
+        db.delete(link)
+        db.commit()
+        return True
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error deleting care link {link_id}: {e}")
+        raise RuntimeError(f"Database error: {str(e)}")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Unexpected error deleting care link {link_id}: {e}")
         raise
 
 # ======================
@@ -212,7 +302,7 @@ def create_motion_data(db: Session, motion_data: schemas.MotionDataCreate) -> mo
             acc_mag=acc_mag,
             gyro_mag=gyro_mag,
             is_fall_suspected=is_fall_suspected,
-            timestamp=datetime.utcnow()
+            timestamp=motion_data.timestamp or datetime.utcnow()
         )
         
         db.add(db_motion)
@@ -307,7 +397,7 @@ def create_vital_data(db: Session, vital_data: schemas.VitalDataCreate) -> model
             respiration_rate=vital_data.respiration_rate,
             is_abnormal=is_abnormal,
             abnormality_type=abnormality_type,
-            timestamp=datetime.utcnow()
+            timestamp=vital_data.timestamp or datetime.utcnow()
         )
         
         db.add(db_vital)

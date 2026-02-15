@@ -183,10 +183,10 @@ class RegisterRequest(BaseModel):
     phone: str = ""
     password: str
     confirm_password: str
-    age: int = None
+    age: Optional[int] = None
     gender: str = "male"
-    weight: float = None
-    height: float = None
+    weight: Optional[float] = None
+    height: Optional[float] = None
     medical_conditions: str = ""
     emergency_contact: str = ""
 

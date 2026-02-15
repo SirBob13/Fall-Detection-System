@@ -28,6 +28,7 @@ import { authService } from './src/services/auth.service';
 import { networkService } from './src/services/network.service';
 import { analyticsService } from './src/services/analytics.service';
 import { emergencyService } from './src/services/emergency.service';
+import { offlineQueueService } from './src/services/offlineQueue.service';
 import { NetworkStatusBar } from './src/components/NetworkStatusBar';
 import { OfflineIndicator } from './src/components/OfflineIndicator';
 import { SessionTimeout } from './src/components/SessionTimeout';
@@ -193,6 +194,9 @@ export default function App() {
       // 4. تهيئة التحليلات
       console.log('📊 [App] Initializing analytics...');
       await analyticsService.initialize();
+
+      // 4.1 تهيئة طابور الإرسال بدون إنترنت
+      await offlineQueueService.initialize();
 
       // 5. التحقق من جلسة المستخدم وتحميلها (عملية في الخلفية)
       console.log('🔐 [App] Checking user session...');

@@ -26,10 +26,17 @@
         "UIBackgroundModes": [
           "location",
           "fetch",
+          "remote-notification",
+          "location",
+          "fetch",
           "remote-notification"
         ],
         "NSCameraUsageDescription": "يحتاج التطبيق للوصول إلى الكاميرا لمسح الرمز الشريطي للجهاز.",
-        "NSFaceIDUsageDescription": "يحتاج التطبيق إلى Face ID للمصادقة البيومترية."
+        "NSMicrophoneUsageDescription": "يحتاج التطبيق للوصول إلى الميكروفون لإجراء مكالمات الفيديو.",
+        "NSFaceIDUsageDescription": "يحتاج التطبيق إلى Face ID للمصادقة البيومترية.",
+        "NSBluetoothAlwaysUsageDescription": "يحتاج التطبيق إلى البلوتوث لربط جهاز الاستشعار.",
+        "NSBluetoothPeripheralUsageDescription": "يحتاج التطبيق إلى البلوتوث للاتصال بجهاز الاستشعار.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -47,7 +54,11 @@
         "android.permission.VIBRATE",
         "android.permission.WRITE_CONTACTS",
         "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.BLUETOOTH_SCAN"
       ]
     },
     "plugins": [
@@ -68,12 +79,13 @@
       "eas": {
         "projectId": "d33adc67-9b40-45a7-ba77-c1f3907a62ab"
       },
-      "apiUrl": "https://neighbor-motor-melissa-facility.trycloudflare.com",
+      "apiUrl": "http://192.168.1.148:8000",
       "googleAuth": {
         "expoClientId": "967093516556-bhrjudajc066pv4paajmgv3h8ii8n091.apps.googleusercontent.com",
         "iosClientId": "967093516556-5onccjasolmtq8lhhs15v1onhau68lau.apps.googleusercontent.com",
         "androidClientId": "967093516556-k36474nr0kmuccoaaudln9nbgbgk13db.apps.googleusercontent.com"
       },
+      "agoraAppId": "d99738322bcd42269098412553842add",
       "appleAuth": {
         "clientId": ""
       }
@@ -84,7 +96,7 @@
     "updates": {
       "url": "https://u.expo.dev/your-project-id"
     },
-    "newArchEnabled": false,
+    "newArchEnabled": true,
     "owner": "aysha-kassems-organization"
   }
 }
