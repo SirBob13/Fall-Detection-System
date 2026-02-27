@@ -31,6 +31,7 @@ export default {
     yes: "نعم",
     no: "لا",
     ok: "حسناً",
+    start: "ابدأ",
     viewAll: "عرض الكل",
     select: "اختيار",
     all: "الكل",
@@ -153,7 +154,14 @@ export default {
     todayAlerts: "إنذارات اليوم",
     fromYesterday: "عن أمس",
     responseTime: "زمن الاستجابة",
-    faster: "أسرع"
+    faster: "أسرع",
+    healthInsightsTitle: "نصائح صحية",
+    healthInsightsEmpty: "لا توجد نصائح بعد. استمري في المتابعة.",
+    voiceCommandsTitle: "الأوامر الصوتية",
+    voiceCommandsDesc: "الأوامر الصوتية متاحة في نسخة التطوير.",
+    voiceCommandsAction: "اضغطي للتجربة",
+    voiceListening: "جاري الاستماع...",
+    voiceLast: "آخر أمر"
   },
 
   // الإنذارات
@@ -337,6 +345,7 @@ export default {
     automaticSOSDesc: "إرسال SOS تلقائيًا عند الحاجة",
     familyPortal: "بوابة العائلة",
     familyPortalDesc: "لوحة متابعة لأفراد العائلة",
+    familyPortalUnavailable: "بوابة العائلة غير متاحة الآن",
     healthInsights: "نصائح صحية",
     healthInsightsDesc: "إرشادات مخصصة حسب البيانات",
     language: "اللغة", 

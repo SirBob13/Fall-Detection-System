@@ -33,6 +33,7 @@
         ],
         "NSCameraUsageDescription": "يحتاج التطبيق للوصول إلى الكاميرا لمسح الرمز الشريطي للجهاز.",
         "NSMicrophoneUsageDescription": "يحتاج التطبيق للوصول إلى الميكروفون لإجراء مكالمات الفيديو.",
+        "NSSpeechRecognitionUsageDescription": "يحتاج التطبيق إلى التعرف على الصوت لتشغيل الأوامر الصوتية.",
         "NSFaceIDUsageDescription": "يحتاج التطبيق إلى Face ID للمصادقة البيومترية.",
         "NSBluetoothAlwaysUsageDescription": "يحتاج التطبيق إلى البلوتوث لربط جهاز الاستشعار.",
         "NSBluetoothPeripheralUsageDescription": "يحتاج التطبيق إلى البلوتوث للاتصال بجهاز الاستشعار.",

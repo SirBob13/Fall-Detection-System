@@ -30,6 +30,7 @@ export default {
     yes: "Yes",
     no: "No",
     ok: "OK",
+    start: "Start",
     viewAll: "View All",
     select: "Select",
     all: "All",
@@ -152,7 +153,14 @@ export default {
     todayAlerts: "Today's Alerts",
     fromYesterday: "from yesterday",
     responseTime: "Response Time",
-    faster: "faster"
+    faster: "faster",
+    healthInsightsTitle: "Health insights",
+    healthInsightsEmpty: "No insights yet. Keep monitoring.",
+    voiceCommandsTitle: "Voice commands",
+    voiceCommandsDesc: "Voice commands are available in the development build.",
+    voiceCommandsAction: "Tap to try",
+    voiceListening: "Listening...",
+    voiceLast: "Last command"
   },
 
   // Alerts
@@ -338,6 +346,7 @@ export default {
     automaticSOSDesc: "Trigger SOS automatically when needed",
     familyPortal: "Family portal",
     familyPortalDesc: "Family monitoring dashboard access",
+    familyPortalUnavailable: "Family portal is not available right now",
     healthInsights: "Health insights",
     healthInsightsDesc: "Personalized tips based on data",
     generalSettings: "General Settings",

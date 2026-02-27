@@ -6,6 +6,7 @@ import {
   Switch,
   TouchableOpacity,
   Alert,
+  Linking,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -96,6 +97,20 @@ export const SettingsScreen: React.FC = () => {
 
   const handleReports = () => {
     navigation.navigate('Reports');
+  };
+
+  const handleFamilyPortal = async () => {
+    try {
+      const url = 'https://family.falldetection.app';
+      const canOpen = await Linking.canOpenURL(url);
+      if (canOpen) {
+        await Linking.openURL(url);
+      } else {
+        Alert.alert(t('common.error'), t('settings.familyPortalUnavailable'));
+      }
+    } catch (error) {
+      Alert.alert(t('common.error'), t('settings.familyPortalUnavailable'));
+    }
   };
   const handleLogout = () => {
     Alert.alert(
@@ -250,6 +265,27 @@ export const SettingsScreen: React.FC = () => {
           </View>
           <MaterialCommunityIcons name="chevron-right" size={24} color="#757575" />
         </TouchableOpacity>
+
+        {settings.familyPortal && (
+          <TouchableOpacity
+            className="flex-row items-center justify-between bg-white mx-4 mt-3 p-5 rounded-2xl shadow-lg active:opacity-80"
+            onPress={handleFamilyPortal}
+            activeOpacity={0.7}
+          >
+            <View className="flex-row items-center flex-1">
+              <View className="w-12 h-12 rounded-full bg-purple-50 justify-center items-center">
+                <MaterialCommunityIcons name="web" size={24} color="#7E57C2" />
+              </View>
+              <View className="ml-3 flex-1">
+                <Text className="text-base font-semibold text-dark">{t('settings.familyPortal')}</Text>
+                <Text className="text-xs text-gray mt-1">
+                  {t('settings.familyPortalDesc')}
+                </Text>
+              </View>
+            </View>
+            <MaterialCommunityIcons name="chevron-right" size={24} color="#757575" />
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Reports Section */}

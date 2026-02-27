@@ -24,6 +24,8 @@ import { offlineQueueService } from '../services/offlineQueue.service';
 import { networkService, NetworkStatus } from '../services/network.service';
 import { bluetoothService, ScannedDevice, isBluetoothSupported } from '../services/bluetooth.service';
 import { deviceService } from '../services/device.service';
+import { emergencyService } from '../services/emergency.service';
+import { voiceService } from '../services/voice.service';
 import { User, Device, Alert as AlertType, Prediction, VitalData } from '../types';
 import { useNavigation } from '@react-navigation/native';
 
@@ -47,6 +49,10 @@ export const HomeScreen: React.FC = () => {
   const [queueSize, setQueueSize] = useState(0);
   const [networkStatus, setNetworkStatus] = useState<NetworkStatus | null>(null);
   const [seniorMode, setSeniorMode] = useState(false);
+  const [settings, setSettings] = useState<any>(null);
+  const [healthInsight, setHealthInsight] = useState<string | null>(null);
+  const [listening, setListening] = useState(false);
+  const [lastCommand, setLastCommand] = useState<string | null>(null);
   
   useEffect(() => {
     loadData();
@@ -64,6 +70,19 @@ export const HomeScreen: React.FC = () => {
       unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    if (!settings?.voiceCommands) return;
+    voiceService.initialize({
+      onResult: handleVoiceResult,
+      onError: (message) => console.warn('Voice error:', message),
+      onStateChange: (value) => setListening(value),
+    });
+
+    return () => {
+      voiceService.destroy().catch(() => undefined);
+    };
+  }, [settings?.voiceCommands]);
 
   const loadData = async () => {
     try {
@@ -86,6 +105,7 @@ export const HomeScreen: React.FC = () => {
       const storedDevice = await storageService.getDevice();
       const storedSettings = await storageService.getSettings();
       setSeniorMode(!!storedSettings?.seniorMode);
+      setSettings(storedSettings);
       const storedMonitoredUser = await storageService.getMonitoredUser();
 
       setUser(storedUser);
@@ -121,8 +141,22 @@ export const HomeScreen: React.FC = () => {
           const vitalsResponse = await apiService.getUserVitals(activeUser.id, 1);
           if (vitalsResponse.success && vitalsResponse.data && vitalsResponse.data.length > 0) {
             setLatestVitals(vitalsResponse.data[0]);
+            if (storedSettings?.automaticSOS && vitalsResponse.data[0].is_abnormal) {
+              emergencyService.triggerEmergency('vital_abnormal', vitalsResponse.data[0]).catch(() => undefined);
+            }
           } else {
             setLatestVitals(null);
+          }
+
+          if (storedSettings?.healthInsights) {
+            const reportResponse = await apiService.getUserReport(activeUser.id, 7);
+            if (reportResponse.success && reportResponse.data?.recommendations?.length) {
+              setHealthInsight(reportResponse.data.recommendations[0]);
+            } else {
+              setHealthInsight(null);
+            }
+          } else {
+            setHealthInsight(null);
           }
         } catch (apiError) {
           console.warn('⚠️ (Background) Error loading data:', apiError);
@@ -149,6 +183,13 @@ export const HomeScreen: React.FC = () => {
         newAlerts.forEach((alert) => {
           if (alert.status === 'pending' || alert.status === 'sent') {
             notificationService.sendFallAlert(alert);
+          }
+
+          if (
+            settings?.automaticSOS &&
+            (alert.alert_type === 'fall' || alert.severity === 'critical')
+          ) {
+            emergencyService.triggerEmergency('fall', alert).catch(() => undefined);
           }
         });
 
@@ -234,6 +275,44 @@ export const HomeScreen: React.FC = () => {
         },
       ]
     );
+  };
+
+  const handleVoiceResult = (text: string) => {
+    const normalized = text.toLowerCase();
+    setLastCommand(text);
+
+    const isEmergency =
+      normalized.includes('sos') ||
+      normalized.includes('help') ||
+      normalized.includes('emergency') ||
+      normalized.includes('نجدة') ||
+      normalized.includes('طوارئ');
+
+    if (isEmergency) {
+      emergencyService.triggerEmergency('manual').catch(() => undefined);
+      return;
+    }
+
+    if (normalized.includes('alerts') || normalized.includes('تنبيهات')) {
+      navigation.navigate('Alerts');
+      return;
+    }
+
+    if (normalized.includes('settings') || normalized.includes('الإعدادات')) {
+      navigation.navigate('Settings');
+      return;
+    }
+
+    if (normalized.includes('device') || normalized.includes('جهاز')) {
+      setPairModalVisible(true);
+      return;
+    }
+  };
+
+  const handleVoiceCommand = () => {
+    if (!settings?.voiceCommands) return;
+    const locale = t('direction') === 'rtl' ? 'ar-EG' : 'en-US';
+    voiceService.start(locale);
   };
 
   const handleViewAllAlerts = () => {
@@ -581,6 +660,42 @@ export const HomeScreen: React.FC = () => {
             </View>
           </View>
         </View>
+
+        {settings?.healthInsights && (
+          <View className="mt-8 mx-4">
+            <Text className="text-lg font-bold text-dark mb-4">
+              {t('home.healthInsightsTitle')}
+            </Text>
+            <View className="bg-white rounded-2xl shadow-lg border border-lightGray p-5">
+              <Text className="text-sm text-gray">
+                {healthInsight || t('home.healthInsightsEmpty')}
+              </Text>
+            </View>
+          </View>
+        )}
+
+        {settings?.voiceCommands && (
+          <View className="mt-8 mx-4">
+            <Text className="text-lg font-bold text-dark mb-4">
+              {t('home.voiceCommandsTitle')}
+            </Text>
+            <TouchableOpacity
+              className="bg-white rounded-2xl shadow-lg border border-lightGray p-5 flex-row items-center justify-between"
+              onPress={handleVoiceCommand}
+              activeOpacity={0.7}
+            >
+              <View>
+                <Text className="text-sm text-gray">{t('home.voiceCommandsAction')}</Text>
+                {lastCommand ? (
+                  <Text className="text-xs text-gray mt-1">{t('home.voiceLast')}: {lastCommand}</Text>
+                ) : null}
+              </View>
+              <Text className="text-primary font-semibold">
+                {listening ? t('home.voiceListening') : t('common.start')}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Bottom Spacing */}
         <View className="h-20" />

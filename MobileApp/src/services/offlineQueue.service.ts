@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiService } from './api';
 import { networkService } from './network.service';
+import { storageService } from './storage';
 import { DeviceIngestPayload } from '../types';
 import { STORAGE_KEYS } from '../utils/constants';
 
@@ -44,6 +45,21 @@ class OfflineQueueService {
   }
 
   async enqueue(payload: DeviceIngestPayload): Promise<void> {
+    const settings = await storageService.getSettings();
+    const offlineEnabled = settings?.offlineMode ?? true;
+
+    if (!offlineEnabled) {
+      try {
+        const response = await apiService.ingestDeviceData(payload);
+        if (response.success) {
+          return;
+        }
+      } catch (error) {
+        // fall through to avoid crash
+      }
+      return;
+    }
+
     this.queue.push(payload);
     await this.saveQueue();
 
