@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from .. import crud, schemas
 from ..services.emergency_service import EmergencyService
-from ..models import User, Alert
+from ..models import User, Alert, EmergencyLog
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -464,5 +464,62 @@ async def get_emergency_stats(
             detail={
                 "success": False,
                 "error": f"Failed to get emergency statistics: {str(e)}"
+            }
+        )
+
+
+@router.get("/emergency/last-location/{user_id}", response_model=Dict[str, Any])
+async def get_last_emergency_location(
+    user_id: int,
+    db: Session = Depends(get_db)
+):
+    """Get the latest known emergency location for a user."""
+    try:
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={
+                    "success": False,
+                    "error": f"User with ID {user_id} not found"
+                }
+            )
+
+        log = db.query(EmergencyLog).filter(
+            EmergencyLog.user_id == user_id,
+            EmergencyLog.location_lat.isnot(None),
+            EmergencyLog.location_lng.isnot(None)
+        ).order_by(EmergencyLog.timestamp.desc()).first()
+
+        if not log:
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                content={
+                    "success": True,
+                    "data": None,
+                    "message": "No location data available"
+                }
+            )
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "data": {
+                    "lat": log.location_lat,
+                    "lng": log.location_lng,
+                    "accuracy": log.location_accuracy,
+                    "timestamp": log.timestamp.isoformat() if log.timestamp else None,
+                    "emergency_type": log.emergency_type,
+                }
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error getting last emergency location: {e}", exc_info=True)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "success": False,
+                "error": f"Failed to get last emergency location: {str(e)}"
             }
         )

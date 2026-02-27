@@ -2,7 +2,7 @@ import axios, { AxiosInstance, AxiosResponse } from 'axios';
 import { API_CONFIG } from '../utils/constants';
 import { 
   User, Device, MotionData, VitalData, 
-  Prediction, Alert, ApiResponse, CareLink, DeviceIngestPayload 
+  Prediction, Alert, ApiResponse, CareLink, DeviceIngestPayload, LastKnownLocation, CareDashboardItem, ReportSummary 
 } from '../types';
 
 class ApiService {
@@ -173,6 +173,38 @@ class ApiService {
     }
   }
 
+  async getLastLocation(userId: number): Promise<ApiResponse<LastKnownLocation | null>> {
+    try {
+      const response = await this.client.get(`/emergency/last-location/${userId}`);
+      const payload = response.data;
+      const data = payload?.data ?? null;
+      return { success: payload?.success ?? true, data };
+    } catch (error: any) {
+      console.error('❌ Error getting last location:', error.message);
+      return {
+        success: false,
+        error: error.message,
+        message: 'فشل تحميل آخر موقع'
+      };
+    }
+  }
+
+  async getUserReport(userId: number, days: number = 7): Promise<ApiResponse<ReportSummary>> {
+    try {
+      const response = await this.client.get(`/reports/${userId}?days=${days}`);
+      const payload = response.data;
+      const data = payload?.data ?? payload;
+      return { success: payload?.success ?? true, data };
+    } catch (error: any) {
+      console.error('❌ Error getting report:', error.message);
+      return {
+        success: false,
+        error: error.message,
+        message: 'فشل تحميل التقرير'
+      };
+    }
+  }
+
   // Device APIs - NO MOCK DATA
   async getDevice(deviceId: string): Promise<ApiResponse<Device>> {
     try {
@@ -324,6 +356,22 @@ class ApiService {
         success: false,
         error: error.message,
         message: 'فشل حذف الربط'
+      };
+    }
+  }
+
+  async getCareDashboard(caregiverId: number): Promise<ApiResponse<CareDashboardItem[]>> {
+    try {
+      const response = await this.client.get(`/care/dashboard/${caregiverId}`);
+      const payload = response.data;
+      const data = Array.isArray(payload?.data) ? payload.data : [];
+      return { success: payload?.success ?? true, data };
+    } catch (error: any) {
+      console.error('❌ Error getting care dashboard:', error.message);
+      return {
+        success: false,
+        error: error.message,
+        message: 'فشل تحميل لوحة المتابعة'
       };
     }
   }

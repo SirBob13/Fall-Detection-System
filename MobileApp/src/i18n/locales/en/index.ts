@@ -189,6 +189,8 @@ export default {
     loadFailed: "Failed to load alerts",
     acknowledgeFailed: "Failed to acknowledge alert",
     resolveFailed: "Failed to resolve alert",
+    imFine: "I'm fine",
+    imFineConfirmed: "Thanks! We marked this alert as resolved.",
     acknowledged: "Alert acknowledged",
     refreshAlerts: "Refresh Alerts",
     noAlertsAll: "No alerts recorded yet",
@@ -246,7 +248,8 @@ export default {
     waiting: "Waiting for the other user...",
     connected: "Connected",
     channel: "Channel",
-    missingConfig: "Video config is missing. Please add Agora App ID."
+    missingConfig: "Video config is missing. Please add Agora App ID.",
+    emergencyTitle: "Emergency video call"
   },
 
   // Emergency
@@ -263,6 +266,11 @@ export default {
     sosSending: "Sending request...",
     emergencyContacts: "Emergency Contacts",
     emergencySettings: "Emergency System Settings",
+    communicationTitle: "Communication",
+    communicationDesc: "Chat or start a video call with responders",
+    openChat: "Open chat",
+    videoCall: "Start video call",
+    communicationNoUser: "Please select a monitored user first.",
     testSystem: "Test Emergency System",
     testSMS: "Test SMS sending",
     contacts: {
@@ -283,7 +291,13 @@ export default {
       friend: "Friend",
       doctor: "Doctor",
       neighbor: "Neighbor",
-      description: "Manage phone numbers to be called in emergencies"
+      description: "Manage phone numbers to be called in emergencies",
+      total: "Total contacts",
+      highPriority: "High priority",
+      contact: "Contact",
+      emptyTitle: "No emergency contacts",
+      emptyDesc: "Add contacts that will be notified in emergency situations",
+      addFirst: "Add first contact"
     },
     settings: {
       title: "Settings",
@@ -312,6 +326,20 @@ export default {
     deviceManagementDesc: "Connect, disconnect, and manage your device",
     careManagement: "Care Management",
     careManagementDesc: "Link and monitor loved ones",
+    accessibility: "Accessibility",
+    seniorMode: "Senior mode",
+    seniorModeDesc: "Larger buttons and text for easier use",
+    advanced: "Advanced features",
+    offlineMode: "Offline mode",
+    offlineModeDesc: "Queue data when there is no internet",
+    voiceCommands: "Voice commands",
+    voiceCommandsDesc: "Hands-free control of key actions",
+    automaticSOS: "Automatic SOS",
+    automaticSOSDesc: "Trigger SOS automatically when needed",
+    familyPortal: "Family portal",
+    familyPortalDesc: "Family monitoring dashboard access",
+    healthInsights: "Health insights",
+    healthInsightsDesc: "Personalized tips based on data",
     generalSettings: "General Settings",
     testSystem: "Test System",
     testNotifications: "Test Notifications",
@@ -385,6 +413,10 @@ export default {
     disconnected: "Disconnected",
     offline: "Offline",
     lowBattery: "Low battery",
+    lowBatteryTitle: "Low battery",
+    lowBatteryDesc: "Please charge the wearable device soon.",
+    offlineQueueTitle: "Pending sync",
+    offlineQueueDesc: "{{count}} items waiting to sync",
     noDevice: "No device connected",
     connectDevice: "Connect your device",
     connectAction: "Connect device",
@@ -457,5 +489,44 @@ export default {
     unlinkConfirmBody: "Do you want to unlink this person?",
     invalidEmail: "Invalid email",
     cannotSelf: "You cannot link yourself"
+  },
+
+  dashboard: {
+    title: "Monitoring Dashboard",
+    subtitle: "Live overview of the people you care about",
+    shortDesc: "Vitals, alerts, and location",
+    monitoring: "Monitoring now",
+    noUser: "No user selected yet",
+    myData: "My data",
+    live: "Live",
+    vitals: "Vital signs",
+    alerts: "Alerts summary",
+    location: "Last location",
+    lastKnown: "Last known location",
+    noLocation: "No location data yet",
+    lastUpdated: "Last updated",
+    openAlerts: "Open alerts",
+    openChat: "Open chat",
+    latestAlert: "Latest alert",
+    noAlerts: "No alerts yet",
+    heartRateTrend: "Heart rate trend",
+    allMonitored: "All monitored",
+    noMonitored: "No monitored people yet",
+    pending: "Pending",
+    view: "View"
+  },
+
+  reports: {
+    title: "Reports & Analytics",
+    subtitle: "Daily and weekly insights",
+    shortDesc: "Trends and recommendations",
+    days: "days",
+    summary: "Summary",
+    trend: "Daily trend",
+    noTrend: "Not enough data yet",
+    vitals: "Vitals summary",
+    abnormalRate: "Abnormal rate",
+    recommendations: "Recommendations",
+    noData: "No report data yet"
   }
 };

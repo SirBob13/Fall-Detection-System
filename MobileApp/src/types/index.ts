@@ -92,6 +92,14 @@ export interface Alert {
   resolved_at?: string;
 }
 
+export interface LastKnownLocation {
+  lat: number;
+  lng: number;
+  accuracy?: number;
+  timestamp?: string;
+  emergency_type?: string;
+}
+
 // App State Types
 export interface AppState {
   user: User | null;
@@ -144,6 +152,60 @@ export interface CareLink {
   is_active: boolean;
   created_at: string;
   patient?: User;
+}
+
+export interface CareDashboardItem {
+  patient: User;
+  relationship?: string;
+  vitals?: {
+    heart_rate?: number | null;
+    oxygen_saturation?: number | null;
+    blood_pressure_systolic?: number | null;
+    blood_pressure_diastolic?: number | null;
+    body_temperature?: number | null;
+    timestamp?: string | null;
+    is_abnormal?: boolean;
+    abnormality_type?: string | null;
+  };
+  alerts?: {
+    pending: number;
+    last?: {
+      id: number;
+      type: string;
+      severity: string;
+      message: string;
+      status: string;
+      timestamp?: string | null;
+    } | null;
+  };
+  location?: {
+    lat: number;
+    lng: number;
+    accuracy?: number | null;
+    timestamp?: string | null;
+    emergency_type?: string | null;
+  } | null;
+}
+
+export interface ReportSummary {
+  user_id: number;
+  period_days: number;
+  alerts: {
+    total: number;
+    by_type: Record<string, number>;
+    by_severity: Record<string, number>;
+    by_status: Record<string, number>;
+    daily_counts: { date: string; count: number }[];
+    most_common_hour?: number | null;
+  };
+  vitals: {
+    total: number;
+    abnormal_rate: number;
+    avg_heart_rate?: number | null;
+    avg_oxygen?: number | null;
+    avg_temperature?: number | null;
+  };
+  recommendations: string[];
 }
 
 // Chat Types

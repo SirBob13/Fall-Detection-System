@@ -30,6 +30,12 @@ export const SettingsScreen: React.FC = () => {
     autoConnect: true,
     fallDetection: true,
     vitalMonitoring: true,
+    seniorMode: false,
+    offlineMode: false,
+    voiceCommands: false,
+    automaticSOS: true,
+    familyPortal: false,
+    healthInsights: true,
   });
 
   useEffect(() => {
@@ -84,6 +90,13 @@ export const SettingsScreen: React.FC = () => {
     navigation.navigate('CareManagement');
   };
 
+  const handleCareDashboard = () => {
+    navigation.navigate('CareDashboard');
+  };
+
+  const handleReports = () => {
+    navigation.navigate('Reports');
+  };
   const handleLogout = () => {
     Alert.alert(
       t('settings.logout'),
@@ -218,12 +231,57 @@ export const SettingsScreen: React.FC = () => {
           </View>
           <MaterialCommunityIcons name="chevron-right" size={24} color="#757575" />
         </TouchableOpacity>
+
+        <TouchableOpacity
+          className="flex-row items-center justify-between bg-white mx-4 mt-3 p-5 rounded-2xl shadow-lg active:opacity-80"
+          onPress={handleCareDashboard}
+          activeOpacity={0.7}
+        >
+          <View className="flex-row items-center flex-1">
+            <View className="w-12 h-12 rounded-full bg-blue-50 justify-center items-center">
+              <MaterialCommunityIcons name="view-dashboard" size={24} color="#2196F3" />
+            </View>
+            <View className="ml-3 flex-1">
+              <Text className="text-base font-semibold text-dark">{t('dashboard.title')}</Text>
+              <Text className="text-xs text-gray mt-1">
+                {t('dashboard.shortDesc')}
+              </Text>
+            </View>
+          </View>
+          <MaterialCommunityIcons name="chevron-right" size={24} color="#757575" />
+        </TouchableOpacity>
+      </View>
+
+      {/* Reports Section */}
+      <View className="my-2">
+        <Text className="section-title">
+          {t('reports.title')}
+        </Text>
+
+        <TouchableOpacity
+          className="flex-row items-center justify-between bg-white mx-4 p-5 rounded-2xl shadow-lg active:opacity-80"
+          onPress={handleReports}
+          activeOpacity={0.7}
+        >
+          <View className="flex-row items-center flex-1">
+            <View className="w-12 h-12 rounded-full bg-orange-50 justify-center items-center">
+              <MaterialCommunityIcons name="file-chart" size={24} color="#FF9800" />
+            </View>
+            <View className="ml-3 flex-1">
+              <Text className="text-base font-semibold text-dark">{t('reports.title')}</Text>
+              <Text className="text-xs text-gray mt-1">
+                {t('reports.shortDesc')}
+              </Text>
+            </View>
+          </View>
+          <MaterialCommunityIcons name="chevron-right" size={24} color="#757575" />
+        </TouchableOpacity>
       </View>
       
       {/* Language Section */}
       <View className="my-2">
         <Text className="section-title">
-          {t('language.title')}
+      {t('language.title')}
         </Text>
         
         <TouchableOpacity
@@ -244,6 +302,35 @@ export const SettingsScreen: React.FC = () => {
           </View>
           <MaterialCommunityIcons name="chevron-right" size={24} color="#757575" />
         </TouchableOpacity>
+      </View>
+
+      {/* Accessibility / Senior Mode */}
+      <View className="my-2">
+        <Text className="section-title">{t('settings.accessibility')}</Text>
+
+        <View className="bg-white mx-4 p-5 rounded-2xl shadow-lg">
+          <View className="flex-row items-center justify-between">
+            <View className="flex-row items-center flex-1">
+              <View className="w-12 h-12 rounded-full bg-orange-50 justify-center items-center">
+                <MaterialCommunityIcons name="account-heart" size={24} color="#FF9800" />
+              </View>
+              <View className="ml-3 flex-1">
+                <Text className="text-base font-semibold text-dark">
+                  {t('settings.seniorMode')}
+                </Text>
+                <Text className="text-xs text-gray mt-1">
+                  {t('settings.seniorModeDesc')}
+                </Text>
+              </View>
+            </View>
+            <Switch
+              value={settings.seniorMode}
+              onValueChange={(value) => handleSettingChange('seniorMode', value)}
+              trackColor={{ false: '#E0E0E0', true: '#2196F3' }}
+              thumbColor={settings.seniorMode ? '#FFFFFF' : '#F4F3F4'}
+            />
+          </View>
+        </View>
       </View>
 
       {/* Emergency System Section */}
@@ -392,6 +479,7 @@ export const SettingsScreen: React.FC = () => {
             autoConnect: t('settings.autoConnect'),
             fallDetection: t('settings.fallDetection'),
             vitalMonitoring: t('settings.vitalMonitoring'),
+            seniorMode: t('settings.seniorMode'),
           }).map(([key, label]) => (
             <View key={key} className="setting-row">
               <View className="flex-1">
@@ -406,12 +494,41 @@ export const SettingsScreen: React.FC = () => {
                     {t('settings.vitalMonitoringDesc')}
                   </Text>
                 )}
+                {key === 'seniorMode' && (
+                  <Text className="text-xs text-gray mt-1">
+                    {t('settings.seniorModeDesc')}
+                  </Text>
+                )}
               </View>
               <Switch
                 value={settings[key as keyof typeof settings]}
                 onValueChange={(value) => 
                   handleSettingChange(key as keyof typeof settings, value)
                 }
+                trackColor={{ false: '#E0E0E0', true: '#2196F3' }}
+                thumbColor="#FFFFFF"
+                ios_backgroundColor="#E0E0E0"
+              />
+            </View>
+          ))}
+        </View>
+      </View>
+
+      {/* Advanced Features */}
+      <View className="my-2">
+        <Text className="section-title">
+          {t('settings.advanced')}
+        </Text>
+        <View className="card">
+          {(['offlineMode', 'voiceCommands', 'automaticSOS', 'familyPortal', 'healthInsights'] as const).map((key) => (
+            <View key={key} className="setting-row">
+              <View className="flex-1">
+                <Text className="text-base text-dark font-medium">{t(`settings.${key}`)}</Text>
+                <Text className="text-xs text-gray mt-1">{t(`settings.${key}Desc`)}</Text>
+              </View>
+              <Switch
+                value={settings[key]}
+                onValueChange={(value) => handleSettingChange(key, value)}
                 trackColor={{ false: '#E0E0E0', true: '#2196F3' }}
                 thumbColor="#FFFFFF"
                 ios_backgroundColor="#E0E0E0"

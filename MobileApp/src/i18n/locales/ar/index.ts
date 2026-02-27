@@ -190,6 +190,8 @@ export default {
     loadFailed: "فشل تحميل الإنذارات",
     acknowledgeFailed: "فشل تأكيد الإنذار",
     resolveFailed: "فشل حل الإنذار",
+    imFine: "أنا بخير",
+    imFineConfirmed: "شكرًا! تم إنهاء الإنذار.",
     acknowledged: "تم تأكيد الإنذار",
     refreshAlerts: "تحديث الإنذارات",
     noAlertsAll: "لا توجد إنذارات مسجلة بعد",
@@ -247,7 +249,8 @@ export default {
     waiting: "في انتظار الطرف الآخر...",
     connected: "تم الاتصال",
     channel: "القناة",
-    missingConfig: "معلومات الفيديو غير مُعدة. أضيفي Agora App ID."
+    missingConfig: "معلومات الفيديو غير مُعدة. أضيفي Agora App ID.",
+    emergencyTitle: "مكالمة فيديو طارئة"
   },
 
   // الطوارئ
@@ -264,6 +267,11 @@ export default {
     sosSending: "جاري إرسال الطلب...",
     emergencyContacts: "جهات الاتصال الطارئة",
     emergencySettings: "إعدادات نظام الطوارئ",
+    communicationTitle: "التواصل",
+    communicationDesc: "دردشة أو مكالمة فيديو مع المُسعف",
+    openChat: "فتح الدردشة",
+    videoCall: "بدء مكالمة فيديو",
+    communicationNoUser: "اختاري شخصًا للمتابعة أولًا.",
     testSystem: "اختبار نظام الطوارئ",
     testSMS: "اختبار إرسال SMS",
     contacts: {
@@ -284,7 +292,13 @@ export default {
       friend: "صديق",
       doctor: "طبيب",
       neighbor: "جار",
-      description: "إدارة الأرقام التي سيتم الاتصال بها في حالة الطوارئ"
+      description: "إدارة الأرقام التي سيتم الاتصال بها في حالة الطوارئ",
+      total: "إجمالي الجهات",
+      highPriority: "أولوية عالية",
+      contact: "جهة اتصال",
+      emptyTitle: "لا توجد جهات طوارئ",
+      emptyDesc: "أضيفي جهات يتم تنبيهها في حالات الطوارئ",
+      addFirst: "إضافة أول جهة"
     },
     settings: {
       title: "إعدادات نظام الطوارئ",
@@ -311,6 +325,20 @@ export default {
     deviceManagementDesc: "ربط وفصل وإدارة الجهاز",
     careManagement: "إدارة المتابعة",
     careManagementDesc: "ربط ومتابعة أشخاصك",
+    accessibility: "سهولة الوصول",
+    seniorMode: "وضع كبار السن",
+    seniorModeDesc: "أزرار وخطوط أكبر لسهولة الاستخدام",
+    advanced: "ميزات متقدمة",
+    offlineMode: "الوضع بدون إنترنت",
+    offlineModeDesc: "تجميع البيانات وإرسالها لاحقًا",
+    voiceCommands: "أوامر صوتية",
+    voiceCommandsDesc: "تشغيل الأوامر بدون لمس",
+    automaticSOS: "نداء تلقائي للطوارئ",
+    automaticSOSDesc: "إرسال SOS تلقائيًا عند الحاجة",
+    familyPortal: "بوابة العائلة",
+    familyPortalDesc: "لوحة متابعة لأفراد العائلة",
+    healthInsights: "نصائح صحية",
+    healthInsightsDesc: "إرشادات مخصصة حسب البيانات",
     language: "اللغة", 
     changeLanguage: "تغيير اللغة", 
     generalSettings: "الإعدادات العامة",
@@ -386,6 +414,10 @@ export default {
     disconnected: "غير متصل",
     offline: "غير متصل",
     lowBattery: "بطارية منخفضة",
+    lowBatteryTitle: "بطارية منخفضة",
+    lowBatteryDesc: "يُرجى شحن الجهاز القابل للارتداء قريبًا.",
+    offlineQueueTitle: "مزامنة معلّقة",
+    offlineQueueDesc: "{{count}} عنصر في انتظار المزامنة",
     noDevice: "لا يوجد جهاز متصل",
     connectDevice: "اربط الجهاز",
     connectAction: "ربط الجهاز",
@@ -458,5 +490,44 @@ export default {
     unlinkConfirmBody: "هل تريدين فك ربط هذا الشخص؟",
     invalidEmail: "البريد الإلكتروني غير صالح",
     cannotSelf: "لا يمكن ربط حسابك بنفسك"
+  },
+
+  dashboard: {
+    title: "لوحة المراقبة",
+    subtitle: "عرض مباشر لحالة الأشخاص الذين تتابعينهم",
+    shortDesc: "المؤشرات، التنبيهات، والموقع",
+    monitoring: "المتابعة الحالية",
+    noUser: "لم يتم اختيار مستخدم بعد",
+    myData: "بياناتي",
+    live: "مباشر",
+    vitals: "المؤشرات الحيوية",
+    alerts: "ملخص التنبيهات",
+    location: "آخر موقع",
+    lastKnown: "آخر موقع معروف",
+    noLocation: "لا توجد بيانات موقع بعد",
+    lastUpdated: "آخر تحديث",
+    openAlerts: "فتح التنبيهات",
+    openChat: "فتح الدردشة",
+    latestAlert: "آخر تنبيه",
+    noAlerts: "لا توجد تنبيهات بعد",
+    heartRateTrend: "منحنى نبض القلب",
+    allMonitored: "كل من أتابعهم",
+    noMonitored: "لا يوجد أشخاص للمراقبة بعد",
+    pending: "قيد الانتظار",
+    view: "عرض"
+  },
+
+  reports: {
+    title: "التقارير والتحليلات",
+    subtitle: "ملخص يومي وأسبوعي",
+    shortDesc: "اتجاهات وتوصيات",
+    days: "يوم",
+    summary: "الملخص",
+    trend: "الاتجاه اليومي",
+    noTrend: "لا توجد بيانات كافية بعد",
+    vitals: "ملخص المؤشرات",
+    abnormalRate: "نسبة القيم غير الطبيعية",
+    recommendations: "التوصيات",
+    noData: "لا توجد بيانات تقارير بعد"
   }
 };

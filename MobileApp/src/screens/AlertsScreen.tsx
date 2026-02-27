@@ -11,7 +11,7 @@ import {
 import { AlertCard } from '../components/AlertCard';
 import { apiService } from '../services/api';
 import { storageService } from '../services/storage';
-import { Alert as AlertType, User } from '../types';
+import { Alert as AlertType, CareLink, User } from '../types';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLanguage } from '../components/LanguageProvider';
 
@@ -22,13 +22,14 @@ export const AlertsScreen: React.FC = () => {
   const [filter, setFilter] = useState<'all' | 'pending' | 'resolved'>('all');
   const [isLoading, setIsLoading] = useState(true);
   const [monitoredUser, setMonitoredUser] = useState<User | null>(null);
+  const [links, setLinks] = useState<CareLink[]>([]);
   
   // Get safe area insets
   const insets = useSafeAreaInsets();
 
   useEffect(() => {
     loadAlerts();
-  }, [filter]);
+  }, [filter, monitoredUser]);
 
   const loadAlerts = async () => {
     try {
@@ -42,6 +43,15 @@ export const AlertsScreen: React.FC = () => {
         RNAlert.alert(t('common.error'), t('errors.loginRequired'));
         setIsLoading(false);
         return;
+      }
+
+      if (user?.id) {
+        const linksResponse = await apiService.getCareLinks(user.id);
+        if (linksResponse.success && linksResponse.data) {
+          setLinks(linksResponse.data);
+        } else {
+          setLinks([]);
+        }
       }
 
       const response = await apiService.getUserAlerts(activeUser.id, 50);
@@ -68,6 +78,16 @@ export const AlertsScreen: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleSelectMonitored = async (link: CareLink | null) => {
+    if (!link || !link.patient) {
+      await storageService.saveMonitoredUser(null);
+      setMonitoredUser(null);
+      return;
+    }
+    await storageService.saveMonitoredUser(link.patient);
+    setMonitoredUser(link.patient);
   };
 
   const onRefresh = async () => {
@@ -135,6 +155,20 @@ export const AlertsScreen: React.FC = () => {
     }
   };
 
+  const handleImFine = async (alertId: number) => {
+    try {
+      const response = await apiService.resolveAlert(alertId);
+      if (response.success) {
+        RNAlert.alert(t('common.success'), t('alerts.imFineConfirmed'));
+        await loadAlerts();
+      } else {
+        RNAlert.alert(t('common.error'), response.message || t('alerts.resolveFailed'));
+      }
+    } catch (error) {
+      RNAlert.alert(t('common.error'), t('alerts.resolveFailed'));
+    }
+  };
+
   const stats = getAlertStats();
 
   return (
@@ -160,12 +194,33 @@ export const AlertsScreen: React.FC = () => {
           </Text>
         </View>
 
-        {monitoredUser && (
-          <View className="mx-4 mb-4 bg-purple-50 border border-purple-100 rounded-xl p-3">
-            <Text className="text-xs text-gray">{t('care.monitoring')}</Text>
-            <Text className="text-sm font-semibold text-dark mt-1">{monitoredUser.name}</Text>
+        <View className="mx-4 mb-4 bg-white border border-lightGray rounded-xl p-3">
+          <Text className="text-xs text-gray mb-2">{t('care.monitoring')}</Text>
+          <View className="flex-row flex-wrap">
+            <TouchableOpacity
+              className={`px-3 py-2 rounded-full mr-2 mb-2 ${!monitoredUser ? 'bg-primary' : 'bg-lightGray'}`}
+              onPress={() => handleSelectMonitored(null)}
+            >
+              <Text className={`${!monitoredUser ? 'text-white' : 'text-dark'} text-xs`}>
+                {t('dashboard.myData')}
+              </Text>
+            </TouchableOpacity>
+            {links.map((link) => (
+              <TouchableOpacity
+                key={link.id}
+                className={`px-3 py-2 rounded-full mr-2 mb-2 ${
+                  monitoredUser?.id === link.patient?.id ? 'bg-primary' : 'bg-lightGray'
+                }`}
+                onPress={() => handleSelectMonitored(link)}
+                disabled={!link.patient}
+              >
+                <Text className={`${monitoredUser?.id === link.patient?.id ? 'text-white' : 'text-dark'} text-xs`}>
+                  {link.patient?.name || t('common.unknown')}
+                </Text>
+              </TouchableOpacity>
+            ))}
           </View>
-        )}
+        </View>
 
         {/* Statistics Overview */}
         <View className="mx-4 mb-6">
@@ -261,11 +316,12 @@ export const AlertsScreen: React.FC = () => {
           <View className="mx-2 mb-8">
             {alerts.map((alert, index) => (
               <View key={alert.id} className={`mb-3 ${index > 0 ? 'mt-3' : ''}`}>
-                <AlertCard
-                  alert={alert}
-                  onAcknowledge={() => handleAcknowledge(alert.id)}
-                  onResolve={() => handleResolve(alert.id)}
-                />
+                  <AlertCard
+                    alert={alert}
+                    onAcknowledge={() => handleAcknowledge(alert.id)}
+                    onResolve={() => handleResolve(alert.id)}
+                    onImFine={() => handleImFine(alert.id)}
+                  />
               </View>
             ))}
             

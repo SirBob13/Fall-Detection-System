@@ -17,6 +17,7 @@ import * as Yup from 'yup';
 import { StackNavigationProp } from '@react-navigation/stack';
 import Constants from 'expo-constants';
 import * as WebBrowser from 'expo-web-browser';
+import { makeRedirectUri } from 'expo-auth-session';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Google from 'expo-auth-session/providers/google';
 import { jwtDecode } from 'jwt-decode';
@@ -60,10 +61,15 @@ export const LoginScreen: React.FC = () => {
   const [isCheckingConnection, setIsCheckingConnection] = useState(false);
 
   const googleAuthConfig = Constants.expoConfig?.extra?.googleAuth || {};
+  const googleRedirectUri = makeRedirectUri({
+    scheme: Constants.expoConfig?.scheme || 'fall-detection',
+  });
   const [googleRequest, googleResponse, googlePromptAsync] = Google.useIdTokenAuthRequest({
     expoClientId: googleAuthConfig.expoClientId,
     iosClientId: googleAuthConfig.iosClientId,
     androidClientId: googleAuthConfig.androidClientId,
+    webClientId: googleAuthConfig.webClientId || googleAuthConfig.expoClientId,
+    redirectUri: googleRedirectUri,
     selectAccount: true,
   });
   
@@ -268,6 +274,7 @@ export const LoginScreen: React.FC = () => {
       }
       await googlePromptAsync({
         useProxy: Constants.appOwnership === 'expo',
+        redirectUri: googleRedirectUri,
       });
       return;
     }

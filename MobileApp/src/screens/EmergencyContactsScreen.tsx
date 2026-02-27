@@ -13,8 +13,14 @@ import {
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { emergencyService } from '../services/emergency.service';
 import { EmergencyContact } from '../services/emergency.types';
+import { useLanguage } from '../components/LanguageProvider';
+import { storageService } from '../services/storage';
+import { useNavigation } from '@react-navigation/native';
+import { User } from '../types';
 
 export const EmergencyContactsScreen: React.FC = () => {
+  const { t } = useLanguage();
+  const navigation = useNavigation<any>();
   const [contacts, setContacts] = useState<EmergencyContact[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
@@ -24,6 +30,8 @@ export const EmergencyContactsScreen: React.FC = () => {
   const [selectedContactIds, setSelectedContactIds] = useState<Set<string>>(new Set());
   const [editablePhones, setEditablePhones] = useState<Record<string, string>>({});
   const [editingContact, setEditingContact] = useState<EmergencyContact | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [monitoredUser, setMonitoredUser] = useState<User | null>(null);
   const [formData, setFormData] = useState({
     name: '',
     phone: '',
@@ -34,6 +42,7 @@ export const EmergencyContactsScreen: React.FC = () => {
 
   useEffect(() => {
     loadContacts();
+    loadContext();
   }, []);
 
   const loadContacts = async () => {
@@ -49,6 +58,13 @@ export const EmergencyContactsScreen: React.FC = () => {
     }
   };
 
+  const loadContext = async () => {
+    const storedUser = await storageService.getUser();
+    const storedMonitored = await storageService.getMonitoredUser();
+    setUser(storedUser);
+    setMonitoredUser(storedMonitored);
+  };
+
   const handleAddContact = () => {
     setEditingContact(null);
     setFormData({
@@ -59,6 +75,35 @@ export const EmergencyContactsScreen: React.FC = () => {
       is_active: true,
     });
     setModalVisible(true);
+  };
+
+  const handleOpenChat = () => {
+    if (!monitoredUser) {
+      Alert.alert(t('common.error'), t('emergency.communicationNoUser'));
+      return;
+    }
+    navigation.getParent?.()?.navigate?.('Settings', {
+      screen: 'Chat',
+      params: {
+        patientId: monitoredUser.id,
+        patientName: monitoredUser.name,
+      },
+    });
+  };
+
+  const handleOpenVideo = () => {
+    if (!user && !monitoredUser) {
+      Alert.alert(t('common.error'), t('errors.loginRequired'));
+      return;
+    }
+    const targetId = monitoredUser?.id || user?.id || 0;
+    navigation.getParent?.()?.navigate?.('Settings', {
+      screen: 'VideoCall',
+      params: {
+        channel: `emergency-${targetId}`,
+        title: t('video.emergencyTitle'),
+      },
+    });
   };
 
   const handleEditContact = (contact: EmergencyContact) => {
@@ -256,11 +301,11 @@ export const EmergencyContactsScreen: React.FC = () => {
 
   const getRelationshipText = (relationship: string) => {
     switch (relationship) {
-      case 'family': return 'Family';
-      case 'doctor': return 'Doctor';
-      case 'friend': return 'Friend';
-      case 'neighbor': return 'Neighbor';
-      default: return 'Contact';
+      case 'family': return t('emergency.contacts.family');
+      case 'doctor': return t('emergency.contacts.doctor');
+      case 'friend': return t('emergency.contacts.friend');
+      case 'neighbor': return t('emergency.contacts.neighbor');
+      default: return t('emergency.contacts.contact');
     }
   };
 
@@ -268,7 +313,7 @@ export const EmergencyContactsScreen: React.FC = () => {
     return (
       <View className="flex-1 justify-center items-center bg-white">
         <MaterialCommunityIcons name="account-group" size={60} color="#2196F3" />
-        <Text className="mt-4 text-base text-gray">Loading contacts...</Text>
+        <Text className="mt-4 text-base text-gray">{t('common.loading')}</Text>
         <ActivityIndicator color="#2196F3" size="large" className="mt-4" />
       </View>
     );
@@ -279,9 +324,9 @@ export const EmergencyContactsScreen: React.FC = () => {
       {/* Header */}
       <View className="bg-white pb-4 border-b border-lightGray">
         <View className="pt-8 px-5">
-          <Text className="text-2xl font-bold text-dark">Emergency Contacts</Text>
+          <Text className="text-2xl font-bold text-dark">{t('emergency.contacts.title')}</Text>
           <Text className="text-sm text-gray mt-1">
-            These numbers will be contacted in case of emergency
+            {t('emergency.contacts.description')}
           </Text>
         </View>
         
@@ -289,23 +334,47 @@ export const EmergencyContactsScreen: React.FC = () => {
         <View className="flex-row justify-between mt-4 px-5">
           <View className="items-center">
             <Text className="text-2xl font-bold text-dark">{contacts.length}</Text>
-            <Text className="text-xs text-gray">Total Contacts</Text>
+            <Text className="text-xs text-gray">{t('emergency.contacts.total')}</Text>
           </View>
           
           <View className="items-center">
             <Text className="text-2xl font-bold text-dark">
               {contacts.filter(c => c.is_active).length}
             </Text>
-            <Text className="text-xs text-gray">Active</Text>
+            <Text className="text-xs text-gray">{t('emergency.contacts.active')}</Text>
           </View>
           
           <View className="items-center">
             <Text className="text-2xl font-bold text-dark">
               {contacts.filter(c => c.priority === 1).length}
             </Text>
-            <Text className="text-xs text-gray">High Priority</Text>
+            <Text className="text-xs text-gray">{t('emergency.contacts.highPriority')}</Text>
           </View>
         </View>
+      </View>
+
+      {/* Communication Section */}
+      <View className="mx-5 mt-4 bg-white rounded-2xl shadow-lg border border-lightGray p-4">
+        <Text className="text-base font-semibold text-dark mb-2">{t('emergency.communicationTitle')}</Text>
+        <Text className="text-xs text-gray mb-3">{t('emergency.communicationDesc')}</Text>
+
+        <TouchableOpacity
+          className="flex-row items-center justify-center py-3 rounded-xl bg-primary mb-3"
+          onPress={handleOpenVideo}
+          activeOpacity={0.7}
+        >
+          <MaterialCommunityIcons name="video" size={18} color="#FFF" />
+          <Text className="text-white font-semibold ml-2">{t('emergency.videoCall')}</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          className="flex-row items-center justify-center py-3 rounded-xl bg-dark"
+          onPress={handleOpenChat}
+          activeOpacity={0.7}
+        >
+          <MaterialCommunityIcons name="message-text" size={18} color="#FFF" />
+          <Text className="text-white font-semibold ml-2">{t('emergency.openChat')}</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Contacts List */}
@@ -315,9 +384,9 @@ export const EmergencyContactsScreen: React.FC = () => {
             <View className="w-24 h-24 rounded-full bg-gray-100 justify-center items-center mb-6">
               <MaterialCommunityIcons name="account-alert" size={40} color="#BDBDBD" />
             </View>
-            <Text className="text-lg text-gray font-medium">No emergency contacts</Text>
+            <Text className="text-lg text-gray font-medium">{t('emergency.contacts.emptyTitle')}</Text>
             <Text className="text-sm text-lightGray text-center mt-2 px-8">
-              Add contacts that will be notified in emergency situations
+              {t('emergency.contacts.emptyDesc')}
             </Text>
             
             <TouchableOpacity
@@ -325,7 +394,7 @@ export const EmergencyContactsScreen: React.FC = () => {
               onPress={handleAddContact}
               activeOpacity={0.7}
             >
-              <Text className="text-white font-semibold">Add First Contact</Text>
+              <Text className="text-white font-semibold">{t('emergency.contacts.addFirst')}</Text>
             </TouchableOpacity>
           </View>
         ) : (

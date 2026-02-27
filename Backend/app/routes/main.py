@@ -8,7 +8,7 @@ from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Query, Header
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import text
+from sqlalchemy import text, func
 import math
 import time
 
@@ -16,7 +16,7 @@ from ..database import get_db
 from ..services.ai_model import load_model_and_scaler, predict_from_sample
 from .. import crud, schemas
 from ..services.auth_service import AuthService
-from ..models import User, Alert, Prediction, Device
+from ..models import User, Alert, Prediction, Device, CareLink, VitalSensorData, EmergencyLog
 from ..device_auth import device_auth
 from ..double_verification import DoubleVerificationSystem
 from ..services.notification_service import NotificationService
@@ -1747,6 +1747,106 @@ async def list_care_links(
         )
 
 
+@router.get("/care/dashboard/{caregiver_id}", response_model=Dict[str, Any])
+async def care_dashboard(
+    caregiver_id: int,
+    db: Session = Depends(get_db)
+):
+    """Return aggregated dashboard data for all linked patients."""
+    try:
+        caregiver = crud.get_user(db, caregiver_id)
+        if not caregiver:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"success": False, "error": "Caregiver not found"}
+            )
+
+        links = crud.get_care_links_by_caregiver(db, caregiver_id)
+        items = []
+
+        for link in links:
+            patient = link.patient
+            if not patient:
+                continue
+
+            latest_vitals = db.query(VitalSensorData).filter(
+                VitalSensorData.user_id == patient.id
+            ).order_by(VitalSensorData.timestamp.desc()).first()
+
+            last_alert = db.query(Alert).filter(
+                Alert.user_id == patient.id
+            ).order_by(Alert.timestamp.desc()).first()
+
+            pending_count = db.query(Alert).filter(
+                Alert.user_id == patient.id,
+                Alert.status.in_(["pending", "sent", "active"])
+            ).count()
+
+            last_location = db.query(EmergencyLog).filter(
+                EmergencyLog.user_id == patient.id,
+                EmergencyLog.location_lat.isnot(None),
+                EmergencyLog.location_lng.isnot(None)
+            ).order_by(EmergencyLog.timestamp.desc()).first()
+
+            patient_email = patient.auth.email if getattr(patient, "auth", None) else None
+
+            items.append({
+                "patient": {
+                    "id": patient.id,
+                    "name": patient.name,
+                    "email": patient_email,
+                    "age": patient.age,
+                    "gender": patient.gender,
+                },
+                "relationship": link.relationship_type,
+                "vitals": {
+                    "heart_rate": latest_vitals.heart_rate if latest_vitals else None,
+                    "oxygen_saturation": latest_vitals.oxygen_saturation if latest_vitals else None,
+                    "blood_pressure_systolic": latest_vitals.blood_pressure_systolic if latest_vitals else None,
+                    "blood_pressure_diastolic": latest_vitals.blood_pressure_diastolic if latest_vitals else None,
+                    "body_temperature": latest_vitals.body_temperature if latest_vitals else None,
+                    "timestamp": latest_vitals.timestamp.isoformat() if latest_vitals and latest_vitals.timestamp else None,
+                    "is_abnormal": bool(latest_vitals.is_abnormal) if latest_vitals else False,
+                    "abnormality_type": latest_vitals.abnormality_type if latest_vitals else None,
+                },
+                "alerts": {
+                    "pending": pending_count,
+                    "last": {
+                        "id": last_alert.id,
+                        "type": last_alert.alert_type,
+                        "severity": last_alert.severity,
+                        "message": last_alert.message,
+                        "status": last_alert.status,
+                        "timestamp": last_alert.timestamp.isoformat() if last_alert.timestamp else None,
+                    } if last_alert else None
+                },
+                "location": {
+                    "lat": last_location.location_lat,
+                    "lng": last_location.location_lng,
+                    "accuracy": last_location.location_accuracy,
+                    "timestamp": last_location.timestamp.isoformat() if last_location.timestamp else None,
+                    "emergency_type": last_location.emergency_type
+                } if last_location else None,
+            })
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "data": items,
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error building care dashboard: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"success": False, "error": f"Failed to build care dashboard: {str(e)}"}
+        )
+
+
 @router.delete("/care/links/{link_id}", response_model=Dict[str, Any])
 async def remove_care_link(
     link_id: int,
@@ -1769,6 +1869,122 @@ async def remove_care_link(
                 "message": "Link deleted successfully",
                 "timestamp": datetime.utcnow().isoformat(),
             }
+        )
+
+
+# ======================
+# Reports & Analytics
+# ======================
+
+@router.get("/reports/{user_id}", response_model=Dict[str, Any])
+async def get_user_report(
+    user_id: int,
+    days: int = Query(7, ge=1, le=90),
+    db: Session = Depends(get_db)
+):
+    """Generate daily/weekly report for a user."""
+    try:
+        user = crud.get_user(db, user_id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"success": False, "error": "User not found"}
+            )
+
+        start_date = datetime.utcnow() - timedelta(days=days)
+
+        alerts = db.query(Alert).filter(
+            Alert.user_id == user_id,
+            Alert.timestamp >= start_date
+        ).all()
+
+        vitals = db.query(VitalSensorData).filter(
+            VitalSensorData.user_id == user_id,
+            VitalSensorData.timestamp >= start_date
+        ).all()
+
+        by_type: Dict[str, int] = {}
+        by_severity: Dict[str, int] = {}
+        by_status: Dict[str, int] = {}
+        daily_counts: Dict[str, int] = {}
+        hour_counts: Dict[int, int] = {}
+
+        for alert in alerts:
+            by_type[alert.alert_type] = by_type.get(alert.alert_type, 0) + 1
+            by_severity[alert.severity] = by_severity.get(alert.severity, 0) + 1
+            by_status[alert.status] = by_status.get(alert.status, 0) + 1
+            if alert.timestamp:
+                day_key = alert.timestamp.strftime("%Y-%m-%d")
+                daily_counts[day_key] = daily_counts.get(day_key, 0) + 1
+                hour_counts[alert.timestamp.hour] = hour_counts.get(alert.timestamp.hour, 0) + 1
+
+        falls_count = by_type.get("fall", 0)
+        abnormal_count = sum(1 for v in vitals if v.is_abnormal)
+        abnormal_rate = (abnormal_count / len(vitals)) if vitals else 0.0
+
+        def avg(values: List[Optional[float]]) -> Optional[float]:
+            filtered = [v for v in values if v is not None]
+            if not filtered:
+                return None
+            return sum(filtered) / len(filtered)
+
+        avg_hr = avg([v.heart_rate for v in vitals])
+        avg_ox = avg([v.oxygen_saturation for v in vitals])
+        avg_temp = avg([v.body_temperature for v in vitals])
+
+        most_common_hour = None
+        if hour_counts:
+            most_common_hour = max(hour_counts.items(), key=lambda x: x[1])[0]
+
+        recommendations: List[str] = []
+        if falls_count >= 2:
+            recommendations.append("High fall risk detected. Consider more frequent checks.")
+        if abnormal_rate >= 0.2:
+            recommendations.append("Frequent abnormal vitals. Consider medical review.")
+        if avg_ox is not None and avg_ox < 92:
+            recommendations.append("Low oxygen levels detected. Monitor closely.")
+        if avg_hr is not None and avg_hr > 100:
+            recommendations.append("Elevated heart rate on average. Consider rest and follow-up.")
+        if not recommendations:
+            recommendations.append("No critical issues detected. Keep up the good routine.")
+
+        daily_series = [
+            {"date": k, "count": v}
+            for k, v in sorted(daily_counts.items(), key=lambda x: x[0])
+        ]
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "user_id": user_id,
+                "period_days": days,
+                "alerts": {
+                    "total": len(alerts),
+                    "by_type": by_type,
+                    "by_severity": by_severity,
+                    "by_status": by_status,
+                    "daily_counts": daily_series,
+                    "most_common_hour": most_common_hour,
+                },
+                "vitals": {
+                    "total": len(vitals),
+                    "abnormal_rate": abnormal_rate,
+                    "avg_heart_rate": avg_hr,
+                    "avg_oxygen": avg_ox,
+                    "avg_temperature": avg_temp,
+                },
+                "recommendations": recommendations,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating report: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"success": False, "error": f"Failed to generate report: {str(e)}"}
         )
     except HTTPException:
         raise

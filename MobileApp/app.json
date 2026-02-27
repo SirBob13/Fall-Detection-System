@@ -83,7 +83,8 @@
       "googleAuth": {
         "expoClientId": "967093516556-bhrjudajc066pv4paajmgv3h8ii8n091.apps.googleusercontent.com",
         "iosClientId": "967093516556-5onccjasolmtq8lhhs15v1onhau68lau.apps.googleusercontent.com",
-        "androidClientId": "967093516556-k36474nr0kmuccoaaudln9nbgbgk13db.apps.googleusercontent.com"
+        "androidClientId": "967093516556-k36474nr0kmuccoaaudln9nbgbgk13db.apps.googleusercontent.com",
+        "webClientId": "967093516556-bhrjudajc066pv4paajmgv3h8ii8n091.apps.googleusercontent.com"
       },
       "agoraAppId": "d99738322bcd42269098412553842add",
       "appleAuth": {

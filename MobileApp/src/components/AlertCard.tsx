@@ -8,12 +8,14 @@ interface AlertCardProps {
   alert: Alert;
   onAcknowledge: () => void;
   onResolve: () => void;
+  onImFine?: () => void;
 }
 
 export const AlertCard: React.FC<AlertCardProps> = ({
   alert,
   onAcknowledge,
   onResolve,
+  onImFine,
 }) => {
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const { t } = useLanguage();
@@ -213,7 +215,20 @@ export const AlertCard: React.FC<AlertCardProps> = ({
 
       {/* Action Buttons */}
       {isPending && (
-        <View className="flex-row justify-between">
+        <View>
+          {onImFine && (
+            <TouchableOpacity
+              className="flex-row items-center justify-center py-3 bg-emerald-50 rounded-lg mb-2"
+              onPress={onImFine}
+              onPressIn={handlePressIn}
+              onPressOut={handlePressOut}
+              activeOpacity={0.7}
+            >
+              <MaterialCommunityIcons name="shield-check" size={18} color="#10B981" />
+              <Text className="text-emerald-600 font-semibold ml-2">{t('alerts.imFine')}</Text>
+            </TouchableOpacity>
+          )}
+          <View className="flex-row justify-between">
           <TouchableOpacity
             className="flex-row items-center justify-center flex-1 py-3 bg-blue-50 rounded-lg mr-2"
             onPress={onAcknowledge}
@@ -235,6 +250,7 @@ export const AlertCard: React.FC<AlertCardProps> = ({
             <MaterialCommunityIcons name="check-circle" size={18} color="#4CAF50" />
             <Text className="text-success font-semibold ml-2">{t('alerts.resolve')}</Text>
           </TouchableOpacity>
+          </View>
         </View>
       )}
 

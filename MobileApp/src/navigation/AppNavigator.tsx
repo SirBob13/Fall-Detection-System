@@ -28,8 +28,10 @@ import { LanguageSettingsScreen } from '../screens/LanguageSettingsScreen';
 import { DeviceManagementScreen } from '../screens/DeviceManagementScreen';
 import { PersonalInfoScreen } from '../screens/PersonalInfoScreen';
 import { CareManagementScreen } from '../screens/CareManagementScreen';
+import { CaregiverDashboardScreen } from '../screens/CaregiverDashboardScreen';
 import { ChatScreen } from '../screens/ChatScreen';
 import { VideoCallScreen } from '../screens/VideoCallScreen';
+import { ReportsScreen } from '../screens/ReportsScreen';
 
 // Define navigation types
 type RootStackParamList = {
@@ -55,6 +57,8 @@ type SettingsStackParamList = {
   SettingsMain: undefined;
   PersonalInfo: undefined;
   CareManagement: undefined;
+  CareDashboard: undefined;
+  Reports: undefined;
   Chat: { patientId: number; patientName?: string };
   VideoCall: { channel: string; title?: string };
   EmergencyContacts: undefined;
@@ -181,6 +185,16 @@ const SettingsNavigator = () => {
         name="CareManagement"
         component={CareManagementScreen}
         options={{ title: t('settings.careManagement') }}
+      />
+      <SettingsStack.Screen
+        name="CareDashboard"
+        component={CaregiverDashboardScreen}
+        options={{ title: t('dashboard.title') }}
+      />
+      <SettingsStack.Screen
+        name="Reports"
+        component={ReportsScreen}
+        options={{ title: t('reports.title') }}
       />
       <SettingsStack.Screen
         name="Chat"

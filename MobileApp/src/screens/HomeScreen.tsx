@@ -20,6 +20,8 @@ import { apiService } from '../services/api';
 import { storageService } from '../services/storage';
 import { notificationService } from '../services/notifications';
 import { authService } from '../services/auth.service';
+import { offlineQueueService } from '../services/offlineQueue.service';
+import { networkService, NetworkStatus } from '../services/network.service';
 import { bluetoothService, ScannedDevice, isBluetoothSupported } from '../services/bluetooth.service';
 import { deviceService } from '../services/device.service';
 import { User, Device, Alert as AlertType, Prediction, VitalData } from '../types';
@@ -42,14 +44,25 @@ export const HomeScreen: React.FC = () => {
   const [scanResults, setScanResults] = useState<ScannedDevice[]>([]);
   const [manualDeviceId, setManualDeviceId] = useState('');
   const [isConnectingDevice, setIsConnectingDevice] = useState(false);
+  const [queueSize, setQueueSize] = useState(0);
+  const [networkStatus, setNetworkStatus] = useState<NetworkStatus | null>(null);
+  const [seniorMode, setSeniorMode] = useState(false);
   
   useEffect(() => {
     loadData();
+    const unsubscribe = networkService.addListener((status) => setNetworkStatus(status));
+    const queueInterval = setInterval(() => {
+      setQueueSize(offlineQueueService.getQueueSize());
+    }, 5000);
     const interval = setInterval(() => {
       checkForNewAlerts();
     }, 30000);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      clearInterval(queueInterval);
+      unsubscribe();
+    };
   }, []);
 
   const loadData = async () => {
@@ -71,6 +84,8 @@ export const HomeScreen: React.FC = () => {
         : null;
       const storedUser = normalizedSessionUser || (await storageService.getUser());
       const storedDevice = await storageService.getDevice();
+      const storedSettings = await storageService.getSettings();
+      setSeniorMode(!!storedSettings?.seniorMode);
       const storedMonitoredUser = await storageService.getMonitoredUser();
 
       setUser(storedUser);
@@ -150,6 +165,20 @@ export const HomeScreen: React.FC = () => {
     setRefreshing(true);
     await loadData();
     setRefreshing(false);
+  };
+
+  const handleImFine = async (alertId: number) => {
+    try {
+      const response = await apiService.resolveAlert(alertId);
+      if (response.success) {
+        RNAlert.alert(t('common.success'), t('alerts.imFineConfirmed'));
+        await loadData();
+      } else {
+        RNAlert.alert(t('common.error'), response.message || t('alerts.resolveFailed'));
+      }
+    } catch (error) {
+      RNAlert.alert(t('common.error'), t('alerts.resolveFailed'));
+    }
   };
 
   const handleEmergencyPress = async () => {
@@ -304,6 +333,31 @@ export const HomeScreen: React.FC = () => {
           </View>
         )}
 
+        {/* Offline Sync Banner */}
+        {queueSize > 0 && (
+          <View className="mx-4 my-3 bg-yellow-50 border border-yellow-200 rounded-xl p-3">
+            <Text className="text-xs text-gray">{t('system.offlineQueueTitle')}</Text>
+            <Text className="text-sm font-semibold text-dark mt-1">
+              {t('system.offlineQueueDesc', { count: queueSize })}
+            </Text>
+            {networkStatus && (
+              <Text className="text-xs text-gray mt-1">
+                {networkStatus.isInternetReachable ? t('common.syncing') : t('errors.connection')}
+              </Text>
+            )}
+          </View>
+        )}
+
+        {/* Low Battery Banner */}
+        {device?.battery_level !== undefined && device.battery_level !== null && device.battery_level <= 20 && (
+          <View className="mx-4 my-3 bg-orange-50 border border-orange-200 rounded-xl p-3">
+            <Text className="text-xs text-gray">{t('system.lowBatteryTitle')}</Text>
+            <Text className="text-sm font-semibold text-dark mt-1">
+              {t('system.lowBatteryDesc')}
+            </Text>
+          </View>
+        )}
+
         {/* Monitoring Context */}
         {monitoredUser && user && monitoredUser.id !== user.id && (
           <View className="mx-4 mt-2 mb-2 bg-purple-50 border border-purple-100 rounded-xl p-3">
@@ -334,7 +388,7 @@ export const HomeScreen: React.FC = () => {
 
         {/* Vital Signs */}
         <View className="mx-4 mt-6">
-          <Text className="text-lg font-bold text-dark mb-3">{t('vitals.title')}</Text>
+          <Text className={`${seniorMode ? 'text-xl' : 'text-lg'} font-bold text-dark mb-3`}>{t('vitals.title')}</Text>
           <View className="bg-white rounded-2xl shadow-lg border border-lightGray p-4">
             {latestVitals ? (
               <>
@@ -381,6 +435,7 @@ export const HomeScreen: React.FC = () => {
             onPress={handleEmergencyPress}
             onLongPress={handleEmergencyLongPress}
             disabled={!user}
+            large={seniorMode}
           />
           {!user && (
             <Text className="text-xs text-gray mt-2">
@@ -392,7 +447,7 @@ export const HomeScreen: React.FC = () => {
         {/* Recent Alerts Section */}
         <View className="mt-4">
           <View className="flex-row justify-between items-center mx-4 mb-3">
-            <Text className="text-lg font-bold text-dark">
+            <Text className={`${seniorMode ? 'text-xl' : 'text-lg'} font-bold text-dark`}>
               {t('alerts.recentAlerts')}
             </Text>
             {alerts.length > 0 && (
@@ -415,6 +470,7 @@ export const HomeScreen: React.FC = () => {
                     alert={alert}
                     onAcknowledge={() => {}}
                     onResolve={() => {}}
+                    onImFine={() => handleImFine(alert.id)}
                   />
                 </View>
               ))}
