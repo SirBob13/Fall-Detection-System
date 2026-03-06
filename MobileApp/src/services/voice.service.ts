@@ -1,4 +1,12 @@
-import Voice from '@react-native-voice/voice';
+let Voice: any = null;
+
+try {
+  // Lazy-load to avoid crashing in Expo Go (module not available there).
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  Voice = require('react-native-voice').default || require('react-native-voice');
+} catch (error) {
+  Voice = null;
+}
 
 type VoiceHandlers = {
   onResult: (text: string) => void;
@@ -12,6 +20,7 @@ class VoiceService {
 
   initialize(handlers: VoiceHandlers) {
     this.handlers = handlers;
+    if (!Voice) return;
     Voice.onSpeechStart = () => {
       this.listening = true;
       this.handlers?.onStateChange?.(true);
@@ -36,6 +45,7 @@ class VoiceService {
   }
 
   async start(locale: string) {
+    if (!Voice) return;
     try {
       await Voice.start(locale);
     } catch (error) {
@@ -45,6 +55,7 @@ class VoiceService {
   }
 
   async stop() {
+    if (!Voice) return;
     try {
       await Voice.stop();
     } catch {
@@ -53,6 +64,7 @@ class VoiceService {
   }
 
   async destroy() {
+    if (!Voice) return;
     try {
       await Voice.destroy();
       await Voice.removeAllListeners();

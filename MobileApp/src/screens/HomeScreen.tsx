@@ -28,6 +28,7 @@ import { emergencyService } from '../services/emergency.service';
 import { voiceService } from '../services/voice.service';
 import { User, Device, Alert as AlertType, Prediction, VitalData } from '../types';
 import { useNavigation } from '@react-navigation/native';
+import { ScreenHeader } from '../components/ScreenHeader';
 
 
 export const HomeScreen: React.FC = () => {
@@ -397,6 +398,7 @@ export const HomeScreen: React.FC = () => {
         }
         showsVerticalScrollIndicator={false}
       >
+        <ScreenHeader title={t('home.title')} subtitle={t('app.tagline')} />
         {/* Connection Error Banner */}
         {connectionError && (
           <View className="mx-4 my-3 bg-red-50 border border-danger rounded-xl p-3">

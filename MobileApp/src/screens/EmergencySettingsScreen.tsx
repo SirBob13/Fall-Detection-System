@@ -14,8 +14,11 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import Slider from '@react-native-community/slider';
 import { emergencyService } from '../services/emergency.service';
 import { EmergencySettings } from '../services/emergency.types';
+import { useLanguage } from '../components/LanguageProvider';
+import { ScreenHeader } from '../components/ScreenHeader';
 
 export const EmergencySettingsScreen: React.FC = () => {
+  const { t } = useLanguage();
   const [settings, setSettings] = useState<EmergencySettings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
@@ -40,7 +43,7 @@ export const EmergencySettingsScreen: React.FC = () => {
       setSettings(data);
     } catch (error) {
       console.error('Error loading emergency settings:', error);
-      Alert.alert('Error', 'Failed to load emergency settings');
+      Alert.alert(t('common.error'), t('emergency.settings.loadFailed'));
     } finally {
       setIsLoading(false);
     }
@@ -68,7 +71,7 @@ export const EmergencySettingsScreen: React.FC = () => {
       if (!success) {
         // Rollback if failed
         setSettings(settings);
-        Alert.alert('Error', 'Failed to update settings');
+        Alert.alert(t('common.error'), t('emergency.settings.updateFailed'));
       }
     } catch (error) {
       console.error('Error updating setting:', error);
@@ -78,21 +81,21 @@ export const EmergencySettingsScreen: React.FC = () => {
 
   const handleResetSettings = () => {
     Alert.alert(
-      'Reset Settings',
-      'Do you want to reset all emergency settings to default values?',
+      t('emergency.settings.resetTitle'),
+      t('emergency.settings.resetConfirm'),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Reset',
+          text: t('emergency.settings.resetAction'),
           style: 'destructive',
           onPress: async () => {
             try {
               const defaultSettings = emergencyService.getDefaultSettings();
               await emergencyService.updateEmergencySettings(defaultSettings);
               setSettings(defaultSettings);
-              Alert.alert('Success', 'Settings reset successfully');
+              Alert.alert(t('success.updated'), t('emergency.settings.resetSuccess'));
             } catch (error) {
-              Alert.alert('Error', 'Failed to reset settings');
+              Alert.alert(t('common.error'), t('emergency.settings.resetFailed'));
             }
           },
         },
@@ -102,24 +105,24 @@ export const EmergencySettingsScreen: React.FC = () => {
 
   const handleClearHistory = () => {
     Alert.alert(
-      'Clear History',
-      'Do you want to clear all emergency operation history?',
+      t('emergency.settings.clearTitle'),
+      t('emergency.settings.clearConfirm'),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Clear',
+          text: t('emergency.settings.clearAction'),
           style: 'destructive',
           onPress: async () => {
             try {
               const success = await emergencyService.clearEmergencyHistory();
               if (success) {
-                Alert.alert('Success', 'History cleared successfully');
-                setStats({ total: 0, successful: 0, failed: 0, last: 'None' });
+                Alert.alert(t('success.deleted'), t('emergency.settings.clearSuccess'));
+                setStats({ total: 0, successful: 0, failed: 0, last: t('common.none') });
               } else {
-                Alert.alert('Error', 'Failed to clear history');
+                Alert.alert(t('common.error'), t('emergency.settings.clearFailed'));
               }
             } catch (error) {
-              Alert.alert('Error', 'An error occurred while clearing history');
+              Alert.alert(t('common.error'), t('emergency.settings.clearError'));
             }
           },
         },
@@ -129,21 +132,21 @@ export const EmergencySettingsScreen: React.FC = () => {
 
   const handleTestSMS = async () => {
     if (!testPhone.trim() || !testMessage.trim()) {
-      Alert.alert('Error', 'Please enter phone number and message');
+      Alert.alert(t('common.error'), t('emergency.settings.testSmsRequired'));
       return;
     }
 
     try {
       Alert.alert(
-        'Test SMS',
-        `Will send message to:\n${testPhone}\n\nMessage: ${testMessage}`,
+        t('emergency.settings.testSmsTitle'),
+        t('emergency.settings.testSmsConfirm', { phone: testPhone, message: testMessage }),
         [
-          { text: 'Cancel', style: 'cancel' },
+          { text: t('common.cancel'), style: 'cancel' },
           {
-            text: 'Send',
+            text: t('common.send'),
             onPress: async () => {
               // Note: In real app, use SMS.sendSMSAsync
-              Alert.alert('Success', 'Test message sent (simulation)');
+              Alert.alert(t('success.sent'), t('emergency.settings.testSmsSent'));
               setModalVisible(false);
               setTestMessage('');
               setTestPhone('');
@@ -152,35 +155,31 @@ export const EmergencySettingsScreen: React.FC = () => {
         ]
       );
     } catch (error) {
-      Alert.alert('Error', 'Failed to send test message');
+      Alert.alert(t('common.error'), t('emergency.settings.testSmsFailed'));
     }
   };
 
   const handleTestEmergency = async () => {
     Alert.alert(
-      'Test Emergency System',
-      'Will run a test of the emergency system (without actual sending). Do you want to proceed?',
+      t('emergency.settings.testSystemTitle'),
+      t('emergency.settings.testSystemConfirm'),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Start Test',
+          text: t('emergency.settings.testSystemAction'),
           onPress: async () => {
             try {
               const success = await emergencyService.triggerEmergency('manual');
               if (success) {
                 Alert.alert(
-                  '✅ Test Successful',
-                  'Emergency operation simulated successfully.\n\n' +
-                  'In real mode it would:\n' +
-                  '• Send SMS to emergency contacts\n' +
-                  '• Send location\n' +
-                  '• Call specified numbers'
+                  t('emergency.settings.testSystemSuccessTitle'),
+                  t('emergency.settings.testSystemSuccessBody')
                 );
               } else {
-                Alert.alert('⚠️ Warning', 'Emergency system test failed');
+                Alert.alert(t('emergency.settings.testSystemFailedTitle'), t('emergency.settings.testSystemFailedBody'));
               }
             } catch (error) {
-              Alert.alert('❌ Error', 'An error occurred during testing');
+              Alert.alert(t('common.error'), t('emergency.settings.testSystemErrorBody'));
             }
           },
         },
@@ -271,7 +270,7 @@ export const EmergencySettingsScreen: React.FC = () => {
     return (
       <View className="flex-1 justify-center items-center bg-white">
         <MaterialCommunityIcons name="cog" size={60} color="#2196F3" />
-        <Text className="mt-4 text-base text-gray">Loading settings...</Text>
+        <Text className="mt-4 text-base text-gray">{t('emergency.settings.loading')}</Text>
         <ActivityIndicator color="#2196F3" size="large" className="mt-4" />
       </View>
     );
@@ -279,49 +278,36 @@ export const EmergencySettingsScreen: React.FC = () => {
 
   return (
     <ScrollView className="flex-1 bg-light" showsVerticalScrollIndicator={false}>
-      {/* Header */}
-      <View className="bg-primary pb-8 rounded-b-3xl">
-        <View className="items-center pt-8">
-          <View className="w-20 h-20 rounded-full bg-white/20 justify-center items-center mb-4">
-            <MaterialCommunityIcons name="shield-alert" size={40} color="#FFFFFF" />
-          </View>
-          <Text className="text-2xl font-bold text-white text-center mb-2">
-            Emergency System Settings
-          </Text>
-          <Text className="text-sm text-white/80 text-center px-8">
-            Customize how the emergency system works in case of danger
-          </Text>
-        </View>
-      </View>
+      <ScreenHeader title={t('emergency.settings.title')} subtitle={t('emergency.settings.description')} />
 
       {/* Emergency Actions */}
       <View className="card mx-4 mt-6">
-        <Text className="section-title">Emergency Actions</Text>
+        <Text className="section-title">{t('emergency.settings.actionsTitle')}</Text>
         
         {renderSettingItem(
-          'Auto Call Emergency',
-          'Automatically call specified numbers when emergency is triggered',
+          t('emergency.settings.autoCall'),
+          t('emergency.settings.autoCallDesc'),
           'auto_call_emergency',
           'phone'
         )}
         
         {renderSettingItem(
-          'Send SMS Messages',
-          'Send text messages to emergency contacts with emergency details',
+          t('emergency.settings.sendSMS'),
+          t('emergency.settings.sendSMSDesc'),
           'send_sms',
           'message-text'
         )}
         
         {renderSettingItem(
-          'Send Location',
-          'Include current location in emergency messages',
+          t('emergency.settings.sendLocation'),
+          t('emergency.settings.sendLocationDesc'),
           'send_location',
           'map-marker'
         )}
         
         {renderSettingItem(
-          'Call After Fall',
-          'Activate emergency system automatically when fall is detected',
+          t('emergency.settings.callAfterFall'),
+          t('emergency.settings.callAfterFallDesc'),
           'call_after_fall',
           'run'
         )}
@@ -329,62 +315,63 @@ export const EmergencySettingsScreen: React.FC = () => {
 
       {/* Timing Settings */}
       <View className="card mx-4 my-4">
-        <Text className="section-title">Timing Settings</Text>
+        <Text className="section-title">{t('emergency.settings.timingTitle')}</Text>
         
         {renderSliderSetting(
-          'Emergency Countdown',
-          'Wait duration before sending help request',
+          t('emergency.settings.countdown'),
+          t('emergency.settings.countdownDesc'),
           'sos_countdown',
           'timer',
           3,
           30,
-          1
+          1,
+          t('common.seconds')
         )}
         
         {renderSliderSetting(
-          'Max Retry Attempts',
-          'Number of retry attempts if connection fails',
+          t('emergency.settings.maxRetries'),
+          t('emergency.settings.maxRetriesDesc'),
           'max_retries',
           'refresh',
           1,
           5,
           1,
-          'attempts'
+          t('common.attempts')
         )}
       </View>
 
       {/* Statistics */}
       <View className="card mx-4 my-4">
-        <Text className="section-title">System Statistics</Text>
+        <Text className="section-title">{t('emergency.settings.statsTitle')}</Text>
         <View className="flex-row justify-between mt-2">
           <View className="items-center flex-1 p-3 bg-lightGray/20 rounded-xl mx-1">
             <MaterialCommunityIcons name="history" size={24} color="#2196F3" />
             <Text className="text-2xl font-bold text-dark mt-2">{stats.total}</Text>
-            <Text className="text-xs text-gray">Total Operations</Text>
+            <Text className="text-xs text-gray">{t('emergency.settings.statsTotal')}</Text>
           </View>
           
           <View className="items-center flex-1 p-3 bg-lightGray/20 rounded-xl mx-1">
             <MaterialCommunityIcons name="check-circle" size={24} color="#4CAF50" />
             <Text className="text-2xl font-bold text-dark mt-2">{stats.successful}</Text>
-            <Text className="text-xs text-gray">Successful</Text>
+            <Text className="text-xs text-gray">{t('emergency.settings.statsSuccess')}</Text>
           </View>
           
           <View className="items-center flex-1 p-3 bg-lightGray/20 rounded-xl mx-1">
             <MaterialCommunityIcons name="alert-circle" size={24} color="#F44336" />
             <Text className="text-2xl font-bold text-dark mt-2">{stats.failed}</Text>
-            <Text className="text-xs text-gray">Failed</Text>
+            <Text className="text-xs text-gray">{t('emergency.settings.statsFailed')}</Text>
           </View>
         </View>
         
         <View className="mt-4 p-3 bg-blue-50 rounded-lg">
-          <Text className="text-sm text-dark font-medium">Last Operation</Text>
+          <Text className="text-sm text-dark font-medium">{t('emergency.settings.statsLast')}</Text>
           <Text className="text-xs text-gray mt-1">{stats.last}</Text>
         </View>
       </View>
 
       {/* Test & Actions */}
       <View className="card mx-4 my-4">
-        <Text className="section-title">Testing & Actions</Text>
+        <Text className="section-title">{t('emergency.settings.testingTitle')}</Text>
         
         <TouchableOpacity
           className="btn-primary flex-row items-center justify-center mb-3"
@@ -392,7 +379,7 @@ export const EmergencySettingsScreen: React.FC = () => {
           activeOpacity={0.7}
         >
           <MaterialCommunityIcons name="play-circle" size={24} color="#FFFFFF" />
-          <Text className="btn-primary-text ml-2">Test Emergency System</Text>
+          <Text className="btn-primary-text ml-2">{t('emergency.settings.testSystemTitle')}</Text>
         </TouchableOpacity>
         
         <TouchableOpacity
@@ -401,7 +388,7 @@ export const EmergencySettingsScreen: React.FC = () => {
           activeOpacity={0.7}
         >
           <MaterialCommunityIcons name="message-processing" size={24} color="#FFFFFF" />
-          <Text className="text-white font-semibold ml-2">Test SMS Sending</Text>
+          <Text className="text-white font-semibold ml-2">{t('emergency.settings.testSmsTitle')}</Text>
         </TouchableOpacity>
         
         <View className="flex-row justify-between mt-2">
@@ -411,7 +398,7 @@ export const EmergencySettingsScreen: React.FC = () => {
             activeOpacity={0.7}
           >
             <MaterialCommunityIcons name="restore" size={20} color="#212121" />
-            <Text className="text-sm font-semibold text-dark ml-2">Reset</Text>
+            <Text className="text-sm font-semibold text-dark ml-2">{t('emergency.settings.resetAction')}</Text>
           </TouchableOpacity>
           
           <TouchableOpacity
@@ -420,40 +407,40 @@ export const EmergencySettingsScreen: React.FC = () => {
             activeOpacity={0.7}
           >
             <MaterialCommunityIcons name="trash-can" size={20} color="#F44336" />
-            <Text className="text-sm font-semibold text-danger ml-2">Clear History</Text>
+            <Text className="text-sm font-semibold text-danger ml-2">{t('emergency.settings.clearAction')}</Text>
           </TouchableOpacity>
         </View>
       </View>
 
       {/* Instructions */}
       <View className="card mx-4 my-4">
-        <Text className="section-title">Important Instructions</Text>
+        <Text className="section-title">{t('emergency.settings.instructionsTitle')}</Text>
         <View className="space-y-3 mt-2">
           <View className="flex-row items-start">
             <MaterialCommunityIcons name="check-circle" size={16} color="#4CAF50" className="mt-0.5" />
             <Text className="text-sm text-dark ml-2 flex-1">
-              Make sure you have added correct emergency contacts
+              {t('emergency.settings.instruction1')}
             </Text>
           </View>
           
           <View className="flex-row items-start">
             <MaterialCommunityIcons name="check-circle" size={16} color="#4CAF50" className="mt-0.5" />
             <Text className="text-sm text-dark ml-2 flex-1">
-              Test the system regularly to ensure it works
+              {t('emergency.settings.instruction2')}
             </Text>
           </View>
           
           <View className="flex-row items-start">
             <MaterialCommunityIcons name="check-circle" size={16} color="#4CAF50" className="mt-0.5" />
             <Text className="text-sm text-dark ml-2 flex-1">
-              Maintain battery charge to avoid service interruption
+              {t('emergency.settings.instruction3')}
             </Text>
           </View>
           
           <View className="flex-row items-start">
             <MaterialCommunityIcons name="check-circle" size={16} color="#4CAF50" className="mt-0.5" />
             <Text className="text-sm text-dark ml-2 flex-1">
-              Inform contacts that they are listed as emergency contacts
+              {t('emergency.settings.instruction4')}
             </Text>
           </View>
         </View>
@@ -465,9 +452,9 @@ export const EmergencySettingsScreen: React.FC = () => {
           <MaterialCommunityIcons name="shield-check" size={24} color="#2196F3" />
         </View>
         <Text className="text-sm text-gray text-center mb-2">
-          Emergency system works automatically when fall is detected or when emergency button is pressed
+          {t('emergency.settings.footerDesc')}
         </Text>
-        <Text className="text-xs text-lightGray">Version 2.0 - Enhanced System</Text>
+        <Text className="text-xs text-lightGray">{t('emergency.settings.footerVersion')}</Text>
       </View>
 
       {/* Test SMS Modal */}
@@ -483,15 +470,15 @@ export const EmergencySettingsScreen: React.FC = () => {
               <View className="w-16 h-16 rounded-full bg-blue-50 justify-center items-center mb-3">
                 <MaterialCommunityIcons name="message-text" size={30} color="#2196F3" />
               </View>
-              <Text className="text-xl font-bold text-dark">Test SMS Sending</Text>
+              <Text className="text-xl font-bold text-dark">{t('emergency.settings.testSmsTitle')}</Text>
               <Text className="text-sm text-gray mt-1 text-center">
-                Enter phone number and message for testing
+                {t('emergency.settings.testSmsHelper')}
               </Text>
             </View>
 
             <TextInput
               className="input-field mb-4"
-              placeholder="Phone number (e.g., +201234567890)"
+              placeholder={t('emergency.settings.testSmsPhonePlaceholder')}
               value={testPhone}
               onChangeText={setTestPhone}
               keyboardType="phone-pad"
@@ -500,7 +487,7 @@ export const EmergencySettingsScreen: React.FC = () => {
 
             <TextInput
               className="input-field h-28 mb-6 text-align-top"
-              placeholder="Test message text"
+              placeholder={t('emergency.settings.testSmsMessagePlaceholder')}
               value={testMessage}
               onChangeText={setTestMessage}
               multiline
@@ -519,7 +506,7 @@ export const EmergencySettingsScreen: React.FC = () => {
                 }}
                 activeOpacity={0.7}
               >
-                <Text className="text-dark font-semibold">Cancel</Text>
+                <Text className="text-dark font-semibold">{t('common.cancel')}</Text>
               </TouchableOpacity>
               
               <TouchableOpacity
@@ -528,12 +515,12 @@ export const EmergencySettingsScreen: React.FC = () => {
                 activeOpacity={0.7}
               >
                 <MaterialCommunityIcons name="send" size={20} color="#FFFFFF" />
-                <Text className="text-white font-bold ml-2">Send Test</Text>
+                <Text className="text-white font-bold ml-2">{t('emergency.settings.testSmsSendAction')}</Text>
               </TouchableOpacity>
             </View>
             
             <Text className="text-xs text-gray mt-4 text-center">
-              Note: In development mode, SMS sending is simulated
+              {t('emergency.settings.testSmsNote')}
             </Text>
           </View>
         </View>

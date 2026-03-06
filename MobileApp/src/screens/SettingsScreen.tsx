@@ -16,6 +16,7 @@ import { storageService } from '../services/storage';
 import { notificationService } from '../services/notifications';
 import { authService } from '../services/auth.service';
 import { User, Device } from '../types';
+import { ScreenHeader } from '../components/ScreenHeader';
 
 type SettingsScreenNavigationProp = StackNavigationProp<any>;
 
@@ -196,6 +197,7 @@ export const SettingsScreen: React.FC = () => {
 
   return (
     <ScrollView className="flex-1 bg-light" showsVerticalScrollIndicator={false}>
+      <ScreenHeader title={t('settings.title')} subtitle={t('settings.subtitle')} />
       {/* Personal Info Section */}
       <View className="my-2">
         <Text className="section-title">

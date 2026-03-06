@@ -14,6 +14,7 @@ import { storageService } from '../services/storage';
 import { Alert as AlertType, CareLink, User } from '../types';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLanguage } from '../components/LanguageProvider';
+import { ScreenHeader } from '../components/ScreenHeader';
 
 export const AlertsScreen: React.FC = () => {
   const { t } = useLanguage();
@@ -186,13 +187,7 @@ export const AlertsScreen: React.FC = () => {
         }
         showsVerticalScrollIndicator={false}
       >
-        {/* Header */}
-        <View className="mx-4 mt-4 mb-6">
-          <Text className="text-2xl font-bold text-dark">{t('alerts.historyTitle')}</Text>
-          <Text className="text-sm text-gray mt-1">
-            {t('alerts.historySubtitle')}
-          </Text>
-        </View>
+        <ScreenHeader title={t('alerts.historyTitle')} subtitle={t('alerts.historySubtitle')} />
 
         <View className="mx-4 mb-4 bg-white border border-lightGray rounded-xl p-3">
           <Text className="text-xs text-gray mb-2">{t('care.monitoring')}</Text>

@@ -17,6 +17,7 @@ import { storageService } from '../services/storage';
 import { Alert as AlertType, CareDashboardItem, CareLink, LastKnownLocation, User, VitalData } from '../types';
 import { LineChart } from 'react-native-chart-kit';
 import { Dimensions } from 'react-native';
+import { ScreenHeader } from '../components/ScreenHeader';
 
 export const CaregiverDashboardScreen: React.FC = () => {
   const { t } = useLanguage();
@@ -177,10 +178,7 @@ export const CaregiverDashboardScreen: React.FC = () => {
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
       }
     >
-      <View className="mx-4 mt-6">
-        <Text className="text-2xl font-bold text-dark">{t('dashboard.title')}</Text>
-        <Text className="text-xs text-gray mt-1">{t('dashboard.subtitle')}</Text>
-      </View>
+      <ScreenHeader title={t('dashboard.title')} subtitle={t('dashboard.subtitle')} />
 
       <View className="mx-4 mt-4 bg-white rounded-2xl shadow-lg border border-lightGray p-4">
         <Text className="text-sm font-semibold text-dark mb-2">{t('dashboard.monitoring')}</Text>

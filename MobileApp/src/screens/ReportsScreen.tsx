@@ -6,6 +6,7 @@ import { useLanguage } from '../components/LanguageProvider';
 import { storageService } from '../services/storage';
 import { apiService } from '../services/api';
 import { ReportSummary, User } from '../types';
+import { ScreenHeader } from '../components/ScreenHeader';
 
 export const ReportsScreen: React.FC = () => {
   const { t } = useLanguage();
@@ -63,10 +64,7 @@ export const ReportsScreen: React.FC = () => {
       showsVerticalScrollIndicator={false}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
     >
-      <View className="mx-4 mt-6">
-        <Text className="text-2xl font-bold text-dark">{t('reports.title')}</Text>
-        <Text className="text-xs text-gray mt-1">{t('reports.subtitle')}</Text>
-      </View>
+      <ScreenHeader title={t('reports.title')} subtitle={t('reports.subtitle')} />
 
       <View className="mx-4 mt-4 flex-row">
         {[7, 30].map((value) => (

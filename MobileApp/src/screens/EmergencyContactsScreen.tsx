@@ -17,6 +17,7 @@ import { useLanguage } from '../components/LanguageProvider';
 import { storageService } from '../services/storage';
 import { useNavigation } from '@react-navigation/native';
 import { User } from '../types';
+import { ScreenHeader } from '../components/ScreenHeader';
 
 export const EmergencyContactsScreen: React.FC = () => {
   const { t } = useLanguage();
@@ -52,7 +53,7 @@ export const EmergencyContactsScreen: React.FC = () => {
       setContacts(data);
     } catch (error) {
       console.error('Error loading contacts:', error);
-      Alert.alert('Error', 'Failed to load contacts');
+      Alert.alert(t('common.error'), t('emergency.contacts.loadFailed'));
     } finally {
       setIsLoading(false);
     }
@@ -120,7 +121,7 @@ export const EmergencyContactsScreen: React.FC = () => {
 
   const handleSaveContact = async () => {
     if (!formData.name.trim() || !formData.phone.trim()) {
-      Alert.alert('Error', 'Name and phone number are required');
+      Alert.alert(t('common.error'), t('emergency.contacts.required'));
       return;
     }
 
@@ -133,29 +134,29 @@ export const EmergencyContactsScreen: React.FC = () => {
             : contact
         );
         await emergencyService.saveEmergencyContacts(updatedContacts);
-        Alert.alert('Success', 'Contact updated successfully');
+        Alert.alert(t('success.updated'), t('emergency.contacts.updateSuccess'));
       } else {
         // Add new contact
         await emergencyService.addEmergencyContact(formData);
-        Alert.alert('Success', 'Contact added successfully');
+        Alert.alert(t('success.saved'), t('emergency.contacts.addSuccess'));
       }
       
       setModalVisible(false);
       loadContacts();
     } catch (error) {
       console.error('Error saving contact:', error);
-      Alert.alert('Error', 'Failed to save contact');
+      Alert.alert(t('common.error'), t('emergency.contacts.saveFailed'));
     }
   };
 
   const handleDeleteContact = (contactId: string) => {
     Alert.alert(
-      'Delete Contact',
-      'Are you sure you want to delete this contact?',
+      t('emergency.contacts.deleteTitle'),
+      t('emergency.contacts.deleteConfirm'),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Delete',
+          text: t('common.delete'),
           style: 'destructive',
           onPress: async () => {
             try {
@@ -163,7 +164,7 @@ export const EmergencyContactsScreen: React.FC = () => {
               await emergencyService.saveEmergencyContacts(updatedContacts);
               loadContacts();
             } catch (error) {
-              Alert.alert('Error', 'Failed to delete contact');
+              Alert.alert(t('common.error'), t('emergency.contacts.deleteFailed'));
             }
           },
         },
@@ -188,12 +189,12 @@ export const EmergencyContactsScreen: React.FC = () => {
   const handleImportContacts = async () => {
     try {
       Alert.alert(
-        'Import Contacts',
-        'Will import contacts from your phone. Do you want to proceed?',
+        t('emergency.contacts.importTitle'),
+        t('emergency.contacts.importConfirm'),
         [
-          { text: 'Cancel', style: 'cancel' },
+          { text: t('common.cancel'), style: 'cancel' },
           {
-            text: 'Import',
+            text: t('common.import'),
             onPress: async () => {
               const importedContacts = await emergencyService.importPhoneContacts();
               if (importedContacts.length > 0) {
@@ -208,14 +209,14 @@ export const EmergencyContactsScreen: React.FC = () => {
                 setContactSearch('');
                 setImportModalVisible(true);
               } else {
-                Alert.alert('Note', 'No contacts found to import');
+                Alert.alert(t('common.note'), t('emergency.contacts.noPhoneContacts'));
               }
             },
           },
         ]
       );
     } catch (error) {
-      Alert.alert('Error', 'Failed to import contacts');
+      Alert.alert(t('common.error'), t('emergency.contacts.importFailed'));
     }
   };
 
@@ -241,7 +242,7 @@ export const EmergencyContactsScreen: React.FC = () => {
 
   const handleSaveSelectedContacts = async () => {
     if (selectedContactIds.size === 0) {
-      Alert.alert('Note', 'Select at least one contact');
+      Alert.alert(t('common.note'), t('emergency.contacts.selectAtLeastOne'));
       return;
     }
 
@@ -253,7 +254,7 @@ export const EmergencyContactsScreen: React.FC = () => {
           continue;
         }
         await emergencyService.addEmergencyContact({
-          name: contact.name || 'Contact',
+          name: contact.name || t('emergency.contacts.contact'),
           phone,
           relationship: 'family',
           priority: 3,
@@ -265,9 +266,9 @@ export const EmergencyContactsScreen: React.FC = () => {
       setSelectedContactIds(new Set());
       setEditablePhones({});
       loadContacts();
-      Alert.alert('Success', 'Contacts added from phone');
+      Alert.alert(t('success.saved'), t('emergency.contacts.importSuccess'));
     } catch (error) {
-      Alert.alert('Error', 'Failed to add contacts');
+      Alert.alert(t('common.error'), t('emergency.contacts.importSaveFailed'));
     }
   };
 
@@ -282,10 +283,10 @@ export const EmergencyContactsScreen: React.FC = () => {
 
   const getPriorityText = (priority: number) => {
     switch (priority) {
-      case 1: return 'High';
-      case 2: return 'Medium';
-      case 3: return 'Low';
-      default: return 'Normal';
+      case 1: return t('emergency.contacts.priorityHigh');
+      case 2: return t('emergency.contacts.priorityMedium');
+      case 3: return t('emergency.contacts.priorityLow');
+      default: return t('emergency.contacts.priorityNormal');
     }
   };
 
@@ -321,30 +322,24 @@ export const EmergencyContactsScreen: React.FC = () => {
 
   return (
     <View className="flex-1 bg-light">
-      {/* Header */}
-      <View className="bg-white pb-4 border-b border-lightGray">
-        <View className="pt-8 px-5">
-          <Text className="text-2xl font-bold text-dark">{t('emergency.contacts.title')}</Text>
-          <Text className="text-sm text-gray mt-1">
-            {t('emergency.contacts.description')}
-          </Text>
-        </View>
-        
-        {/* Quick Stats */}
-        <View className="flex-row justify-between mt-4 px-5">
-          <View className="items-center">
+      <ScreenHeader title={t('emergency.contacts.title')} subtitle={t('emergency.contacts.description')} />
+
+      {/* Quick Stats */}
+      <View className="mx-5 mt-1 bg-white rounded-2xl shadow-lg border border-lightGray p-4">
+        <View className="flex-row justify-between">
+          <View className="items-center flex-1">
             <Text className="text-2xl font-bold text-dark">{contacts.length}</Text>
             <Text className="text-xs text-gray">{t('emergency.contacts.total')}</Text>
           </View>
           
-          <View className="items-center">
+          <View className="items-center flex-1">
             <Text className="text-2xl font-bold text-dark">
               {contacts.filter(c => c.is_active).length}
             </Text>
             <Text className="text-xs text-gray">{t('emergency.contacts.active')}</Text>
           </View>
           
-          <View className="items-center">
+          <View className="items-center flex-1">
             <Text className="text-2xl font-bold text-dark">
               {contacts.filter(c => c.priority === 1).length}
             </Text>

@@ -1870,6 +1870,14 @@ async def remove_care_link(
                 "timestamp": datetime.utcnow().isoformat(),
             }
         )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting care link: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"success": False, "error": f"Failed to delete care link: {str(e)}"}
+        )
 
 
 # ======================
@@ -1985,14 +1993,6 @@ async def get_user_report(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"success": False, "error": f"Failed to generate report: {str(e)}"}
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error deleting care link: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"success": False, "error": f"Failed to delete care link: {str(e)}"}
         )
 
 # ======================
