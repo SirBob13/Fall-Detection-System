@@ -97,6 +97,21 @@ button.ghost:hover {
   border-color: var(--primary);
 }
 
+.link-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.link-btn:hover {
+  border-color: var(--primary);
+}
+
 .status { color: var(--danger); }
 
 .hidden { display: none; }

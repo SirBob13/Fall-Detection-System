@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fall Detection API Docs</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.11.0/swagger-ui.css" />
+  <style>
+    body { margin: 0; background: #0f1115; color: #e6e6e6; }
+    #swagger-ui { max-width: 1200px; margin: 0 auto; padding: 16px; }
+    .topbar { display: none; }
+    .notice { max-width: 720px; margin: 32px auto; padding: 16px; background: #151922; border: 1px solid #222736; border-radius: 10px; text-align: center; }
+    a { color: #4ea1ff; }
+  </style>
+</head>
+<body>
+  <div id="notice" class="notice">Loading API docs…</div>
+  <div id="swagger-ui"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.11.0/swagger-ui-bundle.js"></script>
+  <script>
+    const tokenKey = 'fd_admin_token';
+    const token = localStorage.getItem(tokenKey);
+    const notice = document.getElementById('notice');
+
+    if (!token) {
+      notice.innerHTML = 'Please login from <a href="/admin" target="_blank" rel="noopener">/admin</a> first.';
+    } else {
+      notice.remove();
+      window.ui = SwaggerUIBundle({
+        url: '/api/v1/admin/openapi.json',
+        dom_id: '#swagger-ui',
+        deepLinking: true,
+        presets: [SwaggerUIBundle.presets.apis],
+        requestInterceptor: (req) => {
+          req.headers = req.headers || {};
+          req.headers['Authorization'] = `Bearer ${token}`;
+          return req;
+        }
+      });
+    }
+  </script>
+</body>
+</html>

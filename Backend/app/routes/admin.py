@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 
 import jwt
-from fastapi import APIRouter, Depends, Header, HTTPException, status, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, status, Query, Request
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
@@ -82,6 +82,13 @@ def require_admin(
         )
 
     return {"user": user, "auth": user_auth}
+
+@router.get("/openapi.json")
+def admin_openapi(
+    request: Request,
+    _: Dict[str, Any] = Depends(require_admin)
+):
+    return JSONResponse(request.app.openapi())
 
 
 @router.get("/overview", response_model=Dict[str, Any])
