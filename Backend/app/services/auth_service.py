@@ -9,7 +9,7 @@ import logging
 from fastapi import HTTPException, status
 
 from ..models import User, UserAuth, UserSession, SocialAccount
-from ..config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS
+from ..config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS, ADMIN_EMAILS
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +100,7 @@ class AuthService:
             logger.info(f"✅ User registered successfully: {email}")
             
             # Return result
+            is_admin = user_auth.email.lower() in ADMIN_EMAILS if ADMIN_EMAILS else False
             return {
                 "success": True,
                 "message": "Account created successfully",
@@ -229,7 +230,8 @@ class AuthService:
                     "email_verified": user_auth.email_verified,
                     "phone_verified": user_auth.phone_verified,
                     "created_at": user.created_at.isoformat() if user.created_at else None,
-                    "is_active": user.is_active
+                    "is_active": user.is_active,
+                    "is_admin": is_admin
                 }
             }
             
@@ -387,6 +389,7 @@ class AuthService:
             if not user or not user_auth:
                 return None
             
+            is_admin = user_auth.email.lower() in ADMIN_EMAILS if ADMIN_EMAILS else False
             return {
                 "user": {
                     "id": user.id,
@@ -399,7 +402,8 @@ class AuthService:
                     "email_verified": user_auth.email_verified,
                     "phone_verified": user_auth.phone_verified,
                     "created_at": user.created_at.isoformat() if user.created_at else None,
-                    "is_active": user.is_active
+                    "is_active": user.is_active,
+                    "is_admin": is_admin
                 },
                 "token": session.token,
                 "refresh_token": session.refresh_token,

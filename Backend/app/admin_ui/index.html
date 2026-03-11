@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fall Detection Admin</title>
+  <link rel="stylesheet" href="/admin/styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div>
+        <h1>Fall Detection Admin</h1>
+        <p class="muted">System overview, alerts, vitals, devices, reports</p>
+      </div>
+      <div class="actions">
+        <button id="logoutBtn" class="ghost hidden">Logout</button>
+      </div>
+    </header>
+
+    <section id="loginSection" class="card">
+      <h2>Admin Login</h2>
+      <div class="form">
+        <label>Email</label>
+        <input id="email" type="email" placeholder="admin@example.com" />
+        <label>Password</label>
+        <input id="password" type="password" placeholder="••••••••" />
+        <button id="loginBtn">Login</button>
+        <p id="loginStatus" class="status"></p>
+      </div>
+    </section>
+
+    <section id="dashboardSection" class="hidden">
+      <div class="grid">
+        <div class="card">
+          <h3>Users</h3>
+          <div class="stat" id="usersStat">-</div>
+          <div class="muted" id="usersActive">-</div>
+        </div>
+        <div class="card">
+          <h3>Devices</h3>
+          <div class="stat" id="devicesStat">-</div>
+          <div class="muted" id="devicesConnected">-</div>
+        </div>
+        <div class="card">
+          <h3>Alerts</h3>
+          <div class="stat" id="alertsStat">-</div>
+          <div class="muted" id="alertsActive">-</div>
+        </div>
+        <div class="card">
+          <h3>Data</h3>
+          <div class="stat" id="dataStat">-</div>
+          <div class="muted" id="lastActivity">-</div>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div class="card">
+          <h3>Alerts (Chart)</h3>
+          <canvas id="alertsChart" height="120"></canvas>
+        </div>
+        <div class="card">
+          <h3>Vitals (Chart)</h3>
+          <canvas id="vitalsChart" height="120"></canvas>
+        </div>
+        <div class="card">
+          <h3>Motions (Chart)</h3>
+          <canvas id="motionsChart" height="120"></canvas>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="row between">
+          <h3>Reports</h3>
+          <div class="row">
+            <button class="ghost" data-period="daily">Daily</button>
+            <button class="ghost" data-period="weekly">Weekly</button>
+            <button class="ghost" data-period="monthly">Monthly</button>
+            <input id="startDate" type="date" />
+            <input id="endDate" type="date" />
+            <button id="applyDateFilter" class="ghost">Apply</button>
+            <button id="exportPdf" class="ghost">Export PDF</button>
+          </div>
+        </div>
+        <pre id="reportsBox" class="code">Loading…</pre>
+      </div>
+
+      <div class="grid">
+        <div class="card">
+          <div class="row between">
+            <h3>Recent Alerts</h3>
+            <button id="refreshAlerts" class="ghost">Refresh</button>
+          </div>
+          <div id="alertsTable" class="table"></div>
+        </div>
+        <div class="card">
+          <div class="row between">
+            <h3>Recent Vitals</h3>
+            <button id="refreshVitals" class="ghost">Refresh</button>
+          </div>
+          <div id="vitalsTable" class="table"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="row between">
+          <h3>Devices</h3>
+          <button id="refreshDevices" class="ghost">Refresh</button>
+        </div>
+        <div id="devicesTable" class="table"></div>
+      </div>
+
+      <div class="card">
+        <div class="row between">
+          <h3>Users</h3>
+          <div class="row">
+            <input id="userSearch" placeholder="Search name or email" />
+            <button id="searchUsers" class="ghost">Search</button>
+            <button id="exportUsers" class="ghost">Export CSV</button>
+          </div>
+        </div>
+        <div id="usersTable" class="table"></div>
+        <div id="userDetailCard" class="card hidden">
+          <h4>User Details</h4>
+          <pre id="userDetailBox" class="code">Select a user…</pre>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="/admin/app.js"></script>
+</body>
+</html>

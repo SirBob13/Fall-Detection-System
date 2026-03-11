@@ -23,6 +23,7 @@ from ..config import (
     GOOGLE_CLIENT_IDS,
     APPLE_CLIENT_ID,
     ALLOW_UNVERIFIED_SOCIAL_LOGIN,
+    ADMIN_EMAILS,
 )
 
 logger = logging.getLogger(__name__)
@@ -850,6 +851,7 @@ async def get_profile(
                 detail={"success": False, "error": "User not found"}
             )
 
+        is_admin = user_auth.email.lower() in ADMIN_EMAILS if ADMIN_EMAILS else False
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
@@ -868,7 +870,8 @@ async def get_profile(
                     "phone_verified": user_auth.phone_verified,
                     "created_at": user.created_at.isoformat() if user.created_at else None,
                     "updated_at": user.updated_at.isoformat() if user.updated_at else None,
-                    "is_active": user.is_active
+                    "is_active": user.is_active,
+                    "is_admin": is_admin
                 }
             }
         )
@@ -919,6 +922,7 @@ async def update_profile(
         db.commit()
         db.refresh(user)
 
+        is_admin = user_auth.email.lower() in ADMIN_EMAILS if ADMIN_EMAILS else False
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
@@ -938,7 +942,8 @@ async def update_profile(
                     "phone_verified": user_auth.phone_verified,
                     "created_at": user.created_at.isoformat() if user.created_at else None,
                     "updated_at": user.updated_at.isoformat() if user.updated_at else None,
-                    "is_active": user.is_active
+                    "is_active": user.is_active,
+                    "is_admin": is_admin
                 }
             }
         )

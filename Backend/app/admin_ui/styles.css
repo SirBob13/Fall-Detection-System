@@ -1,0 +1,160 @@
+:root {
+  --bg: #0f1115;
+  --card: #151922;
+  --text: #e6e6e6;
+  --muted: #9aa1ad;
+  --primary: #4ea1ff;
+  --danger: #ff6b6b;
+  --success: #3ad29f;
+  --border: #222736;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.app {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+h1, h2, h3 { margin: 0 0 8px 0; }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.between { justify-content: space-between; }
+
+.muted { color: var(--muted); font-size: 0.9rem; }
+
+.stat { font-size: 2rem; font-weight: 700; }
+
+.form {
+  display: grid;
+  gap: 8px;
+  max-width: 360px;
+}
+
+input {
+  background: #0b0d12;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--text);
+}
+
+input#userSearch {
+  min-width: 220px;
+}
+
+button {
+  background: var(--primary);
+  color: #0b0d12;
+  border: 0;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button.ghost {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+button.ghost:hover {
+  border-color: var(--primary);
+}
+
+.status { color: var(--danger); }
+
+.hidden { display: none; }
+
+.table {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.table .row {
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  justify-content: space-between;
+}
+
+.table .row small { color: var(--muted); }
+
+.table .row.user-row {
+  align-items: flex-start;
+}
+
+.table .row .actions {
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.badge.success {
+  color: var(--success);
+  border-color: rgba(58,210,159,0.4);
+}
+
+.badge.danger {
+  color: var(--danger);
+  border-color: rgba(255,107,107,0.4);
+}
+
+button.ghost.danger {
+  color: var(--danger);
+  border-color: rgba(255,107,107,0.4);
+}
+
+.code {
+  background: #0b0d12;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  overflow: auto;
+  color: #c9d1d9;
+}

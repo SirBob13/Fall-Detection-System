@@ -88,3 +88,14 @@ EMAIL_FROM = os.getenv("EMAIL_FROM", "noreply@falldetection.com")
 # Mock mode settings
 USE_MOCK_DATA = os.getenv("USE_MOCK_DATA", "true").lower() == "true"
 MOCK_FALL_PROBABILITY = 0.15  # 15% chance of mock fall
+
+# Admin access (comma-separated emails)
+ADMIN_EMAILS_RAW = os.getenv("ADMIN_EMAILS", "")
+ADMIN_EMAILS = [e.strip().lower() for e in ADMIN_EMAILS_RAW.split(",") if e.strip()]
+
+# Docs exposure (disable in production)
+EXPOSE_DOCS = os.getenv("EXPOSE_DOCS", "false").lower() == "true"
+
+# CORS origins (comma-separated; default "*")
+CORS_ORIGINS_RAW = os.getenv("CORS_ORIGINS", "*")
+CORS_ORIGINS = [o.strip() for o in CORS_ORIGINS_RAW.split(",") if o.strip()]
