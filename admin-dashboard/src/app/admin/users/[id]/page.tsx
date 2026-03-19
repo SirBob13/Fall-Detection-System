@@ -1,8 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { apiFetch, API_V1 } from "../../_lib/api";
+import { apiFetch, API_V1, buildDateQuery, getToken } from "../../_lib/api";
+
+interface UserDevice {
+  id: number;
+  device_id: string;
+  battery_level?: number | null;
+  firmware_version?: string | null;
+  is_connected: boolean;
+  last_seen?: string | null;
+}
 
 interface UserDetail {
   id: number;
@@ -17,14 +27,7 @@ interface UserDetail {
   height?: number | null;
   medical_conditions?: string | null;
   emergency_contact?: string | null;
-  devices: Array<{
-    id: number;
-    device_id: string;
-    battery_level?: number | null;
-    firmware_version?: string | null;
-    is_connected: boolean;
-    last_seen?: string | null;
-  }>;
+  devices: UserDevice[];
   stats: {
     alerts: number;
     vitals: number;
@@ -34,19 +37,22 @@ interface UserDetail {
 
 interface AlertItem {
   id: number;
+  prediction_id?: number | null;
   type: string;
   severity: string;
   status: string;
-  message: string;
+  message?: string | null;
   timestamp?: string | null;
 }
 
 interface VitalItem {
   id: number;
-  heart_rate?: number;
-  oxygen_saturation?: number;
-  body_temperature?: number;
-  respiration_rate?: number;
+  heart_rate?: number | null;
+  blood_pressure_systolic?: number | null;
+  blood_pressure_diastolic?: number | null;
+  oxygen_saturation?: number | null;
+  body_temperature?: number | null;
+  respiration_rate?: number | null;
   is_abnormal: boolean;
   abnormality_type?: string | null;
   timestamp?: string | null;
@@ -54,21 +60,30 @@ interface VitalItem {
 
 interface MotionItem {
   id: number;
-  device_id: string;
-  acc_mag?: number;
-  gyro_mag?: number;
-  temperature?: number;
+  device_id?: string | null;
+  acc_x?: number | null;
+  acc_y?: number | null;
+  acc_z?: number | null;
+  acc_mag?: number | null;
+  gyro_x?: number | null;
+  gyro_y?: number | null;
+  gyro_z?: number | null;
+  gyro_mag?: number | null;
+  temperature?: number | null;
   is_fall_suspected: boolean;
   timestamp?: string | null;
 }
 
 interface PredictionItem {
   id: number;
-  fall_now_probability: number;
-  fall_soon_probability: number;
+  motion_data_id?: number | null;
+  fall_now_probability?: number | null;
+  fall_soon_probability?: number | null;
   fall_now_prediction: boolean;
   fall_soon_prediction: boolean;
-  final_verdict?: boolean | null;
+  vital_check_performed: boolean;
+  vital_check_result?: string | null;
+  final_verdict?: string | null;
   confidence_score?: number | null;
   timestamp?: string | null;
 }
@@ -76,199 +91,266 @@ interface PredictionItem {
 export default function UserDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const userId = params?.id as string;
+  const userId = Number(params?.id);
 
   const [detail, setDetail] = useState<UserDetail | null>(null);
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [vitals, setVitals] = useState<VitalItem[]>([]);
   const [motions, setMotions] = useState<MotionItem[]>([]);
   const [predictions, setPredictions] = useState<PredictionItem[]>([]);
+  const [start, setStart] = useState("");
+  const [end, setEnd] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   const loadAll = async () => {
+    if (!userId) return;
+    setLoading(true);
+    setError(null);
     try {
-      const [detailRes, alertRes, vitalRes, motionRes, predRes] = await Promise.all([
+      const query = buildDateQuery(start, end);
+      const [detailRes, alertsRes, vitalsRes, motionsRes, predsRes] = await Promise.all([
         apiFetch<{ data: UserDetail }>(`/admin/users/${userId}`),
-        apiFetch<{ data: AlertItem[] }>(`/admin/users/${userId}/alerts?limit=10`),
-        apiFetch<{ data: VitalItem[] }>(`/admin/users/${userId}/vitals?limit=10`),
-        apiFetch<{ data: MotionItem[] }>(`/admin/users/${userId}/motions?limit=10`),
-        apiFetch<{ data: PredictionItem[] }>(`/admin/users/${userId}/predictions?limit=10`),
+        apiFetch<{ data: AlertItem[] }>(`/admin/users/${userId}/alerts?limit=50${query}`),
+        apiFetch<{ data: VitalItem[] }>(`/admin/users/${userId}/vitals?limit=50${query}`),
+        apiFetch<{ data: MotionItem[] }>(`/admin/users/${userId}/motions?limit=50${query}`),
+        apiFetch<{ data: PredictionItem[] }>(`/admin/users/${userId}/predictions?limit=50${query}`),
       ]);
-
       setDetail(detailRes.data);
-      setAlerts(alertRes.data);
-      setVitals(vitalRes.data);
-      setMotions(motionRes.data);
-      setPredictions(predRes.data);
+      setAlerts(alertsRes.data);
+      setVitals(vitalsRes.data);
+      setMotions(motionsRes.data);
+      setPredictions(predsRes.data);
     } catch (err: any) {
-      setError(err.message || "Failed to load user data");
+      setError(err.message || "Failed to load user details");
+    } finally {
+      setLoading(false);
     }
   };
 
   useEffect(() => {
-    if (userId) {
-      loadAll();
-    }
+    loadAll();
   }, [userId]);
 
   const toggleStatus = async () => {
     if (!detail) return;
-    await apiFetch(`/admin/users/${userId}/status`, {
-      method: "PUT",
-      body: JSON.stringify({ is_active: !detail.is_active }),
-    });
-    await loadAll();
+    try {
+      const next = !detail.is_active;
+      await apiFetch(`/admin/users/${detail.id}/status`, {
+        method: "PUT",
+        body: JSON.stringify({ is_active: next }),
+      });
+      setDetail({ ...detail, is_active: next });
+    } catch (err: any) {
+      setError(err.message || "Failed to update status");
+    }
   };
 
   const deleteUser = async () => {
+    if (!detail) return;
     if (!confirm("Delete this user? This cannot be undone.")) return;
-    await apiFetch(`/admin/users/${userId}`, { method: "DELETE" });
-    router.replace("/admin/users");
+    try {
+      await apiFetch(`/admin/users/${detail.id}`, { method: "DELETE" });
+      router.push("/admin/users");
+    } catch (err: any) {
+      setError(err.message || "Failed to delete user");
+    }
   };
 
-  const downloadPdf = async () => {
-    const token = localStorage.getItem("fd_admin_token");
-    const res = await fetch(`${API_V1}/admin/users/${userId}/report.pdf`, {
+  const exportPdf = async () => {
+    if (!detail) return;
+    const token = getToken();
+    const res = await fetch(`${API_V1}/admin/users/${detail.id}/report.pdf`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!res.ok) {
-      alert("PDF export failed");
+      setError("Failed to export PDF");
       return;
     }
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `user_${userId}_report.pdf`;
+    a.download = `user_${detail.id}_report.pdf`;
     a.click();
     URL.revokeObjectURL(url);
   };
 
-  if (!detail) {
-    return <div className="text-slate-400">Loading user details...</div>;
-  }
-
   return (
     <div className="space-y-6">
+      <div className="flex items-center gap-3 text-sm text-slate-400">
+        <Link href="/admin/users" className="text-cyan-300 hover:text-cyan-200">← Back to Users</Link>
+      </div>
+
       <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-cyan-300/70">User</p>
-            <h2 className="font-display text-2xl">{detail.name}</h2>
-            <p className="text-sm text-slate-400">{detail.email}</p>
-            <p className="text-xs text-slate-500">Created: {detail.created_at || "-"}</p>
+            <p className="text-xs uppercase tracking-[0.3em] text-cyan-300/70">User Profile</p>
+            <h2 className="mt-2 font-display text-2xl text-slate-100">{detail?.name || "User"}</h2>
+            <p className="text-sm text-slate-400">{detail?.email || ""}</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <button
               onClick={toggleStatus}
-              className="rounded-full border border-emerald-400/40 px-4 py-2 text-sm text-emerald-200"
+              className={`rounded-full px-4 py-2 text-sm ${detail?.is_active ? "border border-amber-400/50 text-amber-200" : "border border-emerald-400/50 text-emerald-200"}`}
             >
-              {detail.is_active ? "Deactivate" : "Activate"}
+              {detail?.is_active ? "Deactivate" : "Activate"}
             </button>
             <button
-              onClick={downloadPdf}
-              className="rounded-full border border-cyan-400/40 px-4 py-2 text-sm text-cyan-200"
+              onClick={exportPdf}
+              className="rounded-full border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:border-slate-500"
             >
-              Download PDF
+              Export PDF
             </button>
             <button
               onClick={deleteUser}
-              className="rounded-full border border-red-400/40 px-4 py-2 text-sm text-red-300"
+              className="rounded-full border border-red-400/40 px-4 py-2 text-sm text-red-200 hover:border-red-300"
             >
               Delete
             </button>
           </div>
         </div>
 
-        <div className="mt-4 grid gap-4 md:grid-cols-2">
-          <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-sm text-slate-300">
-            <p>Age: {detail.age ?? "-"}</p>
-            <p>Gender: {detail.gender ?? "-"}</p>
-            <p>Weight: {detail.weight ?? "-"}</p>
-            <p>Height: {detail.height ?? "-"}</p>
+        <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {[
+            { title: "Alerts", value: detail?.stats?.alerts ?? 0 },
+            { title: "Vitals", value: detail?.stats?.vitals ?? 0 },
+            { title: "Motions", value: detail?.stats?.motions ?? 0 },
+            { title: "Devices", value: detail?.devices?.length ?? 0 },
+          ].map((card) => (
+            <div key={card.title} className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+              <p className="text-xs uppercase tracking-[0.3em] text-cyan-300/70">{card.title}</p>
+              <h3 className="mt-2 text-2xl font-display text-slate-100">{card.value}</h3>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-5 grid gap-3 text-sm text-slate-400 md:grid-cols-2">
+          <div>
+            <p>Created: <span className="text-slate-300">{detail?.created_at || "-"}</span></p>
+            <p>Updated: <span className="text-slate-300">{detail?.updated_at || "-"}</span></p>
+            <p>Emergency Contact: <span className="text-slate-300">{detail?.emergency_contact || "-"}</span></p>
           </div>
-          <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-sm text-slate-300">
-            <p>Medical conditions: {detail.medical_conditions || "-"}</p>
-            <p>Emergency contact: {detail.emergency_contact || "-"}</p>
-            <p>Alerts: {detail.stats.alerts}</p>
-            <p>Vitals: {detail.stats.vitals} | Motions: {detail.stats.motions}</p>
+          <div>
+            <p>Age: <span className="text-slate-300">{detail?.age ?? "-"}</span></p>
+            <p>Gender: <span className="text-slate-300">{detail?.gender || "-"}</span></p>
+            <p>Weight/Height: <span className="text-slate-300">{detail?.weight ?? "-"} / {detail?.height ?? "-"}</span></p>
           </div>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-5">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2 text-sm text-slate-300">
+            <span>Start</span>
+            <input
+              type="date"
+              value={start}
+              onChange={(e) => setStart(e.target.value)}
+              className="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2"
+            />
+          </div>
+          <div className="flex items-center gap-2 text-sm text-slate-300">
+            <span>End</span>
+            <input
+              type="date"
+              value={end}
+              onChange={(e) => setEnd(e.target.value)}
+              className="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2"
+            />
+          </div>
+          <button
+            onClick={loadAll}
+            className="rounded-full border border-cyan-400/40 px-4 py-2 text-sm text-cyan-100 hover:border-cyan-300"
+          >
+            Apply
+          </button>
         </div>
       </div>
 
       <section className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-6">
           <h3 className="font-display text-lg">Devices</h3>
-          <div className="mt-3 grid gap-3">
-            {detail.devices.map((device) => (
-              <div key={device.id} className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-sm text-slate-300">
-                <p className="font-semibold text-slate-100">{device.device_id}</p>
-                <p>Battery: {device.battery_level ?? "-"}</p>
-                <p>Status: {device.is_connected ? "Connected" : "Offline"}</p>
+          <div className="mt-3 space-y-2 text-sm text-slate-300">
+            {detail?.devices?.map((device) => (
+              <div key={device.id} className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-slate-100">{device.device_id}</span>
+                  <span className={`text-xs ${device.is_connected ? "text-emerald-300" : "text-slate-500"}`}>
+                    {device.is_connected ? "Connected" : "Offline"}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500">Battery {device.battery_level ?? "-"} | Firmware {device.firmware_version || "-"}</p>
                 <p className="text-xs text-slate-500">Last seen: {device.last_seen || "-"}</p>
               </div>
             ))}
-            {!detail.devices.length && <p className="text-sm text-slate-400">No devices linked.</p>}
+            {!detail?.devices?.length && <p className="text-sm text-slate-400">No devices linked.</p>}
           </div>
         </div>
 
         <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-6">
-          <h3 className="font-display text-lg">Recent Alerts</h3>
-          <div className="mt-3 grid gap-3">
+          <h3 className="font-display text-lg">Alerts</h3>
+          <div className="mt-3 space-y-2 text-sm text-slate-300">
             {alerts.map((alert) => (
-              <div key={alert.id} className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-sm text-slate-300">
-                <p className="font-semibold text-slate-100">{alert.type} · {alert.severity}</p>
+              <div key={alert.id} className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
                 <p className="text-xs text-slate-500">{alert.timestamp || "-"}</p>
-                <p className="text-sm text-slate-400">{alert.message}</p>
+                <p className="text-sm text-slate-200">{alert.type} · {alert.severity} · {alert.status}</p>
+                <p className="text-xs text-slate-400">{alert.message || "-"}</p>
               </div>
             ))}
-            {!alerts.length && <p className="text-sm text-slate-400">No alerts.</p>}
+            {!alerts.length && <p className="text-sm text-slate-400">No alerts found.</p>}
           </div>
         </div>
       </section>
 
       <section className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-6">
-          <h3 className="font-display text-lg">Recent Vitals</h3>
-          <div className="mt-3 grid gap-3">
+          <h3 className="font-display text-lg">Vitals</h3>
+          <div className="mt-3 space-y-2 text-sm text-slate-300">
             {vitals.map((vital) => (
-              <div key={vital.id} className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-sm text-slate-300">
-                <p>HR {vital.heart_rate ?? "-"} | SpO2 {vital.oxygen_saturation ?? "-"} | Temp {vital.body_temperature ?? "-"}</p>
+              <div key={vital.id} className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
                 <p className="text-xs text-slate-500">{vital.timestamp || "-"}</p>
+                <p className="text-sm text-slate-200">
+                  HR {vital.heart_rate ?? "-"} | SpO2 {vital.oxygen_saturation ?? "-"} | Temp {vital.body_temperature ?? "-"}
+                </p>
+                <p className="text-xs text-slate-400">Resp {vital.respiration_rate ?? "-"} | {vital.abnormality_type || "Normal"}</p>
               </div>
             ))}
-            {!vitals.length && <p className="text-sm text-slate-400">No vitals.</p>}
+            {!vitals.length && <p className="text-sm text-slate-400">No vitals found.</p>}
           </div>
         </div>
 
         <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-6">
-          <h3 className="font-display text-lg">Recent Motions</h3>
-          <div className="mt-3 grid gap-3">
+          <h3 className="font-display text-lg">Motions</h3>
+          <div className="mt-3 space-y-2 text-sm text-slate-300">
             {motions.map((motion) => (
-              <div key={motion.id} className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-sm text-slate-300">
-                <p>Acc {motion.acc_mag ?? "-"} | Gyro {motion.gyro_mag ?? "-"}</p>
+              <div key={motion.id} className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
                 <p className="text-xs text-slate-500">{motion.timestamp || "-"}</p>
+                <p className="text-sm text-slate-200">Device {motion.device_id || "-"} | Fall suspected: {motion.is_fall_suspected ? "Yes" : "No"}</p>
+                <p className="text-xs text-slate-400">acc({motion.acc_x ?? "-"}, {motion.acc_y ?? "-"}, {motion.acc_z ?? "-"}) gyro({motion.gyro_x ?? "-"}, {motion.gyro_y ?? "-"}, {motion.gyro_z ?? "-"})</p>
               </div>
             ))}
-            {!motions.length && <p className="text-sm text-slate-400">No motions.</p>}
+            {!motions.length && <p className="text-sm text-slate-400">No motions found.</p>}
           </div>
         </div>
       </section>
 
       <section className="rounded-2xl border border-slate-800 bg-slate-950/70 p-6">
-        <h3 className="font-display text-lg">Recent Predictions</h3>
-        <div className="mt-3 grid gap-3 md:grid-cols-2">
+        <h3 className="font-display text-lg">Predictions</h3>
+        <div className="mt-3 space-y-2 text-sm text-slate-300">
           {predictions.map((pred) => (
-            <div key={pred.id} className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 text-sm text-slate-300">
-              <p>Fall Now: {pred.fall_now_probability.toFixed(2)} | Fall Soon: {pred.fall_soon_probability.toFixed(2)}</p>
-              <p className="text-xs text-slate-500">Confidence: {pred.confidence_score ?? "-"}</p>
+            <div key={pred.id} className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
               <p className="text-xs text-slate-500">{pred.timestamp || "-"}</p>
+              <p className="text-sm text-slate-200">Verdict: {pred.final_verdict || "-"} | Confidence {pred.confidence_score ?? "-"}</p>
+              <p className="text-xs text-slate-400">Fall now: {pred.fall_now_prediction ? "Yes" : "No"} ({pred.fall_now_probability ?? "-"})</p>
+              <p className="text-xs text-slate-400">Fall soon: {pred.fall_soon_prediction ? "Yes" : "No"} ({pred.fall_soon_probability ?? "-"})</p>
             </div>
           ))}
-          {!predictions.length && <p className="text-sm text-slate-400">No predictions.</p>}
+          {!predictions.length && <p className="text-sm text-slate-400">No predictions found.</p>}
         </div>
       </section>
 
+      {loading && <p className="text-sm text-slate-400">Loading user data...</p>}
       {error && <p className="text-sm text-red-400">{error}</p>}
     </div>
   );

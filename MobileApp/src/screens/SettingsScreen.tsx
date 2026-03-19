@@ -33,7 +33,7 @@ export const SettingsScreen: React.FC = () => {
     fallDetection: true,
     vitalMonitoring: true,
     seniorMode: false,
-    offlineMode: false,
+    offlineMode: true,
     voiceCommands: false,
     automaticSOS: true,
     familyPortal: false,

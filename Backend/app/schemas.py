@@ -209,6 +209,7 @@ class CareLinkCreate(BaseModel):
     caregiver_id: int
     patient_id: Optional[int] = None
     patient_email: Optional[EmailStr] = None
+    patient_phone: Optional[str] = None
     relationship: Optional[str] = None
 
     @validator('patient_email')
@@ -218,6 +219,14 @@ class CareLinkCreate(BaseModel):
             if not re.match(email_regex, v):
                 raise ValueError('بريد إلكتروني غير صالح')
             return v.lower()
+        return v
+
+    @validator('patient_phone')
+    def validate_patient_phone(cls, v):
+        if v:
+            phone_regex = r'^\+?[1-9]\d{1,14}$'
+            if not re.match(phone_regex, v):
+                raise ValueError('رقم هاتف غير صالح')
         return v
 
 class CareLinkUser(BaseModel):
@@ -241,6 +250,58 @@ class CareLinkResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+# ==================== Care Link Request Schemas ====================
+
+class CareLinkRequestStatus(str, Enum):
+    pending = "pending"
+    accepted = "accepted"
+    rejected = "rejected"
+    cancelled = "cancelled"
+
+class CareLinkRequestCreate(BaseModel):
+    caregiver_id: int
+    patient_id: Optional[int] = None
+    patient_email: Optional[EmailStr] = None
+    patient_phone: Optional[str] = None
+    relationship: Optional[str] = None
+    message: Optional[str] = None
+
+    @validator('patient_email')
+    def validate_request_patient_email(cls, v):
+        if v:
+            email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+            if not re.match(email_regex, v):
+                raise ValueError('بريد إلكتروني غير صالح')
+            return v.lower()
+        return v
+
+    @validator('patient_phone')
+    def validate_request_patient_phone(cls, v):
+        if v:
+            phone_regex = r'^\+?[1-9]\d{1,14}$'
+            if not re.match(phone_regex, v):
+                raise ValueError('رقم هاتف غير صالح')
+        return v
+
+class CareLinkRequestResponse(BaseModel):
+    id: int
+    caregiver_id: int
+    patient_id: int
+    relationship: Optional[str] = None
+    message: Optional[str] = None
+    status: CareLinkRequestStatus
+    created_at: datetime
+    responded_at: Optional[datetime] = None
+    caregiver: Optional[CareLinkUser] = None
+    patient: Optional[CareLinkUser] = None
+
+    class Config:
+        from_attributes = True
+
+class CareLinkRequestAction(BaseModel):
+    patient_id: Optional[int] = None
+    caregiver_id: Optional[int] = None
 
 # ==================== Device Schemas ====================
 

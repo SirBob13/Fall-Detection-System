@@ -3,6 +3,7 @@ CRUD operations for the Fall Detection system.
 """
 
 import logging
+import re
 from typing import List, Optional, Dict
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
@@ -71,6 +72,24 @@ def get_user_by_email(db: Session, email: str) -> Optional[models.User]:
         return user_auth.user if user_auth else None
     except SQLAlchemyError as e:
         logger.error(f"Database error getting user by email {email}: {e}")
+        return None
+
+def get_user_by_phone(db: Session, phone: str) -> Optional[models.User]:
+    """Get user by phone (matched against emergency_contact)."""
+    try:
+        if not phone:
+            return None
+        normalized = re.sub(r'[\s\-\(\)]', '', phone).strip()
+        if not normalized:
+            return None
+        user = db.query(models.User).filter(models.User.emergency_contact == normalized).first()
+        if user:
+            return user
+        if normalized != phone:
+            return db.query(models.User).filter(models.User.emergency_contact == phone).first()
+        return None
+    except SQLAlchemyError as e:
+        logger.error(f"Database error getting user by phone {phone}: {e}")
         return None
 
 def update_user(db: Session, user_id: int, user_update: schemas.UserUpdate) -> Optional[models.User]:
@@ -204,6 +223,76 @@ def delete_care_link(db: Session, link_id: int, caregiver_id: Optional[int] = No
         db.rollback()
         logger.error(f"Unexpected error deleting care link {link_id}: {e}")
         raise
+
+# ======================
+# Care Link Requests CRUD
+# ======================
+
+def create_care_link_request(
+    db: Session,
+    caregiver_id: int,
+    patient_id: int,
+    relationship: Optional[str] = None,
+    message: Optional[str] = None
+) -> models.CareLinkRequest:
+    """Create a pending care link request."""
+    try:
+        request = models.CareLinkRequest(
+            caregiver_id=caregiver_id,
+            patient_id=patient_id,
+            relationship_type=relationship,
+            message=message,
+            status="pending",
+        )
+        db.add(request)
+        db.commit()
+        db.refresh(request)
+        return request
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error creating care link request: {e}")
+        raise RuntimeError(f"Database error: {str(e)}")
+
+def get_care_link_request(db: Session, request_id: int) -> Optional[models.CareLinkRequest]:
+    """Get care link request by ID."""
+    try:
+        return db.query(models.CareLinkRequest).filter(models.CareLinkRequest.id == request_id).first()
+    except SQLAlchemyError as e:
+        logger.error(f"Database error getting care request {request_id}: {e}")
+        return None
+
+def list_care_link_requests_for_patient(db: Session, patient_id: int) -> List[models.CareLinkRequest]:
+    """List pending requests for a patient."""
+    try:
+        return db.query(models.CareLinkRequest).filter(
+            models.CareLinkRequest.patient_id == patient_id,
+            models.CareLinkRequest.status == "pending"
+        ).order_by(models.CareLinkRequest.created_at.desc()).all()
+    except SQLAlchemyError as e:
+        logger.error(f"Database error listing care requests for patient {patient_id}: {e}")
+        return []
+
+def list_care_link_requests_for_caregiver(db: Session, caregiver_id: int) -> List[models.CareLinkRequest]:
+    """List requests created by caregiver."""
+    try:
+        return db.query(models.CareLinkRequest).filter(
+            models.CareLinkRequest.caregiver_id == caregiver_id
+        ).order_by(models.CareLinkRequest.created_at.desc()).all()
+    except SQLAlchemyError as e:
+        logger.error(f"Database error listing care requests for caregiver {caregiver_id}: {e}")
+        return []
+
+def update_care_link_request_status(
+    db: Session,
+    request: models.CareLinkRequest,
+    status: str
+) -> models.CareLinkRequest:
+    """Update request status."""
+    request.status = status
+    request.responded_at = datetime.utcnow()
+    db.commit()
+    db.refresh(request)
+    return request
 
 # ======================
 # Device CRUD Operations

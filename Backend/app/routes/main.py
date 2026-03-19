@@ -3,7 +3,7 @@ Main API routes for the Fall Detection system - FIXED WITH PROPER HTTP STATUS CO
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Query, Header
 from fastapi.responses import JSONResponse
@@ -103,7 +103,7 @@ def _handle_device_payload(
     }
 
     if payload.motion:
-        motion_dict = payload.motion.dict()
+        motion_dict = payload.motion.dict(exclude_none=True)
         motion_dict["user_id"] = user_id
         motion_dict["device_id"] = device.device_id
         if payload.timestamp and not motion_dict.get("timestamp"):
@@ -136,6 +136,12 @@ def _handle_device_payload(
                 vitals=vitals_dict,
                 message=alert.message
             )
+            notification_service.notify_caregivers_alert(
+                db=db,
+                patient_id=user_id,
+                alert=alert,
+                reason="vital_abnormal",
+            )
 
         result["vitals"] = {
             "id": stored_vital.id,
@@ -146,6 +152,114 @@ def _handle_device_payload(
         }
 
     return result
+
+
+def _parse_iso_datetime(value: str) -> datetime:
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"success": False, "error": f"Invalid date format: {value}"}
+        ) from e
+    if dt.tzinfo:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+
+def _build_report_data(
+    db: Session,
+    user_id: int,
+    start_date: datetime,
+    end_date: Optional[datetime] = None,
+) -> Dict[str, Any]:
+    if end_date is None:
+        end_date = datetime.utcnow()
+
+    alerts = db.query(Alert).filter(
+        Alert.user_id == user_id,
+        Alert.timestamp >= start_date,
+        Alert.timestamp <= end_date,
+    ).all()
+
+    vitals = db.query(VitalSensorData).filter(
+        VitalSensorData.user_id == user_id,
+        VitalSensorData.timestamp >= start_date,
+        VitalSensorData.timestamp <= end_date,
+    ).all()
+
+    by_type: Dict[str, int] = {}
+    by_severity: Dict[str, int] = {}
+    by_status: Dict[str, int] = {}
+    daily_counts: Dict[str, int] = {}
+    hour_counts: Dict[int, int] = {}
+
+    for alert in alerts:
+        by_type[alert.alert_type] = by_type.get(alert.alert_type, 0) + 1
+        by_severity[alert.severity] = by_severity.get(alert.severity, 0) + 1
+        by_status[alert.status] = by_status.get(alert.status, 0) + 1
+        if alert.timestamp:
+            day_key = alert.timestamp.strftime("%Y-%m-%d")
+            daily_counts[day_key] = daily_counts.get(day_key, 0) + 1
+            hour_counts[alert.timestamp.hour] = hour_counts.get(alert.timestamp.hour, 0) + 1
+
+    falls_count = by_type.get("fall", 0)
+    abnormal_count = sum(1 for v in vitals if v.is_abnormal)
+    abnormal_rate = (abnormal_count / len(vitals)) if vitals else 0.0
+
+    def avg(values: List[Optional[float]]) -> Optional[float]:
+        filtered = [v for v in values if v is not None]
+        if not filtered:
+            return None
+        return sum(filtered) / len(filtered)
+
+    avg_hr = avg([v.heart_rate for v in vitals])
+    avg_ox = avg([v.oxygen_saturation for v in vitals])
+    avg_temp = avg([v.body_temperature for v in vitals])
+
+    most_common_hour = None
+    if hour_counts:
+        most_common_hour = max(hour_counts.items(), key=lambda x: x[1])[0]
+
+    recommendations: List[str] = []
+    if falls_count >= 2:
+        recommendations.append("High fall risk detected. Consider more frequent checks.")
+    if abnormal_rate >= 0.2:
+        recommendations.append("Frequent abnormal vitals. Consider medical review.")
+    if avg_ox is not None and avg_ox < 92:
+        recommendations.append("Low oxygen levels detected. Monitor closely.")
+    if avg_hr is not None and avg_hr > 100:
+        recommendations.append("Elevated heart rate on average. Consider rest and follow-up.")
+    if not recommendations:
+        recommendations.append("No critical issues detected. Keep up the good routine.")
+
+    daily_series = [
+        {"date": k, "count": v}
+        for k, v in sorted(daily_counts.items(), key=lambda x: x[0])
+    ]
+
+    period_days = max((end_date - start_date).days, 1)
+
+    return {
+        "user_id": user_id,
+        "period_days": period_days,
+        "alerts": {
+            "total": len(alerts),
+            "by_type": by_type,
+            "by_severity": by_severity,
+            "by_status": by_status,
+            "daily_counts": daily_series,
+            "most_common_hour": most_common_hour,
+        },
+        "vitals": {
+            "total": len(vitals),
+            "abnormal_rate": abnormal_rate,
+            "avg_heart_rate": avg_hr,
+            "avg_oxygen": avg_ox,
+            "avg_temperature": avg_temp,
+        },
+        "recommendations": recommendations,
+    }
 
 # ======================
 # Health & System Routes
@@ -659,7 +773,8 @@ def process_motion_data(
         gyro_x = float(data.get('gyro_x', 0.0))
         gyro_y = float(data.get('gyro_y', 0.0))
         gyro_z = float(data.get('gyro_z', 0.0))
-        temperature = float(data.get('temperature', 36.5))
+        raw_temperature = data.get('temperature', 36.5)
+        temperature = float(36.5 if raw_temperature is None else raw_temperature)
         user_id = int(data.get('user_id'))
         device_id = data.get('device_id')
 
@@ -754,6 +869,13 @@ def process_motion_data(
                 prediction_id=db_pred.id,
                 verification_result=verified
             )
+            if alert:
+                notification_service.notify_caregivers_alert(
+                    db=db,
+                    patient_id=user_id,
+                    alert=alert,
+                    reason="fall",
+                )
 
         # Prepare response with dual output + verification
         response = {
@@ -952,6 +1074,12 @@ async def process_vital_data(
                     user_id=user_id,
                     vitals=vital_readings,
                     message=alert.message
+                )
+                notification_service.notify_caregivers_alert(
+                    db=db,
+                    patient_id=user_id,
+                    alert=alert,
+                    reason="vital_abnormal",
                 )
             
             response_data = {
@@ -1640,6 +1768,8 @@ async def create_care_link(
             patient = crud.get_user(db, link_data.patient_id)
         elif link_data.patient_email:
             patient = crud.get_user_by_email(db, link_data.patient_email)
+        elif link_data.patient_phone:
+            patient = crud.get_user_by_phone(db, link_data.patient_phone)
 
         if not patient:
             raise HTTPException(
@@ -1691,6 +1821,383 @@ async def create_care_link(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"success": False, "error": f"Failed to create care link: {str(e)}"}
+        )
+
+
+@router.post("/care/requests", response_model=Dict[str, Any])
+async def create_care_link_request(
+    request_data: schemas.CareLinkRequestCreate,
+    db: Session = Depends(get_db)
+):
+    """Create a caregiver->patient link request (patient must approve)."""
+    try:
+        caregiver = crud.get_user(db, request_data.caregiver_id)
+        if not caregiver:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"success": False, "error": "Caregiver not found"}
+            )
+
+        patient = None
+        if request_data.patient_id:
+            patient = crud.get_user(db, request_data.patient_id)
+        elif request_data.patient_email:
+            patient = crud.get_user_by_email(db, request_data.patient_email)
+        elif request_data.patient_phone:
+            patient = crud.get_user_by_phone(db, request_data.patient_phone)
+
+        if not patient:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"success": False, "error": "Patient not found"}
+            )
+
+        if caregiver.id == patient.id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"success": False, "error": "Cannot link self"}
+            )
+
+        # If already linked, return error
+        existing_link = db.query(CareLink).filter(
+            CareLink.caregiver_id == caregiver.id,
+            CareLink.patient_id == patient.id,
+            CareLink.is_active == True
+        ).first()
+        if existing_link:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"success": False, "error": "Already linked to this patient"}
+            )
+
+        # If pending request exists, return it
+        existing_request = db.query(models.CareLinkRequest).filter(
+            models.CareLinkRequest.caregiver_id == caregiver.id,
+            models.CareLinkRequest.patient_id == patient.id,
+            models.CareLinkRequest.status == "pending"
+        ).first()
+
+        if existing_request:
+            patient_email = patient.auth.email if getattr(patient, "auth", None) else None
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                content={
+                    "success": True,
+                    "message": "Request already pending",
+                    "data": {
+                        "id": existing_request.id,
+                        "caregiver_id": existing_request.caregiver_id,
+                        "patient_id": existing_request.patient_id,
+                        "relationship": existing_request.relationship_type,
+                        "message": existing_request.message,
+                        "status": existing_request.status,
+                        "created_at": existing_request.created_at.isoformat() if existing_request.created_at else None,
+                        "patient": {
+                            "id": patient.id,
+                            "name": patient.name,
+                            "email": patient_email,
+                            "age": patient.age,
+                            "gender": patient.gender,
+                        },
+                    },
+                },
+            )
+
+        created = crud.create_care_link_request(
+            db,
+            caregiver_id=caregiver.id,
+            patient_id=patient.id,
+            relationship=request_data.relationship,
+            message=request_data.message,
+        )
+
+        patient_email = patient.auth.email if getattr(patient, "auth", None) else None
+        return JSONResponse(
+            status_code=status.HTTP_201_CREATED,
+            content={
+                "success": True,
+                "message": "Request created",
+                "data": {
+                    "id": created.id,
+                    "caregiver_id": created.caregiver_id,
+                    "patient_id": created.patient_id,
+                    "relationship": created.relationship_type,
+                    "message": created.message,
+                    "status": created.status,
+                    "created_at": created.created_at.isoformat() if created.created_at else None,
+                    "patient": {
+                        "id": patient.id,
+                        "name": patient.name,
+                        "email": patient_email,
+                        "age": patient.age,
+                        "gender": patient.gender,
+                    },
+                },
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating care link request: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"success": False, "error": f"Failed to create request: {str(e)}"}
+        )
+
+
+@router.get("/care/requests/incoming/{patient_id}", response_model=Dict[str, Any])
+async def list_incoming_care_requests(
+    patient_id: int,
+    db: Session = Depends(get_db)
+):
+    """List pending care link requests for a patient."""
+    try:
+        patient = crud.get_user(db, patient_id)
+        if not patient:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"success": False, "error": "Patient not found"}
+            )
+
+        requests = crud.list_care_link_requests_for_patient(db, patient_id)
+        data = []
+        for req in requests:
+            caregiver = req.caregiver
+            caregiver_email = caregiver.auth.email if getattr(caregiver, "auth", None) else None
+            data.append({
+                "id": req.id,
+                "caregiver_id": req.caregiver_id,
+                "patient_id": req.patient_id,
+                "relationship": req.relationship_type,
+                "message": req.message,
+                "status": req.status,
+                "created_at": req.created_at.isoformat() if req.created_at else None,
+                "caregiver": {
+                    "id": caregiver.id,
+                    "name": caregiver.name,
+                    "email": caregiver_email,
+                    "age": caregiver.age,
+                    "gender": caregiver.gender,
+                },
+            })
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"success": True, "data": data, "timestamp": datetime.utcnow().isoformat()},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error listing incoming care requests: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"success": False, "error": f"Failed to list requests: {str(e)}"}
+        )
+
+
+@router.get("/care/requests/outgoing/{caregiver_id}", response_model=Dict[str, Any])
+async def list_outgoing_care_requests(
+    caregiver_id: int,
+    db: Session = Depends(get_db)
+):
+    """List care link requests created by caregiver."""
+    try:
+        caregiver = crud.get_user(db, caregiver_id)
+        if not caregiver:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"success": False, "error": "Caregiver not found"}
+            )
+
+        requests = crud.list_care_link_requests_for_caregiver(db, caregiver_id)
+        data = []
+        for req in requests:
+            patient = req.patient
+            patient_email = patient.auth.email if getattr(patient, "auth", None) else None
+            data.append({
+                "id": req.id,
+                "caregiver_id": req.caregiver_id,
+                "patient_id": req.patient_id,
+                "relationship": req.relationship_type,
+                "message": req.message,
+                "status": req.status,
+                "created_at": req.created_at.isoformat() if req.created_at else None,
+                "responded_at": req.responded_at.isoformat() if req.responded_at else None,
+                "patient": {
+                    "id": patient.id,
+                    "name": patient.name,
+                    "email": patient_email,
+                    "age": patient.age,
+                    "gender": patient.gender,
+                },
+            })
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"success": True, "data": data, "timestamp": datetime.utcnow().isoformat()},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error listing outgoing care requests: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"success": False, "error": f"Failed to list requests: {str(e)}"}
+        )
+
+
+@router.post("/care/requests/{request_id}/accept", response_model=Dict[str, Any])
+async def accept_care_link_request(
+    request_id: int,
+    action: schemas.CareLinkRequestAction,
+    db: Session = Depends(get_db)
+):
+    """Patient accepts a care link request."""
+    try:
+        req = crud.get_care_link_request(db, request_id)
+        if not req:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"success": False, "error": "Request not found"}
+            )
+
+        if action.patient_id and req.patient_id != action.patient_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"success": False, "error": "Not authorized to accept this request"}
+            )
+
+        if req.status != "pending":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"success": False, "error": "Request already processed"}
+            )
+
+        # Create care link if not exists
+        existing_link = db.query(CareLink).filter(
+            CareLink.caregiver_id == req.caregiver_id,
+            CareLink.patient_id == req.patient_id,
+            CareLink.is_active == True
+        ).first()
+        if not existing_link:
+            crud.create_care_link(
+                db,
+                caregiver_id=req.caregiver_id,
+                patient_id=req.patient_id,
+                relationship=req.relationship_type
+            )
+
+        req = crud.update_care_link_request_status(db, req, "accepted")
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"success": True, "message": "Request accepted", "data": {
+                "id": req.id,
+                "status": req.status,
+                "responded_at": req.responded_at.isoformat() if req.responded_at else None
+            }},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error accepting care request: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"success": False, "error": f"Failed to accept request: {str(e)}"}
+        )
+
+
+@router.post("/care/requests/{request_id}/reject", response_model=Dict[str, Any])
+async def reject_care_link_request(
+    request_id: int,
+    action: schemas.CareLinkRequestAction,
+    db: Session = Depends(get_db)
+):
+    """Patient rejects a care link request."""
+    try:
+        req = crud.get_care_link_request(db, request_id)
+        if not req:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"success": False, "error": "Request not found"}
+            )
+
+        if action.patient_id and req.patient_id != action.patient_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"success": False, "error": "Not authorized to reject this request"}
+            )
+
+        if req.status != "pending":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"success": False, "error": "Request already processed"}
+            )
+
+        req = crud.update_care_link_request_status(db, req, "rejected")
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"success": True, "message": "Request rejected", "data": {
+                "id": req.id,
+                "status": req.status,
+                "responded_at": req.responded_at.isoformat() if req.responded_at else None
+            }},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error rejecting care request: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"success": False, "error": f"Failed to reject request: {str(e)}"}
+        )
+
+
+@router.post("/care/requests/{request_id}/cancel", response_model=Dict[str, Any])
+async def cancel_care_link_request(
+    request_id: int,
+    action: schemas.CareLinkRequestAction,
+    db: Session = Depends(get_db)
+):
+    """Caregiver cancels their request."""
+    try:
+        req = crud.get_care_link_request(db, request_id)
+        if not req:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"success": False, "error": "Request not found"}
+            )
+
+        if action.caregiver_id and req.caregiver_id != action.caregiver_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"success": False, "error": "Not authorized to cancel this request"}
+            )
+
+        if req.status != "pending":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"success": False, "error": "Request already processed"}
+            )
+
+        req = crud.update_care_link_request_status(db, req, "cancelled")
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"success": True, "message": "Request cancelled", "data": {
+                "id": req.id,
+                "status": req.status,
+                "responded_at": req.responded_at.isoformat() if req.responded_at else None
+            }},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error cancelling care request: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"success": False, "error": f"Failed to cancel request: {str(e)}"}
         )
 
 
@@ -1847,6 +2354,91 @@ async def care_dashboard(
         )
 
 
+@router.get("/care/reports/{caregiver_id}", response_model=Dict[str, Any])
+async def care_reports(
+    caregiver_id: int,
+    period: str = Query("weekly", description="daily|weekly|monthly"),
+    patient_id: Optional[int] = Query(None),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Generate reports for caregiver-linked patients."""
+    try:
+        caregiver = crud.get_user(db, caregiver_id)
+        if not caregiver:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"success": False, "error": "Caregiver not found"},
+            )
+
+        links = crud.get_care_links_by_caregiver(db, caregiver_id)
+        if patient_id:
+            links = [link for link in links if link.patient_id == patient_id]
+            if not links:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail={"success": False, "error": "Patient not linked to caregiver"},
+                )
+
+        if start_date or end_date:
+            if start_date:
+                start_dt = _parse_iso_datetime(start_date)
+            else:
+                start_dt = datetime.utcnow() - timedelta(days=7)
+            if end_date:
+                end_dt = _parse_iso_datetime(end_date)
+            else:
+                end_dt = datetime.utcnow()
+        else:
+            period_map = {"daily": 1, "weekly": 7, "monthly": 30}
+            days = period_map.get(period, 7)
+            start_dt = datetime.utcnow() - timedelta(days=days)
+            end_dt = datetime.utcnow()
+
+        data: List[Dict[str, Any]] = []
+        for link in links:
+            patient = link.patient
+            if not patient:
+                continue
+
+            report = _build_report_data(db, patient.id, start_dt, end_dt)
+            patient_email = patient.auth.email if getattr(patient, "auth", None) else None
+            data.append(
+                {
+                    "patient": {
+                        "id": patient.id,
+                        "name": patient.name,
+                        "email": patient_email,
+                        "age": patient.age,
+                        "gender": patient.gender,
+                    },
+                    "relationship": link.relationship_type,
+                    "report": report,
+                }
+            )
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "period": period,
+                "start_date": start_dt.isoformat(),
+                "end_date": end_dt.isoformat(),
+                "data": data,
+                "timestamp": datetime.utcnow().isoformat(),
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating caregiver reports: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"success": False, "error": f"Failed to generate caregiver reports: {str(e)}"},
+        )
+
+
 @router.delete("/care/links/{link_id}", response_model=Dict[str, Any])
 async def remove_care_link(
     link_id: int,
@@ -1900,89 +2492,13 @@ async def get_user_report(
             )
 
         start_date = datetime.utcnow() - timedelta(days=days)
-
-        alerts = db.query(Alert).filter(
-            Alert.user_id == user_id,
-            Alert.timestamp >= start_date
-        ).all()
-
-        vitals = db.query(VitalSensorData).filter(
-            VitalSensorData.user_id == user_id,
-            VitalSensorData.timestamp >= start_date
-        ).all()
-
-        by_type: Dict[str, int] = {}
-        by_severity: Dict[str, int] = {}
-        by_status: Dict[str, int] = {}
-        daily_counts: Dict[str, int] = {}
-        hour_counts: Dict[int, int] = {}
-
-        for alert in alerts:
-            by_type[alert.alert_type] = by_type.get(alert.alert_type, 0) + 1
-            by_severity[alert.severity] = by_severity.get(alert.severity, 0) + 1
-            by_status[alert.status] = by_status.get(alert.status, 0) + 1
-            if alert.timestamp:
-                day_key = alert.timestamp.strftime("%Y-%m-%d")
-                daily_counts[day_key] = daily_counts.get(day_key, 0) + 1
-                hour_counts[alert.timestamp.hour] = hour_counts.get(alert.timestamp.hour, 0) + 1
-
-        falls_count = by_type.get("fall", 0)
-        abnormal_count = sum(1 for v in vitals if v.is_abnormal)
-        abnormal_rate = (abnormal_count / len(vitals)) if vitals else 0.0
-
-        def avg(values: List[Optional[float]]) -> Optional[float]:
-            filtered = [v for v in values if v is not None]
-            if not filtered:
-                return None
-            return sum(filtered) / len(filtered)
-
-        avg_hr = avg([v.heart_rate for v in vitals])
-        avg_ox = avg([v.oxygen_saturation for v in vitals])
-        avg_temp = avg([v.body_temperature for v in vitals])
-
-        most_common_hour = None
-        if hour_counts:
-            most_common_hour = max(hour_counts.items(), key=lambda x: x[1])[0]
-
-        recommendations: List[str] = []
-        if falls_count >= 2:
-            recommendations.append("High fall risk detected. Consider more frequent checks.")
-        if abnormal_rate >= 0.2:
-            recommendations.append("Frequent abnormal vitals. Consider medical review.")
-        if avg_ox is not None and avg_ox < 92:
-            recommendations.append("Low oxygen levels detected. Monitor closely.")
-        if avg_hr is not None and avg_hr > 100:
-            recommendations.append("Elevated heart rate on average. Consider rest and follow-up.")
-        if not recommendations:
-            recommendations.append("No critical issues detected. Keep up the good routine.")
-
-        daily_series = [
-            {"date": k, "count": v}
-            for k, v in sorted(daily_counts.items(), key=lambda x: x[0])
-        ]
+        report = _build_report_data(db, user_id, start_date)
 
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
                 "success": True,
-                "user_id": user_id,
-                "period_days": days,
-                "alerts": {
-                    "total": len(alerts),
-                    "by_type": by_type,
-                    "by_severity": by_severity,
-                    "by_status": by_status,
-                    "daily_counts": daily_series,
-                    "most_common_hour": most_common_hour,
-                },
-                "vitals": {
-                    "total": len(vitals),
-                    "abnormal_rate": abnormal_rate,
-                    "avg_heart_rate": avg_hr,
-                    "avg_oxygen": avg_ox,
-                    "avg_temperature": avg_temp,
-                },
-                "recommendations": recommendations,
+                **report,
                 "timestamp": datetime.utcnow().isoformat()
             }
         )

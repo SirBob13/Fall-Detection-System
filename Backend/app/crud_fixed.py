@@ -6,7 +6,7 @@ from typing import List, Optional, Dict
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, and_
-import numpy as np  # تم إضافة هذا الاستيراد
+import numpy as np 
 
 from . import models, schemas
 from .config import TIME_STEPS, FALL_THRESHOLD_NOW, FALL_THRESHOLD_SOON

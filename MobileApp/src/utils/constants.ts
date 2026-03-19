@@ -31,7 +31,7 @@ const normalizeBaseUrl = (url: string) => {
   return trimmed;
 };
 
-const DEFAULT_BASE_URL = 'http://192.168.1.148:8000/api/v1';
+const DEFAULT_BASE_URL = 'http://138.2.183.9:8000/api/v1';
 const DEV_HOST = getDevHost();
 const DEV_BASE_URL = DEV_HOST ? `http://${DEV_HOST}:8000/api/v1` : DEFAULT_BASE_URL;
 const RAW_BASE_URL = PUBLIC_BASE_URL || DEV_BASE_URL;

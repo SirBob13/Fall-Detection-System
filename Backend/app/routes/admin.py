@@ -345,6 +345,233 @@ def get_admin_user_detail(
         }
     }
 
+@router.get("/users/{user_id}/alerts", response_model=Dict[str, Any])
+def get_admin_user_alerts(
+    user_id: int,
+    limit: int = Query(50, ge=1, le=500),
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
+    _: Dict[str, Any] = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    query = db.query(Alert).filter(Alert.user_id == user_id)
+    start_dt = _parse_date(start)
+    end_dt = _parse_date(end, is_end=True)
+    if start_dt:
+        query = query.filter(Alert.timestamp >= start_dt)
+    if end_dt:
+        query = query.filter(Alert.timestamp <= end_dt)
+
+    alerts = query.order_by(Alert.timestamp.desc()).limit(limit).all()
+    data = [
+        {
+            "id": a.id,
+            "prediction_id": a.prediction_id,
+            "type": a.alert_type,
+            "severity": a.severity,
+            "status": a.status,
+            "message": a.message,
+            "timestamp": a.timestamp.isoformat() if a.timestamp else None,
+        }
+        for a in alerts
+    ]
+    return {"success": True, "data": data, "count": len(data)}
+
+@router.get("/users/{user_id}/vitals", response_model=Dict[str, Any])
+def get_admin_user_vitals(
+    user_id: int,
+    limit: int = Query(50, ge=1, le=500),
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
+    _: Dict[str, Any] = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    query = db.query(VitalSensorData).filter(VitalSensorData.user_id == user_id)
+    start_dt = _parse_date(start)
+    end_dt = _parse_date(end, is_end=True)
+    if start_dt:
+        query = query.filter(VitalSensorData.timestamp >= start_dt)
+    if end_dt:
+        query = query.filter(VitalSensorData.timestamp <= end_dt)
+
+    vitals = query.order_by(VitalSensorData.timestamp.desc()).limit(limit).all()
+    data = [
+        {
+            "id": v.id,
+            "heart_rate": v.heart_rate,
+            "blood_pressure_systolic": v.blood_pressure_systolic,
+            "blood_pressure_diastolic": v.blood_pressure_diastolic,
+            "oxygen_saturation": v.oxygen_saturation,
+            "body_temperature": v.body_temperature,
+            "respiration_rate": v.respiration_rate,
+            "is_abnormal": bool(v.is_abnormal),
+            "abnormality_type": v.abnormality_type,
+            "timestamp": v.timestamp.isoformat() if v.timestamp else None,
+        }
+        for v in vitals
+    ]
+    return {"success": True, "data": data, "count": len(data)}
+
+@router.get("/users/{user_id}/motions", response_model=Dict[str, Any])
+def get_admin_user_motions(
+    user_id: int,
+    limit: int = Query(50, ge=1, le=500),
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
+    _: Dict[str, Any] = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    query = db.query(MotionSensorData).filter(MotionSensorData.user_id == user_id)
+    start_dt = _parse_date(start)
+    end_dt = _parse_date(end, is_end=True)
+    if start_dt:
+        query = query.filter(MotionSensorData.timestamp >= start_dt)
+    if end_dt:
+        query = query.filter(MotionSensorData.timestamp <= end_dt)
+
+    motions = query.order_by(MotionSensorData.timestamp.desc()).limit(limit).all()
+    data = [
+        {
+            "id": m.id,
+            "device_id": m.device_id,
+            "acc_x": m.acc_x,
+            "acc_y": m.acc_y,
+            "acc_z": m.acc_z,
+            "acc_mag": m.acc_mag,
+            "gyro_x": m.gyro_x,
+            "gyro_y": m.gyro_y,
+            "gyro_z": m.gyro_z,
+            "gyro_mag": m.gyro_mag,
+            "temperature": m.temperature,
+            "is_fall_suspected": bool(m.is_fall_suspected),
+            "timestamp": m.timestamp.isoformat() if m.timestamp else None,
+        }
+        for m in motions
+    ]
+    return {"success": True, "data": data, "count": len(data)}
+
+@router.get("/users/{user_id}/predictions", response_model=Dict[str, Any])
+def get_admin_user_predictions(
+    user_id: int,
+    limit: int = Query(50, ge=1, le=500),
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
+    _: Dict[str, Any] = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    query = db.query(Prediction).filter(Prediction.user_id == user_id)
+    start_dt = _parse_date(start)
+    end_dt = _parse_date(end, is_end=True)
+    if start_dt:
+        query = query.filter(Prediction.timestamp >= start_dt)
+    if end_dt:
+        query = query.filter(Prediction.timestamp <= end_dt)
+
+    preds = query.order_by(Prediction.timestamp.desc()).limit(limit).all()
+    data = [
+        {
+            "id": p.id,
+            "motion_data_id": p.motion_data_id,
+            "fall_now_probability": p.fall_now_probability,
+            "fall_soon_probability": p.fall_soon_probability,
+            "fall_now_prediction": bool(p.fall_now_prediction),
+            "fall_soon_prediction": bool(p.fall_soon_prediction),
+            "vital_check_performed": bool(p.vital_check_performed),
+            "vital_check_result": p.vital_check_result,
+            "final_verdict": p.final_verdict,
+            "confidence_score": p.confidence_score,
+            "timestamp": p.timestamp.isoformat() if p.timestamp else None,
+        }
+        for p in preds
+    ]
+    return {"success": True, "data": data, "count": len(data)}
+
+@router.get("/users/{user_id}/report.pdf")
+def export_admin_user_report_pdf(
+    user_id: int,
+    _: Dict[str, Any] = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.pdfgen import canvas
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail={"success": False, "error": "PDF export not available. Install reportlab."}
+        )
+
+    user = db.query(User).filter(User.id == user_id).first()
+    auth = db.query(UserAuth).filter(UserAuth.user_id == user_id).first()
+    if not user or not auth:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"success": False, "error": "User not found"}
+        )
+
+    devices = db.query(Device).filter(Device.user_id == user_id).all()
+    alerts = db.query(Alert).filter(Alert.user_id == user_id).count()
+    vitals = db.query(VitalSensorData).filter(VitalSensorData.user_id == user_id).count()
+    motions = db.query(MotionSensorData).filter(MotionSensorData.user_id == user_id).count()
+    predictions = db.query(Prediction).filter(Prediction.user_id == user_id).count()
+
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+
+    y = height - 72
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(72, y, "Fall Detection User Report")
+    y -= 24
+    c.setFont("Helvetica", 11)
+    c.drawString(72, y, f"User: {user.name} ({auth.email})")
+    y -= 14
+    c.drawString(72, y, f"User ID: {user.id}")
+    y -= 14
+    c.drawString(72, y, f"Active: {bool(user.is_active)}")
+    y -= 20
+
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(72, y, "Summary")
+    y -= 16
+    c.setFont("Helvetica", 11)
+    c.drawString(80, y, f"Devices: {len(devices)}")
+    y -= 14
+    c.drawString(80, y, f"Alerts: {alerts}")
+    y -= 14
+    c.drawString(80, y, f"Vitals: {vitals}")
+    y -= 14
+    c.drawString(80, y, f"Motions: {motions}")
+    y -= 14
+    c.drawString(80, y, f"Predictions: {predictions}")
+    y -= 20
+
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(72, y, "Devices")
+    y -= 16
+    c.setFont("Helvetica", 10)
+    if not devices:
+        c.drawString(80, y, "No devices linked")
+        y -= 14
+    else:
+        for d in devices[:10]:
+            c.drawString(80, y, f"{d.device_id} | Battery {d.battery_level} | Connected {bool(d.is_connected)}")
+            y -= 12
+            if y < 100:
+                c.showPage()
+                y = height - 72
+
+    c.showPage()
+    c.save()
+    pdf = buffer.getvalue()
+    buffer.close()
+
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=user_{user_id}_report.pdf"}
+    )
+
 @router.put("/users/{user_id}/status", response_model=Dict[str, Any])
 def set_user_status(
     user_id: int,

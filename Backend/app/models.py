@@ -215,6 +215,46 @@ class CareLink(Base):
     def __repr__(self):
         return f"<CareLink(id={self.id}, caregiver_id={self.caregiver_id}, patient_id={self.patient_id})>"
 
+# ==================== Caregiver Link Requests ====================
+
+class CareLinkRequest(Base):
+    """Caregiver to patient link requests (requires patient approval)."""
+    __tablename__ = "care_link_requests"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    caregiver_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    patient_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    relationship_type = Column(String(50))
+    message = Column(String(255))
+    status = Column(String(20), default="pending", index=True)  # pending/accepted/rejected/cancelled
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    responded_at = Column(DateTime)
+
+    caregiver = relationship(
+        "User",
+        foreign_keys=[caregiver_id],
+        backref=backref("care_requests_sent", cascade="all, delete-orphan"),
+    )
+    patient = relationship(
+        "User",
+        foreign_keys=[patient_id],
+        backref=backref("care_requests_received", cascade="all, delete-orphan"),
+    )
+
+    __table_args__ = (
+        Index("idx_care_request_status", "status"),
+        Index("idx_care_request_caregiver", "caregiver_id"),
+        Index("idx_care_request_patient", "patient_id"),
+    )
+
+    def __repr__(self):
+        return (
+            f"<CareLinkRequest(id={self.id}, caregiver_id={self.caregiver_id}, "
+            f"patient_id={self.patient_id}, status={self.status})>"
+        )
+
 # ==================== Device Models ====================
 
 class Device(Base):

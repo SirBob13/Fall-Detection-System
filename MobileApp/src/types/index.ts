@@ -154,6 +154,21 @@ export interface CareLink {
   patient?: User;
 }
 
+export type CareLinkRequestStatus = 'pending' | 'accepted' | 'rejected' | 'cancelled';
+
+export interface CareLinkRequest {
+  id: number;
+  caregiver_id: number;
+  patient_id: number;
+  relationship?: string;
+  message?: string;
+  status: CareLinkRequestStatus;
+  created_at: string;
+  responded_at?: string | null;
+  caregiver?: User;
+  patient?: User;
+}
+
 export interface CareDashboardItem {
   patient: User;
   relationship?: string;

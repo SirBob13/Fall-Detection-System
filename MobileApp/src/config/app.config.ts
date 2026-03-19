@@ -10,7 +10,7 @@ const rawApiUrl =
   extra.apiUrl ||
   process.env.EXPO_PUBLIC_API_URL ||
   process.env.API_URL ||
-  'http://192.168.1.148:8000';
+  'http://138.2.183.9:8000';
 
 const normalizedApiUrl = rawApiUrl.replace(/\/$/, '');
 const baseUrl = normalizedApiUrl.endsWith('/api/v1')

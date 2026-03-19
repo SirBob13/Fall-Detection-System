@@ -14,18 +14,21 @@ import { useLanguage } from '../components/LanguageProvider';
 import { authService } from '../services/auth.service';
 import { apiService } from '../services/api';
 import { storageService } from '../services/storage';
-import { CareLink, User } from '../types';
+import { CareLink, CareLinkRequest, User } from '../types';
 
 const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+const phoneDigitsRegex = /^\+?[0-9]{6,15}$/;
 
 export const CareManagementScreen: React.FC = () => {
   const { t } = useLanguage();
   const navigation = useNavigation<any>();
   const [user, setUser] = useState<User | null>(null);
   const [links, setLinks] = useState<CareLink[]>([]);
+  const [incomingRequests, setIncomingRequests] = useState<CareLinkRequest[]>([]);
+  const [outgoingRequests, setOutgoingRequests] = useState<CareLinkRequest[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [email, setEmail] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [relationship, setRelationship] = useState('');
   const [monitoredUser, setMonitoredUser] = useState<User | null>(null);
 
@@ -61,7 +64,10 @@ export const CareManagementScreen: React.FC = () => {
     setMonitoredUser(storedMonitored);
 
     if (normalizedSessionUser) {
-      await fetchLinks(normalizedSessionUser.id);
+      await Promise.all([
+        fetchLinks(normalizedSessionUser.id),
+        fetchRequests(normalizedSessionUser.id),
+      ]);
     }
   };
 
@@ -79,41 +85,97 @@ export const CareManagementScreen: React.FC = () => {
     }
   };
 
+  const fetchRequests = async (userId: number) => {
+    try {
+      const [incoming, outgoing] = await Promise.all([
+        apiService.getCareRequestsIncoming(userId),
+        apiService.getCareRequestsOutgoing(userId),
+      ]);
+      setIncomingRequests(incoming.success && incoming.data ? incoming.data : []);
+      setOutgoingRequests(outgoing.success && outgoing.data ? outgoing.data : []);
+    } catch {
+      setIncomingRequests([]);
+      setOutgoingRequests([]);
+    }
+  };
+
+  const normalizeIdentifier = (value: string) => value.replace(/[\s\-\(\)]/g, '').trim();
+
   const handleAdd = async () => {
     if (!user) {
       Alert.alert(t('common.error'), t('errors.loginRequired'));
       return;
     }
 
-    const trimmedEmail = email.trim().toLowerCase();
-    if (!emailRegex.test(trimmedEmail)) {
-      Alert.alert(t('common.error'), t('care.invalidEmail'));
+    const trimmedIdentifier = identifier.trim();
+    const normalized = normalizeIdentifier(trimmedIdentifier);
+    const isEmail = emailRegex.test(trimmedIdentifier.toLowerCase());
+    const isPhone = phoneDigitsRegex.test(normalized);
+
+    if (!isEmail && !isPhone) {
+      Alert.alert(t('common.error'), t('care.invalidIdentifier'));
       return;
     }
 
-    if (user.email && trimmedEmail === user.email.toLowerCase()) {
+    if (isEmail && user.email && trimmedIdentifier.toLowerCase() === user.email.toLowerCase()) {
+      Alert.alert(t('common.error'), t('care.cannotSelf'));
+      return;
+    }
+
+    if (isPhone && user.emergency_contact && normalizeIdentifier(user.emergency_contact) === normalized) {
       Alert.alert(t('common.error'), t('care.cannotSelf'));
       return;
     }
 
     setSaving(true);
     try {
-      const response = await apiService.createCareLink({
+      const response = await apiService.createCareRequest({
         caregiver_id: user.id,
-        patient_email: trimmedEmail,
+        patient_email: isEmail ? trimmedIdentifier.toLowerCase() : undefined,
+        patient_phone: isPhone ? normalized : undefined,
         relationship: relationship.trim() || undefined,
       });
 
       if (response.success && response.data) {
-        Alert.alert(t('success.updated'), t('care.linkSuccess'));
-        setEmail('');
+        Alert.alert(t('success.updated'), t('care.requestSent'));
+        setIdentifier('');
         setRelationship('');
-        await fetchLinks(user.id);
+        await Promise.all([fetchLinks(user.id), fetchRequests(user.id)]);
       } else {
-        Alert.alert(t('common.error'), response.message || t('care.linkFailed'));
+        Alert.alert(t('common.error'), response.message || t('care.requestFailed'));
       }
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleAcceptRequest = async (requestId: number) => {
+    if (!user) return;
+    const response = await apiService.acceptCareRequest(requestId, user.id);
+    if (response.success) {
+      await Promise.all([fetchLinks(user.id), fetchRequests(user.id)]);
+    } else {
+      Alert.alert(t('common.error'), response.message || t('care.requestFailed'));
+    }
+  };
+
+  const handleRejectRequest = async (requestId: number) => {
+    if (!user) return;
+    const response = await apiService.rejectCareRequest(requestId, user.id);
+    if (response.success) {
+      await fetchRequests(user.id);
+    } else {
+      Alert.alert(t('common.error'), response.message || t('care.requestFailed'));
+    }
+  };
+
+  const handleCancelRequest = async (requestId: number) => {
+    if (!user) return;
+    const response = await apiService.cancelCareRequest(requestId, user.id);
+    if (response.success) {
+      await fetchRequests(user.id);
+    } else {
+      Alert.alert(t('common.error'), response.message || t('care.requestFailed'));
     }
   };
 
@@ -157,7 +219,7 @@ export const CareManagementScreen: React.FC = () => {
                 await fetchLinks(user.id);
               }
             } else {
-              Alert.alert(t('common.error'), response.message || t('care.linkFailed'));
+              Alert.alert(t('common.error'), response.message || t('care.unlinkFailed'));
             }
           },
         },
@@ -198,15 +260,15 @@ export const CareManagementScreen: React.FC = () => {
       <View className="mx-4 mt-4 bg-white rounded-2xl shadow-lg border border-lightGray p-4">
         <Text className="text-base font-semibold text-dark mb-3">{t('care.addTitle')}</Text>
 
-        <Text className="input-label">{t('care.emailLabel')}</Text>
+        <Text className="input-label">{t('care.identifierLabel')}</Text>
         <TextInput
           className="input-field"
-          value={email}
-          onChangeText={setEmail}
-          placeholder={t('care.emailPlaceholder')}
+          value={identifier}
+          onChangeText={setIdentifier}
+          placeholder={t('care.identifierPlaceholder')}
           placeholderTextColor="#BDBDBD"
           autoCapitalize="none"
-          keyboardType="email-address"
+          keyboardType="default"
         />
 
         <Text className="input-label mt-4">{t('care.relationshipLabel')}</Text>
@@ -229,6 +291,86 @@ export const CareManagementScreen: React.FC = () => {
             <Text className="text-white font-semibold">{t('care.addButton')}</Text>
           )}
         </TouchableOpacity>
+      </View>
+
+      <View className="mx-4 mt-4">
+        <Text className="text-base font-semibold text-dark mb-3">{t('care.requestsIncoming')}</Text>
+
+        {incomingRequests.length === 0 ? (
+          <Text className="text-xs text-gray">{t('care.noIncoming')}</Text>
+        ) : (
+          incomingRequests.map((req) => (
+            <View
+              key={req.id}
+              className="bg-white rounded-2xl shadow-lg border border-lightGray p-4 mb-3"
+            >
+              <View className="flex-row items-center justify-between">
+                <View className="flex-1">
+                  <Text className="text-sm font-semibold text-dark">
+                    {req.caregiver?.name || t('common.unknown')}
+                  </Text>
+                  {req.caregiver?.email ? (
+                    <Text className="text-xs text-gray mt-1">{req.caregiver.email}</Text>
+                  ) : null}
+                  {req.relationship ? (
+                    <Text className="text-xs text-gray mt-1">{req.relationship}</Text>
+                  ) : null}
+                </View>
+                <View className="flex-row items-center">
+                  <TouchableOpacity
+                    className="px-3 py-2 rounded-lg bg-green-50 mr-2"
+                    onPress={() => handleAcceptRequest(req.id)}
+                  >
+                    <Text className="text-xs text-success">{t('care.accept')}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    className="px-3 py-2 rounded-lg bg-red-50"
+                    onPress={() => handleRejectRequest(req.id)}
+                  >
+                    <Text className="text-xs text-danger">{t('care.reject')}</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          ))
+        )}
+      </View>
+
+      <View className="mx-4 mt-4">
+        <Text className="text-base font-semibold text-dark mb-3">{t('care.requestsOutgoing')}</Text>
+
+        {outgoingRequests.length === 0 ? (
+          <Text className="text-xs text-gray">{t('care.noOutgoing')}</Text>
+        ) : (
+          outgoingRequests.map((req) => (
+            <View
+              key={req.id}
+              className="bg-white rounded-2xl shadow-lg border border-lightGray p-4 mb-3"
+            >
+              <View className="flex-row items-center justify-between">
+                <View className="flex-1">
+                  <Text className="text-sm font-semibold text-dark">
+                    {req.patient?.name || t('common.unknown')}
+                  </Text>
+                  {req.patient?.email ? (
+                    <Text className="text-xs text-gray mt-1">{req.patient.email}</Text>
+                  ) : null}
+                  <Text className="text-xs text-gray mt-1">
+                    {t(`care.requestStatus.${req.status}`)}
+                  </Text>
+                </View>
+                {req.status === 'pending' ? (
+                  <TouchableOpacity
+                    className="px-3 py-2 rounded-lg bg-orange-50"
+                    onPress={() => handleCancelRequest(req.id)}
+                  >
+                    <Text className="text-xs text-warning">{t('care.cancelRequest')}</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            </View>
+          ))
+        )}
       </View>
 
       <View className="mx-4 mt-4 mb-6">

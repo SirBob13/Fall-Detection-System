@@ -5,25 +5,39 @@ import { Dimensions } from 'react-native';
 import { useLanguage } from '../components/LanguageProvider';
 import { storageService } from '../services/storage';
 import { apiService } from '../services/api';
-import { ReportSummary, User } from '../types';
+import { CareLink, ReportSummary, User } from '../types';
 import { ScreenHeader } from '../components/ScreenHeader';
 
 export const ReportsScreen: React.FC = () => {
   const { t } = useLanguage();
-  const [days, setDays] = useState(7);
+  const [period, setPeriod] = useState<'daily' | 'weekly' | 'monthly'>('weekly');
   const [report, setReport] = useState<ReportSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeUser, setActiveUser] = useState<User | null>(null);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [links, setLinks] = useState<CareLink[]>([]);
 
   useEffect(() => {
     loadReport();
-  }, [days]);
+  }, [period]);
+
+  const periodDays = useMemo(() => {
+    switch (period) {
+      case 'daily':
+        return 1;
+      case 'monthly':
+        return 30;
+      default:
+        return 7;
+    }
+  }, [period]);
 
   const loadReport = async () => {
     try {
       setLoading(true);
       const user = await storageService.getUser();
+      setCurrentUser(user);
       const monitored = await storageService.getMonitoredUser();
       const selected = monitored || user;
       setActiveUser(selected);
@@ -31,7 +45,15 @@ export const ReportsScreen: React.FC = () => {
         setReport(null);
         return;
       }
-      const response = await apiService.getUserReport(selected.id, days);
+      if (user) {
+        const linksResponse = await apiService.getCareLinks(user.id);
+        if (linksResponse.success && linksResponse.data) {
+          setLinks(linksResponse.data);
+        } else {
+          setLinks([]);
+        }
+      }
+      const response = await apiService.getUserReport(selected.id, periodDays);
       if (response.success && response.data) {
         setReport(response.data);
       } else {
@@ -40,6 +62,17 @@ export const ReportsScreen: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSelect = async (link: CareLink | null) => {
+    if (!link || !link.patient) {
+      await storageService.saveMonitoredUser(null);
+      setActiveUser(currentUser);
+      return;
+    }
+    await storageService.saveMonitoredUser(link.patient);
+    setActiveUser(link.patient);
+    await loadReport();
   };
 
   const onRefresh = async () => {
@@ -66,15 +99,48 @@ export const ReportsScreen: React.FC = () => {
     >
       <ScreenHeader title={t('reports.title')} subtitle={t('reports.subtitle')} />
 
+      {links.length > 0 ? (
+        <View className="mx-4 mt-4 bg-white rounded-2xl shadow-lg border border-lightGray p-4">
+          <Text className="text-sm font-semibold text-dark mb-2">{t('reports.viewing')}</Text>
+          {activeUser ? (
+            <Text className="text-xs text-gray">{activeUser.name}</Text>
+          ) : null}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mt-3">
+            <TouchableOpacity
+              className={`px-3 py-2 rounded-full mr-2 ${
+                !activeUser || activeUser.id === currentUser?.id ? 'bg-primary' : 'bg-lightGray'
+              }`}
+              onPress={() => handleSelect(null)}
+            >
+              <Text className={`${!activeUser || activeUser.id === currentUser?.id ? 'text-white' : 'text-dark'} text-xs`}>
+                {t('dashboard.myData')}
+              </Text>
+            </TouchableOpacity>
+            {links.map((link) => (
+              <TouchableOpacity
+                key={link.id}
+                className={`px-3 py-2 rounded-full mr-2 ${activeUser?.id === link.patient?.id ? 'bg-primary' : 'bg-lightGray'}`}
+                onPress={() => handleSelect(link)}
+                disabled={!link.patient}
+              >
+                <Text className={`${activeUser?.id === link.patient?.id ? 'text-white' : 'text-dark'} text-xs`}>
+                  {link.patient?.name ?? t('dashboard.noUser')}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      ) : null}
+
       <View className="mx-4 mt-4 flex-row">
-        {[7, 30].map((value) => (
+        {(['daily', 'weekly', 'monthly'] as const).map((value) => (
           <TouchableOpacity
             key={value}
-            className={`px-4 py-2 rounded-full mr-2 ${days === value ? 'bg-primary' : 'bg-lightGray'}`}
-            onPress={() => setDays(value)}
+            className={`px-4 py-2 rounded-full mr-2 ${period === value ? 'bg-primary' : 'bg-lightGray'}`}
+            onPress={() => setPeriod(value)}
           >
-            <Text className={`${days === value ? 'text-white' : 'text-dark'} text-xs`}>
-              {value} {t('reports.days')}
+            <Text className={`${period === value ? 'text-white' : 'text-dark'} text-xs`}>
+              {t(`reports.${value}`)}
             </Text>
           </TouchableOpacity>
         ))}

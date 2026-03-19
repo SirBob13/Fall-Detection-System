@@ -2,7 +2,7 @@ import axios, { AxiosInstance, AxiosResponse } from 'axios';
 import { API_CONFIG } from '../utils/constants';
 import { 
   User, Device, MotionData, VitalData, 
-  Prediction, Alert, ApiResponse, CareLink, DeviceIngestPayload, LastKnownLocation, CareDashboardItem, ReportSummary 
+  Prediction, Alert, ApiResponse, CareLink, CareLinkRequest, DeviceIngestPayload, LastKnownLocation, CareDashboardItem, ReportSummary 
 } from '../types';
 
 class ApiService {
@@ -328,6 +328,7 @@ class ApiService {
   async createCareLink(params: {
     caregiver_id: number;
     patient_email?: string;
+    patient_phone?: string;
     patient_id?: number;
     relationship?: string;
   }): Promise<ApiResponse<CareLink>> {
@@ -342,6 +343,103 @@ class ApiService {
         success: false,
         error: error.message,
         message: 'فشل ربط الحساب'
+      };
+    }
+  }
+
+  async createCareRequest(params: {
+    caregiver_id: number;
+    patient_email?: string;
+    patient_phone?: string;
+    patient_id?: number;
+    relationship?: string;
+    message?: string;
+  }): Promise<ApiResponse<CareLinkRequest>> {
+    try {
+      const response = await this.client.post(`/care/requests`, params);
+      const payload = response.data;
+      const request = payload?.data ?? payload?.request ?? payload;
+      return { success: payload?.success ?? true, data: request, message: payload?.message };
+    } catch (error: any) {
+      console.error('❌ Error creating care request:', error.message);
+      return {
+        success: false,
+        error: error.message,
+        message: 'فشل إرسال طلب المتابعة'
+      };
+    }
+  }
+
+  async getCareRequestsIncoming(patientId: number): Promise<ApiResponse<CareLinkRequest[]>> {
+    try {
+      const response = await this.client.get(`/care/requests/incoming/${patientId}`);
+      const payload = response.data;
+      const requests = Array.isArray(payload?.data) ? payload.data : [];
+      return { success: payload?.success ?? true, data: requests };
+    } catch (error: any) {
+      console.error('❌ Error getting incoming care requests:', error.message);
+      return {
+        success: false,
+        error: error.message,
+        message: 'فشل تحميل طلبات المتابعة'
+      };
+    }
+  }
+
+  async getCareRequestsOutgoing(caregiverId: number): Promise<ApiResponse<CareLinkRequest[]>> {
+    try {
+      const response = await this.client.get(`/care/requests/outgoing/${caregiverId}`);
+      const payload = response.data;
+      const requests = Array.isArray(payload?.data) ? payload.data : [];
+      return { success: payload?.success ?? true, data: requests };
+    } catch (error: any) {
+      console.error('❌ Error getting outgoing care requests:', error.message);
+      return {
+        success: false,
+        error: error.message,
+        message: 'فشل تحميل طلبات المتابعة'
+      };
+    }
+  }
+
+  async acceptCareRequest(requestId: number, patientId: number): Promise<ApiResponse<CareLinkRequest>> {
+    try {
+      const response = await this.client.post(`/care/requests/${requestId}/accept`, { patient_id: patientId });
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ Error accepting care request:', error.message);
+      return {
+        success: false,
+        error: error.message,
+        message: 'فشل قبول الطلب'
+      };
+    }
+  }
+
+  async rejectCareRequest(requestId: number, patientId: number): Promise<ApiResponse<CareLinkRequest>> {
+    try {
+      const response = await this.client.post(`/care/requests/${requestId}/reject`, { patient_id: patientId });
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ Error rejecting care request:', error.message);
+      return {
+        success: false,
+        error: error.message,
+        message: 'فشل رفض الطلب'
+      };
+    }
+  }
+
+  async cancelCareRequest(requestId: number, caregiverId: number): Promise<ApiResponse<CareLinkRequest>> {
+    try {
+      const response = await this.client.post(`/care/requests/${requestId}/cancel`, { caregiver_id: caregiverId });
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ Error cancelling care request:', error.message);
+      return {
+        success: false,
+        error: error.message,
+        message: 'فشل إلغاء الطلب'
       };
     }
   }
