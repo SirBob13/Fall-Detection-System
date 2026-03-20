@@ -344,6 +344,7 @@ async def register_user(
             # Create user
             user = User(
                 name=name,
+                phone=register_data.phone,
                 age=register_data.age,
                 gender=register_data.gender,
                 weight=register_data.weight,
@@ -374,6 +375,7 @@ async def register_user(
             access_token = create_access_token(
                 data={"sub": str(user.id), "email": email}
             )
+            profile_completion = _get_profile_completion(user)
             
             return JSONResponse(
                 status_code=status.HTTP_201_CREATED,
@@ -387,10 +389,16 @@ async def register_user(
                         "id": user.id,
                         "name": user.name,
                         "email": email,
+                        "phone": user.phone,
                         "age": user.age,
                         "gender": user.gender,
+                        "weight": user.weight,
+                        "height": user.height,
+                        "medical_conditions": user.medical_conditions,
                         "emergency_contact": user.emergency_contact,
-                        "created_at": user.created_at.isoformat() if user.created_at else None
+                        "created_at": user.created_at.isoformat() if user.created_at else None,
+                        "profile_complete": profile_completion["profile_complete"],
+                        "missing_fields": profile_completion["missing_fields"]
                     }
                 }
             )
@@ -418,6 +426,22 @@ async def register_user(
         )
 
 # ==================== Social Login ====================
+
+def _get_profile_completion(user: User) -> Dict[str, Any]:
+    """Determine if required profile fields are complete."""
+    missing = []
+    if not (user.name or "").strip():
+        missing.append("name")
+    if not (user.phone or "").strip():
+        missing.append("phone")
+    if not user.age:
+        missing.append("age")
+    if user.gender not in ["male", "female"]:
+        missing.append("gender")
+    return {
+        "profile_complete": len(missing) == 0,
+        "missing_fields": missing
+    }
 
 @router.post("/social-login", response_model=Dict[str, Any])
 async def social_login(
@@ -540,6 +564,7 @@ async def social_login(
         access_token = create_access_token(
             data={"sub": str(user.id), "email": email or user_auth.email}
         )
+        profile_completion = _get_profile_completion(user)
 
         return JSONResponse(
             status_code=status.HTTP_200_OK,
@@ -552,6 +577,7 @@ async def social_login(
                     "id": user.id,
                     "name": user.name,
                     "email": user_auth.email if user_auth else email,
+                    "phone": user.phone,
                     "age": user.age,
                     "gender": user.gender,
                     "emergency_contact": user.emergency_contact,
@@ -559,7 +585,9 @@ async def social_login(
                     "email_verified": user_auth.email_verified if user_auth else True,
                     "phone_verified": user_auth.phone_verified if user_auth else False,
                     "created_at": user.created_at.isoformat() if user.created_at else None,
-                    "is_active": user.is_active
+                    "is_active": user.is_active,
+                    "profile_complete": profile_completion["profile_complete"],
+                    "missing_fields": profile_completion["missing_fields"]
                 }
             }
         )
@@ -649,6 +677,8 @@ async def login_user(
         user_auth.last_login = datetime.utcnow()
         db.commit()
         
+        profile_completion = _get_profile_completion(user)
+
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
@@ -660,6 +690,7 @@ async def login_user(
                     "id": user.id,
                     "name": user.name,
                     "email": email,
+                    "phone": user.phone,
                     "age": user.age,
                     "gender": user.gender,
                     "emergency_contact": user.emergency_contact,
@@ -667,7 +698,9 @@ async def login_user(
                     "email_verified": user_auth.email_verified,
                     "phone_verified": user_auth.phone_verified,
                     "created_at": user.created_at.isoformat() if user.created_at else None,
-                    "is_active": user.is_active
+                    "is_active": user.is_active,
+                    "profile_complete": profile_completion["profile_complete"],
+                    "missing_fields": profile_completion["missing_fields"]
                 }
             }
         )
@@ -852,6 +885,7 @@ async def get_profile(
             )
 
         is_admin = user_auth.email.lower() in ADMIN_EMAILS if ADMIN_EMAILS else False
+        profile_completion = _get_profile_completion(user)
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
@@ -860,6 +894,7 @@ async def get_profile(
                     "id": user.id,
                     "name": user.name,
                     "email": user_auth.email,
+                    "phone": user.phone,
                     "age": user.age,
                     "gender": user.gender,
                     "weight": user.weight,
@@ -871,7 +906,9 @@ async def get_profile(
                     "created_at": user.created_at.isoformat() if user.created_at else None,
                     "updated_at": user.updated_at.isoformat() if user.updated_at else None,
                     "is_active": user.is_active,
-                    "is_admin": is_admin
+                    "is_admin": is_admin,
+                    "profile_complete": profile_completion["profile_complete"],
+                    "missing_fields": profile_completion["missing_fields"]
                 }
             }
         )
@@ -923,6 +960,7 @@ async def update_profile(
         db.refresh(user)
 
         is_admin = user_auth.email.lower() in ADMIN_EMAILS if ADMIN_EMAILS else False
+        profile_completion = _get_profile_completion(user)
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
@@ -932,6 +970,7 @@ async def update_profile(
                     "id": user.id,
                     "name": user.name,
                     "email": user_auth.email,
+                    "phone": user.phone,
                     "age": user.age,
                     "gender": user.gender,
                     "weight": user.weight,
@@ -943,7 +982,9 @@ async def update_profile(
                     "created_at": user.created_at.isoformat() if user.created_at else None,
                     "updated_at": user.updated_at.isoformat() if user.updated_at else None,
                     "is_active": user.is_active,
-                    "is_admin": is_admin
+                    "is_admin": is_admin,
+                    "profile_complete": profile_completion["profile_complete"],
+                    "missing_fields": profile_completion["missing_fields"]
                 }
             }
         )

@@ -826,7 +826,9 @@ class AuthService {
             updated_at: result.user.updated_at,
             is_active: result.user.is_active || true,
             email_verified: result.user.email_verified || false,
-            phone_verified: result.user.phone_verified || false
+            phone_verified: result.user.phone_verified || false,
+            profile_complete: result.user.profile_complete,
+            missing_fields: result.user.missing_fields
           },
           token: result.access_token,
           refresh_token: result.refresh_token || result.access_token,
@@ -948,7 +950,9 @@ class AuthService {
             updated_at: result.user.updated_at,
             is_active: result.user.is_active || true,
             email_verified: result.user.email_verified || false,
-            phone_verified: result.user.phone_verified || false
+            phone_verified: result.user.phone_verified || false,
+            profile_complete: result.user.profile_complete,
+            missing_fields: result.user.missing_fields
           },
           token: result.access_token,
           refresh_token: result.refresh_token || result.access_token,
@@ -1314,6 +1318,10 @@ class AuthService {
       ...normalizedUpdates,
     };
 
+    const completion = this.getProfileCompletion(updatedUser);
+    updatedUser.profile_complete = completion.complete;
+    updatedUser.missing_fields = completion.missing;
+
     const updatedSession: SessionData = {
       ...session,
       user: updatedUser,
@@ -1321,10 +1329,30 @@ class AuthService {
 
     await this.saveSession(updatedSession);
     this.requestManager.clearCache('load-session');
+    this.emitAuthState(true);
     return updatedUser;
   }
 
   // ==================== Helper Functions ====================
+
+  getProfileCompletion(user?: UserProfile): { complete: boolean; missing: string[] } {
+    const missing: string[] = [];
+    const name = (user?.name || '').trim();
+    const phone = (user?.phone || '').trim();
+    const age = user?.age;
+    const gender = user?.gender;
+
+    if (!name) missing.push('name');
+    if (!phone) missing.push('phone');
+    if (!age) missing.push('age');
+    if (gender !== 'male' && gender !== 'female') missing.push('gender');
+
+    return { complete: missing.length === 0, missing };
+  }
+
+  isProfileComplete(user?: UserProfile): boolean {
+    return this.getProfileCompletion(user).complete;
+  }
   
   async checkBiometricSupport(): Promise<BiometricData> {
     try {

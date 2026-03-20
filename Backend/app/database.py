@@ -4,7 +4,7 @@ Updated database configuration for Fall Detection System
 
 import os
 from datetime import datetime
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from .config import *
@@ -107,6 +107,7 @@ def init_db():
     try:
         from . import models
         Base.metadata.create_all(bind=engine)
+        ensure_user_phone_column()
         print("✅ Database initialized successfully")
         
         # إنشاء بيانات تجريبية إذا كانت قاعدة البيانات فارغة
@@ -115,6 +116,26 @@ def init_db():
     except Exception as e:
         print(f"❌ Error initializing database: {e}")
         raise
+
+def ensure_user_phone_column():
+    """
+    Ensure users.phone column exists (safe, additive migration).
+    """
+    try:
+        inspector = inspect(engine)
+        if not inspector.has_table("users"):
+            return
+        columns = [col["name"] for col in inspector.get_columns("users")]
+        if "phone" in columns:
+            return
+        ddl = "ALTER TABLE users ADD COLUMN phone VARCHAR(20)"
+        if engine.dialect.name != "sqlite":
+            ddl = "ALTER TABLE users ADD COLUMN phone VARCHAR(20) NULL"
+        with engine.begin() as conn:
+            conn.execute(text(ddl))
+        print("✅ Added users.phone column")
+    except Exception as e:
+        print(f"⚠️ Unable to add users.phone column: {e}")
 
 def create_test_data():
     """
@@ -136,6 +157,7 @@ def create_test_data():
             # إنشاء مستخدم تجريبي
             test_user = User(
                 name="مستخدم تجريبي",
+                phone="+201234567890",
                 age=70,
                 gender="male",
                 weight=75.0,

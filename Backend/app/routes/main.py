@@ -1631,6 +1631,7 @@ async def get_user_profile(
             "id": user.id,
             "name": user.name,
             "email": user.auth.email if getattr(user, "auth", None) else None,
+            "phone": getattr(user, "phone", None),
             "age": user.age,
             "gender": user.gender,
             "weight": user.weight,
@@ -1691,6 +1692,7 @@ async def update_user_profile(
                     "data": {
                         "id": user.id,
                         "name": user.name,
+                        "phone": getattr(user, "phone", None),
                         "age": user.age,
                         "gender": user.gender,
                         "weight": user.weight,
@@ -1719,6 +1721,7 @@ async def update_user_profile(
                 "data": {
                     "id": user.id,
                     "name": user.name,
+                    "phone": getattr(user, "phone", None),
                     "age": user.age,
                     "gender": user.gender,
                     "weight": user.weight,

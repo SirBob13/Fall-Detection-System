@@ -37,6 +37,7 @@ import { ReportsScreen } from '../screens/ReportsScreen';
 type RootStackParamList = {
   Auth: undefined;
   MainTabs: undefined;
+  CompleteProfile: { mode?: 'onboarding' } | undefined;
 };
 
 type AuthStackParamList = {
@@ -345,6 +346,7 @@ const MainNavigator = () => {
 export const AppNavigator: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [needsProfileCompletion, setNeedsProfileCompletion] = useState(false);
   const appState = useRef(AppState.currentState);
   const navigationRef = useRef<any>(null);
   const autoConnectRef = useRef(false);
@@ -376,6 +378,8 @@ export const AppNavigator: React.FC = () => {
           }
           
           setIsAuthenticated(true);
+          const completion = authService.getProfileCompletion(session.user);
+          setNeedsProfileCompletion(!completion.complete);
           
           // Start session monitoring if not already started
           if (!backgroundCheck) {
@@ -393,6 +397,7 @@ export const AppNavigator: React.FC = () => {
           // Clear session data
           await authService.clearSession();
           setIsAuthenticated(false);
+          setNeedsProfileCompletion(false);
           
           // Show alert only if not in background and not initial load
           if (!backgroundCheck && !isLoading) {
@@ -414,6 +419,7 @@ export const AppNavigator: React.FC = () => {
       } else {
         console.log('❌ [Auth Check] No session found');
         setIsAuthenticated(false);
+        setNeedsProfileCompletion(false);
       }
     } catch (error) {
       console.error('❌ [Auth Check] Error:', error);
@@ -426,6 +432,7 @@ export const AppNavigator: React.FC = () => {
       
       // On error, assume not authenticated to be safe
       setIsAuthenticated(false);
+      setNeedsProfileCompletion(false);
     } finally {
       if (!backgroundCheck) {
         setIsLoading(false);
@@ -504,7 +511,15 @@ export const AppNavigator: React.FC = () => {
             });
           }
         }
+        if (session?.user) {
+          const completion = authService.getProfileCompletion(session.user);
+          setNeedsProfileCompletion(!completion.complete);
+        } else {
+          setNeedsProfileCompletion(false);
+        }
         await deviceService.autoConnectIfEnabled();
+      } else {
+        setNeedsProfileCompletion(false);
       }
     });
 
@@ -537,6 +552,7 @@ export const AppNavigator: React.FC = () => {
     try {
       await authService.logout();
       setIsAuthenticated(false);
+      setNeedsProfileCompletion(false);
       analyticsService.track('user_logout');
       
       // Reset navigation to auth stack
@@ -598,7 +614,9 @@ export const AppNavigator: React.FC = () => {
       }}
     >
       <RootStack.Navigator
-        initialRouteName={isAuthenticated ? "MainTabs" : "Auth"}
+        initialRouteName={
+          !isAuthenticated ? "Auth" : needsProfileCompletion ? "CompleteProfile" : "MainTabs"
+        }
         screenOptions={{
           headerShown: false,
           gestureEnabled: true,
@@ -618,6 +636,13 @@ export const AppNavigator: React.FC = () => {
                 }
               }
             }}
+          />
+        ) : needsProfileCompletion ? (
+          <RootStack.Screen
+            name="CompleteProfile"
+            component={PersonalInfoScreen}
+            initialParams={{ mode: 'onboarding' }}
+            options={{ gestureEnabled: false }}
           />
         ) : (
           <RootStack.Screen 

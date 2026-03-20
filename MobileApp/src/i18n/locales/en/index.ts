@@ -114,6 +114,11 @@ export default {
       use: "Use",
       skip: "Skip",
       description: "Use fingerprint or face recognition for quick login"
+    },
+    completeProfile: {
+      title: "Complete your profile",
+      subtitle: "Please fill the required details to continue",
+      required: "Please complete name, phone, age, and gender"
     }
   },
 

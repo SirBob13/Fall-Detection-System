@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, ScrollView, TextInput, TouchableOpacity, Alert } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { useLanguage } from '../components/LanguageProvider';
 import { authService } from '../services/auth.service';
 import { apiService } from '../services/api';
@@ -54,13 +54,23 @@ const normalizePhoneInput = (value: string): string => {
   return normalized;
 };
 
+const validateEgyptianPhone = (phone: string): boolean => {
+  if (!phone) return false;
+  const normalized = normalizePhoneInput(phone);
+  const phoneRegex = /^(?:\+20|0)?1[0125]\d{8}$/;
+  return phoneRegex.test(normalized);
+};
+
 export const PersonalInfoScreen: React.FC = () => {
   const { t } = useLanguage();
   const navigation = useNavigation();
+  const route = useRoute<any>();
+  const isOnboarding = route?.params?.mode === 'onboarding';
   const [user, setUser] = useState<User | null>(null);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     name: '',
+    phone: '',
     age: '',
     gender: '' as User['gender'] | '',
     weight: '',
@@ -73,12 +83,23 @@ export const PersonalInfoScreen: React.FC = () => {
     loadUser();
   }, []);
 
+  useEffect(() => {
+    if (!isOnboarding) return;
+    const listener = navigation.addListener('beforeRemove', (e: any) => {
+      if (e?.data?.action?.type === 'GO_BACK') {
+        e.preventDefault();
+      }
+    });
+    return () => listener?.();
+  }, [isOnboarding, navigation]);
+
   const loadUser = async () => {
     const sessionUser = await authService.getCurrentUser();
     const normalizedSessionUser = sessionUser
       ? ({
           id: Number(sessionUser.id ?? 0),
           name: sessionUser.name || '',
+          phone: sessionUser.phone || '',
           age: sessionUser.age ?? 0,
           gender: (sessionUser.gender as User['gender']) || 'other',
           weight: sessionUser.weight,
@@ -99,6 +120,7 @@ export const PersonalInfoScreen: React.FC = () => {
       setUser(storedUser);
       setForm({
         name: storedUser.name || '',
+        phone: storedUser.phone || '',
         age: storedUser.age ? String(storedUser.age) : '',
         gender: storedUser.gender || '',
         weight: storedUser.weight ? String(storedUser.weight) : '',
@@ -114,6 +136,7 @@ export const PersonalInfoScreen: React.FC = () => {
 
     const normalized = {
       name: normalizeTextInput(form.name).trim(),
+      phone: normalizePhoneInput(form.phone || ''),
       age: form.age ? Number(normalizeNumericInput(form.age)) : undefined,
       gender: form.gender || undefined,
       weight: form.weight ? Number(normalizeNumericInput(form.weight)) : undefined,
@@ -121,6 +144,19 @@ export const PersonalInfoScreen: React.FC = () => {
       emergency_contact: normalizePhoneInput(form.emergency_contact || ''),
       medical_conditions: normalizeTextInput(form.medical_conditions || '').trim(),
     };
+
+    if (isOnboarding) {
+      const missing: string[] = [];
+      if (!normalized.name) missing.push('name');
+      if (!normalized.phone || !validateEgyptianPhone(normalized.phone)) missing.push('phone');
+      if (!normalized.age || normalized.age < 18) missing.push('age');
+      if (normalized.gender !== 'male' && normalized.gender !== 'female') missing.push('gender');
+
+      if (missing.length > 0) {
+        Alert.alert(t('common.warning'), t('auth.completeProfile.required'));
+        return;
+      }
+    }
 
     setSaving(true);
     try {
@@ -132,16 +168,23 @@ export const PersonalInfoScreen: React.FC = () => {
           ...response.data,
           id: String(response.data.id),
         });
-        Alert.alert(t('success.updated'), t('success.saved'), [
-          {
-            text: t('common.ok'),
-            onPress: () => {
-              if (navigation.canGoBack()) {
-                navigation.goBack();
-              }
+        if (isOnboarding) {
+          navigation.reset({
+            index: 0,
+            routes: [{ name: 'MainTabs' as never }],
+          });
+        } else {
+          Alert.alert(t('success.updated'), t('success.saved'), [
+            {
+              text: t('common.ok'),
+              onPress: () => {
+                if (navigation.canGoBack()) {
+                  navigation.goBack();
+                }
+              },
             },
-          },
-        ]);
+          ]);
+        }
       } else {
         Alert.alert(t('common.error'), response.message || t('errors.unknown'));
       }
@@ -155,7 +198,14 @@ export const PersonalInfoScreen: React.FC = () => {
   return (
     <ScrollView className="flex-1 bg-light" contentContainerStyle={{ padding: 16 }}>
       <View className="card mb-4">
-        <Text className="section-title mb-4">{t('settings.personalInfo')}</Text>
+        <Text className="section-title mb-1">
+          {isOnboarding ? t('auth.completeProfile.title') : t('settings.personalInfo')}
+        </Text>
+        {isOnboarding ? (
+          <Text className="text-sm text-gray-500 mb-4">{t('auth.completeProfile.subtitle')}</Text>
+        ) : (
+          <View className="mb-4" />
+        )}
 
         <View className="mb-4">
           <Text className="input-label">{t('auth.register.name')}</Text>
@@ -165,6 +215,18 @@ export const PersonalInfoScreen: React.FC = () => {
             onChangeText={(text) => setForm({ ...form, name: normalizeTextInput(text) })}
             placeholder={t('auth.register.name')}
             placeholderTextColor="#BDBDBD"
+          />
+        </View>
+
+        <View className="mb-4">
+          <Text className="input-label">{t('auth.register.phone')}</Text>
+          <TextInput
+            className="input-field"
+            value={form.phone}
+            onChangeText={(text) => setForm({ ...form, phone: normalizePhoneInput(text) })}
+            placeholder="+201234567890"
+            placeholderTextColor="#BDBDBD"
+            keyboardType="phone-pad"
           />
         </View>
 

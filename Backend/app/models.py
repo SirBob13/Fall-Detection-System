@@ -23,6 +23,7 @@ class User(Base):
     
     # Personal Information
     name = Column(String(100), nullable=False, index=True)
+    phone = Column(String(20))  # User phone number
     age = Column(Integer)
     gender = Column(String(10))  # male, female, other
     weight = Column(Float)  # kg
@@ -69,6 +70,7 @@ class User(Base):
     __table_args__ = (
         Index('idx_user_active', 'is_active'),
         Index('idx_user_created', 'created_at'),
+        Index('idx_user_phone', 'phone'),
     )
     
     def __repr__(self):

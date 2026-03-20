@@ -19,6 +19,8 @@ export interface UserProfile {
   is_active: boolean;
   email_verified: boolean;
   phone_verified: boolean;
+  profile_complete?: boolean;
+  missing_fields?: string[];
 }
 
 export interface AuthResponse {
