@@ -104,7 +104,10 @@ export default function UserDetailPage() {
   const [loading, setLoading] = useState(false);
 
   const loadAll = async () => {
-    if (!userId) return;
+    if (!userId || Number.isNaN(userId)) {
+      setError("Invalid user id");
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -116,11 +119,15 @@ export default function UserDetailPage() {
         apiFetch<{ data: MotionItem[] }>(`/admin/users/${userId}/motions?limit=50${query}`),
         apiFetch<{ data: PredictionItem[] }>(`/admin/users/${userId}/predictions?limit=50${query}`),
       ]);
+      if (!detailRes?.data) {
+        throw new Error("User detail not found");
+      }
+      const safeArray = <T,>(value: unknown): T[] => (Array.isArray(value) ? (value as T[]) : []);
       setDetail(detailRes.data);
-      setAlerts(alertsRes.data);
-      setVitals(vitalsRes.data);
-      setMotions(motionsRes.data);
-      setPredictions(predsRes.data);
+      setAlerts(safeArray<AlertItem>(alertsRes?.data));
+      setVitals(safeArray<VitalItem>(vitalsRes?.data));
+      setMotions(safeArray<MotionItem>(motionsRes?.data));
+      setPredictions(safeArray<PredictionItem>(predsRes?.data));
     } catch (err: any) {
       setError(err.message || "Failed to load user details");
     } finally {
