@@ -4,6 +4,7 @@ import { Platform, Alert } from 'react-native';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { API_CONFIG } from '../utils/constants';
 import { AUTH_CONFIG } from '../constants/auth';
+import { notificationService } from './notifications';
 import { 
   AuthResponse, 
   UserCredentials, 
@@ -116,6 +117,15 @@ class RequestManager {
     };
   }
 }
+
+const safeRegisterPushToken = async (token?: string) => {
+  if (!token) return;
+  try {
+    await notificationService.registerPushToken(token);
+  } catch (error) {
+    console.warn('⚠️ Push token registration failed:', error);
+  }
+};
 
 // ==================== Enhanced Auth Service ====================
 
@@ -851,6 +861,8 @@ class AuthService {
         // Notify listeners that auth state changed
         this.emitAuthState(true);
 
+        await safeRegisterPushToken(result.access_token);
+
         console.log('✅ [Register] Registration successful, session saved');
         
         return {
@@ -968,6 +980,8 @@ class AuthService {
         // Notify listeners that auth state changed
         this.emitAuthState(true);
 
+        await safeRegisterPushToken(result.access_token);
+
         console.log('✅ [Login] Login successful, session saved');
         
         return {
@@ -1059,7 +1073,9 @@ class AuthService {
             updated_at: result.user.updated_at,
             is_active: result.user.is_active || true,
             email_verified: result.user.email_verified || false,
-            phone_verified: result.user.phone_verified || false
+            phone_verified: result.user.phone_verified || false,
+            profile_complete: result.user.profile_complete,
+            missing_fields: result.user.missing_fields
           },
           token: result.access_token,
           refresh_token: result.refresh_token || result.access_token,
@@ -1070,6 +1086,8 @@ class AuthService {
         await this.updateLastActivity();
         this.startSessionMonitor();
         this.emitAuthState(true);
+
+        await safeRegisterPushToken(result.access_token);
 
         return {
           success: true,

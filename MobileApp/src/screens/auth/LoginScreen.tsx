@@ -182,6 +182,16 @@ export const LoginScreen: React.FC = () => {
       await authService.updateLastActivity();
       authService.invalidateCache('load-session');
       authService.invalidateCache('check-authentication');
+
+      const session = await authService.loadSession();
+      const completion = authService.getProfileCompletion(session?.user);
+      if (!completion.complete) {
+        const rootNav = navigation.getParent();
+        rootNav?.reset({
+          index: 0,
+          routes: [{ name: 'CompleteProfile', params: { mode: 'onboarding' } }],
+        });
+      }
     } catch (error: any) {
       Alert.alert('Login Error', error?.message || 'Social login failed');
     } finally {

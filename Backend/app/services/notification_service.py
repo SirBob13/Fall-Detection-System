@@ -1,12 +1,22 @@
 """
-Minimal notification service stub.
-Provides availability checks and a no-op notifier used by routes.
+Notification service for caregiver alerts (Push/SMS) + vitals warnings.
 """
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
+import httpx
 from sqlalchemy.orm import Session
+
+from ..config import (
+    ENABLE_PUSH_ALERTS,
+    ENABLE_SMS_ALERTS,
+    EXPO_PUSH_URL,
+    EXPO_ACCESS_TOKEN,
+    TWILIO_ACCOUNT_SID,
+    TWILIO_AUTH_TOKEN,
+    TWILIO_FROM_NUMBER,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +37,7 @@ class NotificationService:
         **kwargs: Any
     ) -> None:
         """
-        Placeholder notifier. Integrate with SMS/Email/Push as needed.
+        Basic notifier. For full caregiver alerting, use notify_caregivers_alert.
         """
         logger.info(
             "Notification (vitals): user_id=%s message=%s vitals=%s",
@@ -35,6 +45,43 @@ class NotificationService:
             message,
             vitals
         )
+
+    def _send_expo_push(self, messages: List[Dict[str, Any]]) -> None:
+        if not ENABLE_PUSH_ALERTS:
+            return
+        if not messages:
+            return
+        headers = {"Content-Type": "application/json"}
+        if EXPO_ACCESS_TOKEN:
+            headers["Authorization"] = f"Bearer {EXPO_ACCESS_TOKEN}"
+
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                for i in range(0, len(messages), 100):
+                    chunk = messages[i:i + 100]
+                    resp = client.post(EXPO_PUSH_URL, json=chunk, headers=headers)
+                    if resp.status_code >= 400:
+                        logger.warning("Expo push failed: %s %s", resp.status_code, resp.text[:200])
+        except Exception as e:
+            logger.warning("Expo push error: %s", e)
+
+    def _send_sms(self, to_number: str, body: str) -> None:
+        if not ENABLE_SMS_ALERTS:
+            return
+        if not (TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN and TWILIO_FROM_NUMBER):
+            logger.warning("Twilio is not configured; SMS skipped.")
+            return
+
+        url = f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_ACCOUNT_SID}/Messages.json"
+        data = {"From": TWILIO_FROM_NUMBER, "To": to_number, "Body": body}
+
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                resp = client.post(url, data=data, auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN))
+                if resp.status_code >= 400:
+                    logger.warning("Twilio SMS failed: %s %s", resp.status_code, resp.text[:200])
+        except Exception as e:
+            logger.warning("SMS error: %s", e)
 
     def notify_caregivers_alert(
         self,
@@ -44,16 +91,17 @@ class NotificationService:
         reason: Optional[str] = None,
     ) -> None:
         """
-        Notify all caregivers linked to a patient about an alert.
-        Placeholder: logs only. Integrate with Push/SMS/Email later.
+        Notify all caregivers linked to a patient about an alert (Push/SMS).
         """
         try:
-            from ..models import CareLink  # local import to avoid circular deps
+            from ..models import CareLink, UserPushToken, User  # local import
         except Exception:
             CareLink = None
+            UserPushToken = None
+            User = None
 
-        if CareLink is None:
-            logger.warning("CareLink model unavailable, skipping caregiver notifications.")
+        if CareLink is None or UserPushToken is None:
+            logger.warning("CareLink/PushToken model unavailable, skipping caregiver notifications.")
             return
 
         links = db.query(CareLink).filter(
@@ -65,18 +113,53 @@ class NotificationService:
             logger.info("No caregivers linked for patient_id=%s", patient_id)
             return
 
+        patient = db.query(User).filter(User.id == patient_id).first() if User else None
+        patient_name = patient.name if patient else f"Patient {patient_id}"
+
+        alert_type = getattr(alert, "alert_type", "alert")
+        severity = getattr(alert, "severity", "unknown")
+        message = reason or getattr(alert, "message", None) or f"New {alert_type} alert"
+        title = f"⚠️ {alert_type.upper()} Alert"
+        body = f"{patient_name}: {message} (severity: {severity})"
+
+        push_messages: List[Dict[str, Any]] = []
+
         for link in links:
             caregiver = link.caregiver
-            caregiver_email = None
-            if caregiver and getattr(caregiver, "auth", None):
-                caregiver_email = caregiver.auth.email
+            caregiver_phone = getattr(caregiver, "phone", None) if caregiver else None
+            if not caregiver_phone and caregiver:
+                caregiver_phone = getattr(caregiver, "emergency_contact", None)
+
+            # Push tokens
+            tokens = db.query(UserPushToken).filter(
+                UserPushToken.user_id == link.caregiver_id,
+                UserPushToken.is_active == True
+            ).all()
+
+            for token_row in tokens:
+                push_messages.append({
+                    "to": token_row.token,
+                    "title": title,
+                    "body": body,
+                    "data": {
+                        "patient_id": patient_id,
+                        "alert_id": getattr(alert, "id", None),
+                        "alert_type": alert_type,
+                        "severity": severity,
+                    }
+                })
+
+            if caregiver_phone:
+                self._send_sms(caregiver_phone, body)
 
             logger.info(
-                "Notification (caregiver): patient_id=%s caregiver_id=%s caregiver_email=%s alert_id=%s alert_type=%s reason=%s",
+                "Notification (caregiver): patient_id=%s caregiver_id=%s alert_id=%s alert_type=%s reason=%s",
                 patient_id,
                 link.caregiver_id,
-                caregiver_email,
                 getattr(alert, "id", None),
-                getattr(alert, "alert_type", None),
+                alert_type,
                 reason,
             )
+
+        if push_messages:
+            self._send_expo_push(push_messages)

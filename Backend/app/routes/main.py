@@ -3,10 +3,11 @@ Main API routes for the Fall Detection system - FIXED WITH PROPER HTTP STATUS CO
 """
 
 import logging
+import io
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Query, Header
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import text, func
 import math
@@ -16,7 +17,7 @@ from ..database import get_db
 from ..services.ai_model import load_model_and_scaler, predict_from_sample
 from .. import crud, schemas
 from ..services.auth_service import AuthService
-from ..models import User, Alert, Prediction, Device, CareLink, VitalSensorData, EmergencyLog
+from ..models import User, Alert, Prediction, Device, CareLink, VitalSensorData, EmergencyLog, UserPushToken
 from ..device_auth import device_auth
 from ..double_verification import DoubleVerificationSystem
 from ..services.notification_service import NotificationService
@@ -167,6 +168,35 @@ def _parse_iso_datetime(value: str) -> datetime:
     return dt
 
 
+def _extract_bearer_token(authorization: Optional[str]) -> Optional[str]:
+    if not authorization:
+        return None
+    parts = authorization.split()
+    if len(parts) == 2 and parts[0].lower() == "bearer":
+        return parts[1]
+    return None
+
+
+def _require_user(
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    token = _extract_bearer_token(authorization)
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"success": False, "error": "Authorization token required"}
+        )
+    auth = AuthService(db)
+    session = auth.verify_token(token)
+    if not session or not session.get("user"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"success": False, "error": "Invalid or expired token"}
+        )
+    return session
+
+
 def _build_report_data(
     db: Session,
     user_id: int,
@@ -260,6 +290,60 @@ def _build_report_data(
         },
         "recommendations": recommendations,
     }
+
+# ======================
+# Notifications
+# ======================
+
+@router.post("/notifications/register", response_model=Dict[str, Any])
+async def register_push_token(
+    payload: schemas.PushTokenRegister,
+    session: Dict[str, Any] = Depends(_require_user),
+    db: Session = Depends(get_db),
+):
+    """Register or update a push token for the authenticated user."""
+    user = session.get("user") or {}
+    try:
+        user_id = int(user.get("id"))
+    except Exception as e:
+        logger.error(f"Invalid user in session: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"success": False, "error": "Invalid session user"},
+        )
+
+    existing = (
+        db.query(UserPushToken)
+        .filter(UserPushToken.user_id == user_id, UserPushToken.token == payload.token)
+        .first()
+    )
+    now = datetime.utcnow()
+    if existing:
+        existing.platform = payload.platform or existing.platform
+        existing.device_id = payload.device_id or existing.device_id
+        existing.is_active = True
+        existing.last_seen = now
+    else:
+        record = UserPushToken(
+            user_id=user_id,
+            token=payload.token,
+            platform=payload.platform or "unknown",
+            device_id=payload.device_id,
+            is_active=True,
+            last_seen=now,
+        )
+        db.add(record)
+
+    db.commit()
+
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={
+            "success": True,
+            "message": "Push token registered",
+            "timestamp": now.isoformat(),
+        },
+    )
 
 # ======================
 # Health & System Routes
@@ -2440,6 +2524,107 @@ async def care_reports(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"success": False, "error": f"Failed to generate caregiver reports: {str(e)}"},
         )
+
+
+@router.get("/care/reports/{caregiver_id}/export")
+async def care_reports_export_pdf(
+    caregiver_id: int,
+    period: str = Query("weekly", description="daily|weekly|monthly"),
+    patient_id: Optional[int] = Query(None),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Export caregiver reports as PDF."""
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.pdfgen import canvas
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail={"success": False, "error": "PDF export not available. Install reportlab."}
+        )
+
+    caregiver = crud.get_user(db, caregiver_id)
+    if not caregiver:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"success": False, "error": "Caregiver not found"},
+        )
+
+    links = crud.get_care_links_by_caregiver(db, caregiver_id)
+    if patient_id:
+        links = [link for link in links if link.patient_id == patient_id]
+        if not links:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"success": False, "error": "Patient not linked to caregiver"},
+            )
+
+    if start_date or end_date:
+        start_dt = _parse_iso_datetime(start_date) if start_date else datetime.utcnow() - timedelta(days=7)
+        end_dt = _parse_iso_datetime(end_date) if end_date else datetime.utcnow()
+    else:
+        period_map = {"daily": 1, "weekly": 7, "monthly": 30}
+        days = period_map.get(period, 7)
+        start_dt = datetime.utcnow() - timedelta(days=days)
+        end_dt = datetime.utcnow()
+
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+    y = height - 72
+
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(72, y, "Caregiver Report")
+    y -= 22
+    c.setFont("Helvetica", 10)
+    c.drawString(72, y, f"Caregiver ID: {caregiver_id}")
+    y -= 14
+    c.drawString(72, y, f"Period: {period}")
+    y -= 14
+    c.drawString(72, y, f"From: {start_dt.isoformat()}  To: {end_dt.isoformat()}")
+    y -= 22
+
+    for link in links:
+        patient = link.patient
+        if not patient:
+            continue
+        report = _build_report_data(db, patient.id, start_dt, end_dt)
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(72, y, f"Patient: {patient.name} (ID {patient.id})")
+        y -= 16
+        c.setFont("Helvetica", 10)
+        c.drawString(80, y, f"Relationship: {link.relationship_type or 'unknown'}")
+        y -= 14
+        c.drawString(80, y, f"Alerts: {report['alerts']['total']} | Vitals: {report['vitals']['total']}")
+        y -= 14
+        c.drawString(80, y, f"Abnormal rate: {round(report['vitals']['abnormal_rate'] * 100, 1)}%")
+        y -= 14
+        recs = report.get("recommendations", [])
+        if recs:
+            c.drawString(80, y, "Recommendations:")
+            y -= 12
+            for rec in recs[:3]:
+                c.drawString(92, y, f"- {rec}")
+                y -= 12
+        y -= 6
+        if y < 120:
+            c.showPage()
+            y = height - 72
+
+    c.showPage()
+    c.save()
+    pdf = buffer.getvalue()
+    buffer.close()
+
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"attachment; filename=caregiver_{caregiver_id}_report.pdf"
+        }
+    )
 
 
 @router.delete("/care/links/{link_id}", response_model=Dict[str, Any])

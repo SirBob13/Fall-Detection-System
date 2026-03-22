@@ -3,6 +3,8 @@ const tokenKey = 'fd_admin_token';
 
 const loginSection = document.getElementById('loginSection');
 const dashboardSection = document.getElementById('dashboardSection');
+const docsSection = document.getElementById('docsSection');
+const navTabs = document.getElementById('navTabs');
 const loginBtn = document.getElementById('loginBtn');
 const logoutBtn = document.getElementById('logoutBtn');
 const loginStatus = document.getElementById('loginStatus');
@@ -42,6 +44,22 @@ const refreshDevicesBtn = document.getElementById('refreshDevices');
 let activePeriod = 'weekly';
 let currentUserSearch = '';
 let currentUserId = null;
+let activeTab = 'dashboard';
+
+function setActiveTab(tab) {
+  activeTab = tab;
+  const tabButtons = document.querySelectorAll('.tab');
+  tabButtons.forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.tab === tab);
+  });
+  if (tab === 'docs') {
+    dashboardSection.classList.add('hidden');
+    docsSection.classList.remove('hidden');
+  } else {
+    docsSection.classList.add('hidden');
+    dashboardSection.classList.remove('hidden');
+  }
+}
 
 function setStatus(msg, ok = false) {
   loginStatus.textContent = msg;
@@ -118,12 +136,15 @@ async function boot() {
     ]);
 
     loginSection.classList.add('hidden');
-    dashboardSection.classList.remove('hidden');
+    if (navTabs) navTabs.classList.remove('hidden');
     logoutBtn.classList.remove('hidden');
+    setActiveTab(activeTab || 'dashboard');
   } catch (err) {
     clearToken();
     loginSection.classList.remove('hidden');
     dashboardSection.classList.add('hidden');
+    docsSection.classList.add('hidden');
+    if (navTabs) navTabs.classList.add('hidden');
     logoutBtn.classList.add('hidden');
     setStatus(err.message || 'Admin access required');
   }
@@ -345,6 +366,8 @@ logoutBtn.addEventListener('click', () => {
   clearToken();
   loginSection.classList.remove('hidden');
   dashboardSection.classList.add('hidden');
+  docsSection.classList.add('hidden');
+  if (navTabs) navTabs.classList.add('hidden');
   logoutBtn.classList.add('hidden');
 });
 
@@ -402,6 +425,10 @@ usersTable.addEventListener('click', async (event) => {
 
 document.querySelectorAll('[data-period]').forEach((btn) => {
   btn.addEventListener('click', () => loadReports(btn.dataset.period));
+});
+
+document.querySelectorAll('.tab').forEach((btn) => {
+  btn.addEventListener('click', () => setActiveTab(btn.dataset.tab));
 });
 
 // Auto-boot if token exists

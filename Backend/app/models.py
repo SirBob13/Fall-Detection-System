@@ -65,6 +65,9 @@ class User(Base):
     
     sessions = relationship("UserSession", back_populates="user", 
                            cascade="all, delete-orphan")
+
+    push_tokens = relationship("UserPushToken", back_populates="user",
+                              cascade="all, delete-orphan")
     
     # Indexes
     __table_args__ = (
@@ -182,6 +185,32 @@ class SocialAccount(Base):
     
     def __repr__(self):
         return f"<SocialAccount(id={self.id}, provider='{self.provider}', user_id={self.user_id})>"
+
+
+class UserPushToken(Base):
+    """Push notification tokens for user devices"""
+    __tablename__ = "user_push_tokens"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    token = Column(String(255), nullable=False)
+    platform = Column(String(20), default="unknown")
+    device_id = Column(String(100))
+    is_active = Column(Boolean, default=True)
+    last_seen = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User", back_populates="push_tokens")
+
+    __table_args__ = (
+        UniqueConstraint('user_id', 'token', name='uq_user_push_token'),
+        Index('idx_push_user', 'user_id'),
+        Index('idx_push_token', 'token'),
+    )
+
+    def __repr__(self):
+        return f"<UserPushToken(id={self.id}, user_id={self.user_id}, platform='{self.platform}')>"
 
 # ==================== Caregiver Links ====================
 

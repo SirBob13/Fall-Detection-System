@@ -521,6 +521,13 @@ class EmergencyResponse(BaseModel):
     timestamp: datetime
     emergency_id: str
 
+# ==================== Notification Schemas ====================
+
+class PushTokenRegister(BaseModel):
+    token: str
+    platform: Optional[str] = None
+    device_id: Optional[str] = None
+
 # ==================== System Schemas ====================
 
 class HealthCheck(BaseModel):

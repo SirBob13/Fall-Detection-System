@@ -14,10 +14,14 @@
         <p class="muted">System overview, alerts, vitals, devices, reports</p>
       </div>
       <div class="actions">
-        <a class="ghost link-btn" href="/admin/docs.html" target="_blank" rel="noopener">API Docs</a>
         <button id="logoutBtn" class="ghost hidden">Logout</button>
       </div>
     </header>
+
+    <nav id="navTabs" class="tabs hidden">
+      <button class="tab active" data-tab="dashboard">Dashboard</button>
+      <button class="tab" data-tab="docs">API Docs</button>
+    </nav>
 
     <section id="loginSection" class="card">
       <h2>Admin Login</h2>
@@ -125,6 +129,17 @@
           <h4>User Details</h4>
           <pre id="userDetailBox" class="code">Select a user…</pre>
         </div>
+      </div>
+    </section>
+
+    <section id="docsSection" class="hidden">
+      <div class="card docs-card">
+        <iframe
+          id="docsFrame"
+          title="API Docs"
+          src="/admin/docs.html"
+          loading="lazy"
+        ></iframe>
       </div>
     </section>
   </div>

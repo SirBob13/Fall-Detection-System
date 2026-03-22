@@ -99,3 +99,14 @@ EXPOSE_DOCS = os.getenv("EXPOSE_DOCS", "false").lower() == "true"
 # CORS origins (comma-separated; default "*")
 CORS_ORIGINS_RAW = os.getenv("CORS_ORIGINS", "*")
 CORS_ORIGINS = [o.strip() for o in CORS_ORIGINS_RAW.split(",") if o.strip()]
+
+# Push/SMS notifications
+ENABLE_PUSH_ALERTS = os.getenv("ENABLE_PUSH_ALERTS", "true").lower() == "true"
+ENABLE_SMS_ALERTS = os.getenv("ENABLE_SMS_ALERTS", "false").lower() == "true"
+
+EXPO_PUSH_URL = os.getenv("EXPO_PUSH_URL", "https://exp.host/--/api/v2/push/send")
+EXPO_ACCESS_TOKEN = os.getenv("EXPO_ACCESS_TOKEN", "")
+
+TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
+TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
+TWILIO_FROM_NUMBER = os.getenv("TWILIO_FROM_NUMBER", "")

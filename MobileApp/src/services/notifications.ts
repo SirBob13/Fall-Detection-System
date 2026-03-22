@@ -1,6 +1,7 @@
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { Platform, Vibration, Alert as RNAlert } from 'react-native';
 import { Alert } from '../types';
+import { API_CONFIG } from '../utils/constants';
 
 const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
 let notificationsModule: typeof import('expo-notifications') | null = null;
@@ -49,6 +50,70 @@ export class NotificationService {
       return status === 'granted';
     } catch (error) {
       console.warn('Notification permissions not available:', error);
+      return false;
+    }
+  }
+
+  private async getExpoPushToken(): Promise<string | null> {
+    try {
+      const Notifications = await getNotificationsModule();
+      if (!Notifications) return null;
+
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+      if (existingStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+      if (finalStatus !== 'granted') {
+        return null;
+      }
+
+      const projectId =
+        Constants.easConfig?.projectId ||
+        Constants.expoConfig?.extra?.eas?.projectId ||
+        Constants.expoConfig?.extra?.projectId;
+
+      const tokenResponse = await Notifications.getExpoPushTokenAsync(
+        projectId ? { projectId } : undefined
+      );
+      return tokenResponse?.data ?? null;
+    } catch (error) {
+      console.warn('Error getting Expo push token:', error);
+      return null;
+    }
+  }
+
+  async registerPushToken(accessToken: string): Promise<boolean> {
+    try {
+      if (!accessToken) return false;
+      const token = await this.getExpoPushToken();
+      if (!token) return false;
+
+      const payload = {
+        token,
+        platform: Platform.OS,
+        device_id: Constants.deviceName || Constants.installationId || undefined,
+      };
+
+      const res = await fetch(`${API_CONFIG.BASE_URL}/notifications/register`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const msg = await res.text();
+        console.warn('Push token registration failed:', msg);
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      console.warn('Push token registration error:', error);
       return false;
     }
   }
