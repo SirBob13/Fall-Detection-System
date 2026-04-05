@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import RequireAuth from "./_components/RequireAuth";
-import { API_BASE, clearToken } from "./_lib/api";
+import { clearToken } from "./_lib/api";
 
 const NAV_ITEMS = [
   { href: "/admin/overview", label: "Overview" },
@@ -12,7 +12,7 @@ const NAV_ITEMS = [
   { href: "/admin/devices", label: "Devices" },
   { href: "/admin/users", label: "Users" },
   { href: "/admin/reports", label: "Reports" },
-  { href: `${API_BASE}/docs`, label: "API Docs", external: true },
+  { href: "http://138.2.183.9:8000/docs", label: "API Docs", external: true },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
