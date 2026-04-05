@@ -2,6 +2,7 @@
   "expo": {
     "name": "Fall Detection",
     "slug": "fall-detection-app",
+    "entryPoint": "./index.js",
     "version": "1.0.0",
     "scheme": "fall-detection",
     "orientation": "portrait",
@@ -20,6 +21,9 @@
       "bundleIdentifier": "com.falldetection.app",
       "usesAppleSignIn": true,
       "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        },
         "NSContactsUsageDescription": "يحتاج التطبيق للوصول إلى جهات الاتصال لاستيراد جهات الاتصال الطارئة.",
         "NSLocationWhenInUseUsageDescription": "يحتاج التطبيق للوصول إلى موقعك لإرسال الموقع في حالات الطوارئ.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "يحتاج التطبيق للوصول إلى موقعك باستمرار لمراقبة حالة السقوط.",
@@ -41,6 +45,7 @@
       }
     },
     "android": {
+      "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"

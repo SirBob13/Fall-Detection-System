@@ -930,7 +930,15 @@ class AuthService {
         let errorMessage = 'Login failed from database';
         try {
           const errorData = JSON.parse(errorText);
-          errorMessage = errorData.detail || errorData.message || errorMessage;
+          const detail = errorData.detail ?? errorData.message;
+          if (typeof detail === 'string') {
+            errorMessage = detail;
+          } else if (detail && typeof detail === 'object') {
+            errorMessage =
+              detail.error ||
+              detail.message ||
+              JSON.stringify(detail);
+          }
         } catch {
           errorMessage = `HTTP ${response.status}: ${errorText.substring(0, 100)}`;
         }

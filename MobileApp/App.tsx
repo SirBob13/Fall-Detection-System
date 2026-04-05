@@ -3,7 +3,6 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Provider } from 'react-redux';
 import { PersistGate } from 'redux-persist/integration/react';
 import { store, persistor } from './src/store/store';
-import './global.css';
 import {
   ActivityIndicator,
   View,

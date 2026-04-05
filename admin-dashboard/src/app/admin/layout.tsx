@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import RequireAuth from "./_components/RequireAuth";
-import { clearToken } from "./_lib/api";
+import { API_BASE, clearToken } from "./_lib/api";
 
 const NAV_ITEMS = [
   { href: "/admin/overview", label: "Overview" },
@@ -12,7 +12,7 @@ const NAV_ITEMS = [
   { href: "/admin/devices", label: "Devices" },
   { href: "/admin/users", label: "Users" },
   { href: "/admin/reports", label: "Reports" },
-  { href: "/admin/docs", label: "API Docs" },
+  { href: `${API_BASE}/docs`, label: "API Docs", external: true },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -49,6 +49,19 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <nav className="flex flex-wrap gap-2">
             {NAV_ITEMS.map((item) => {
               const active = pathname.startsWith(item.href);
+              if (item.external) {
+                return (
+                  <a
+                    key={item.href}
+                    href={item.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-full border border-slate-800 px-4 py-2 text-sm text-slate-300 transition hover:border-cyan-300/40 hover:text-cyan-100"
+                  >
+                    {item.label}
+                  </a>
+                );
+              }
               return (
                 <Link
                   key={item.href}
