@@ -80,7 +80,7 @@
       "eas": {
         "projectId": "d33adc67-9b40-45a7-ba77-c1f3907a62ab"
       },
-      "apiUrl": "http://192.168.1.148:8000",
+      "apiUrl": "http://138.2.183.9:8000",
       "googleAuth": {
         "expoClientId": "967093516556-bhrjudajc066pv4paajmgv3h8ii8n091.apps.googleusercontent.com",
         "iosClientId": "967093516556-5onccjasolmtq8lhhs15v1onhau68lau.apps.googleusercontent.com",

@@ -1,9 +1,12 @@
 // babel.config.js
-module.exports = function(api) {
+module.exports = function (api) {
   api.cache(true);
   return {
-    // NativeWind must run last to set the JSX importSource
+    // NativeWind v4 config is a preset (adds jsx importSource + worklets plugin)
     presets: ['babel-preset-expo', 'nativewind/babel'],
-    plugins: [],
+    plugins: [
+      // Must be last
+      'react-native-reanimated/plugin',
+    ],
   };
 };

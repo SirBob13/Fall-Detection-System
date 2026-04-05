@@ -9,6 +9,7 @@ import {
   TextInput,
   Modal,
   ActivityIndicator,
+  Linking,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { emergencyService } from '../services/emergency.service';
@@ -196,12 +197,27 @@ export const EmergencyContactsScreen: React.FC = () => {
           {
             text: t('common.import'),
             onPress: async () => {
-              const importedContacts = await emergencyService.importPhoneContacts();
-              if (importedContacts.length > 0) {
-                setPhoneContacts(importedContacts);
+              const importResult = await emergencyService.importPhoneContacts();
+              if (importResult.permissionStatus === 'denied') {
+                Alert.alert(
+                  t('emergency.contacts.permissionDeniedTitle'),
+                  t('emergency.contacts.permissionDeniedMessage'),
+                  [
+                    { text: t('common.cancel'), style: 'cancel' },
+                    {
+                      text: t('emergency.contacts.openSettings'),
+                      onPress: () => Linking.openSettings(),
+                    },
+                  ]
+                );
+                return;
+              }
+
+              if (importResult.contacts.length > 0) {
+                setPhoneContacts(importResult.contacts);
                 setSelectedContactIds(new Set());
                 setEditablePhones(
-                  importedContacts.reduce<Record<string, string>>((acc, contact) => {
+                  importResult.contacts.reduce<Record<string, string>>((acc, contact) => {
                     acc[contact.id] = contact.phone || '';
                     return acc;
                   }, {})

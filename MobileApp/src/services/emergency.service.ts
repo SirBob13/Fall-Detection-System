@@ -201,14 +201,36 @@ export class EmergencyService {
     }
   }
 
-  async importPhoneContacts(): Promise<EmergencyContact[]> {
+  async importPhoneContacts(): Promise<{
+    contacts: EmergencyContact[];
+    permissionStatus: 'granted' | 'limited' | 'denied' | 'unknown';
+  }> {
     try {
       console.log('📱 [Emergency] Importing phone contacts...');
-      
-      const { status } = await Contacts.requestPermissionsAsync();
-      if (status !== 'granted') {
+
+      let permissionStatus: 'granted' | 'limited' | 'denied' | 'unknown' = 'unknown';
+
+      const perm = await Contacts.getPermissionsAsync();
+      let status = (perm as any).status;
+      let access = (perm as any).accessPrivileges;
+      let granted = (perm as any).granted === true || status === 'granted' || status === 'limited';
+
+      if (!granted) {
+        const req = await Contacts.requestPermissionsAsync();
+        status = (req as any).status;
+        access = (req as any).accessPrivileges;
+        granted = (req as any).granted === true || status === 'granted' || status === 'limited';
+      }
+
+      const allowedByAccess = access === 'all' || access === 'limited';
+      if (granted || allowedByAccess) {
+        permissionStatus = access === 'limited' || status === 'limited' ? 'limited' : 'granted';
+      }
+
+      if (!granted && !allowedByAccess) {
         console.warn('⚠️ [Emergency] Contacts permission denied');
-        throw new Error('Contacts permission denied');
+        permissionStatus = 'denied';
+        return { contacts: [], permissionStatus };
       }
 
       const { data } = await Contacts.getContactsAsync({
@@ -233,10 +255,10 @@ export class EmergencyService {
         }));
 
       console.log(`✅ [Emergency] Imported ${importedContacts.length} contacts`);
-      return importedContacts;
+      return { contacts: importedContacts, permissionStatus };
     } catch (error) {
       console.error('❌ [Emergency] Error importing phone contacts:', error);
-      return [];
+      return { contacts: [], permissionStatus: 'unknown' };
     }
   }
 

@@ -15,7 +15,7 @@ import time
 
 from ..database import get_db
 from ..services.ai_model import load_model_and_scaler, predict_from_sample
-from .. import crud, schemas
+from .. import crud, schemas, models
 from ..services.auth_service import AuthService
 from ..models import User, Alert, Prediction, Device, CareLink, VitalSensorData, EmergencyLog, UserPushToken
 from ..device_auth import device_auth
@@ -1371,7 +1371,7 @@ async def get_user_alerts(
     user_id: int,
     limit: int = Query(20, ge=1, le=100, description="Number of alerts to return"),
     days: int = Query(7, ge=1, le=365, description="Number of days to look back"),
-    status: Optional[str] = Query(None, description="Filter by alert status"),
+    alert_status: Optional[str] = Query(None, description="Filter by alert status"),
     severity: Optional[str] = Query(None, description="Filter by alert severity"),
     db: Session = Depends(get_db)
 ):
@@ -1398,8 +1398,8 @@ async def get_user_alerts(
         )
         
         # Apply filters
-        if status:
-            query = query.filter(Alert.status == status)
+        if alert_status:
+            query = query.filter(Alert.status == alert_status)
         if severity:
             query = query.filter(Alert.severity == severity)
         
@@ -1437,7 +1437,7 @@ async def get_user_alerts(
                 "filters_applied": {
                     "days": days,
                     "limit": limit,
-                    "status": status,
+                    "status": alert_status,
                     "severity": severity
                 },
                 "timestamp": datetime.utcnow().isoformat()

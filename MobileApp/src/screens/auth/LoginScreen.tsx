@@ -17,7 +17,8 @@ import * as Yup from 'yup';
 import { StackNavigationProp } from '@react-navigation/stack';
 import Constants from 'expo-constants';
 import * as WebBrowser from 'expo-web-browser';
-import { makeRedirectUri } from 'expo-auth-session';
+import * as AuthSession from 'expo-auth-session';
+import { makeRedirectUri, ResponseType } from 'expo-auth-session';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Google from 'expo-auth-session/providers/google';
 import { jwtDecode } from 'jwt-decode';
@@ -61,16 +62,21 @@ export const LoginScreen: React.FC = () => {
   const [isCheckingConnection, setIsCheckingConnection] = useState(false);
 
   const googleAuthConfig = Constants.expoConfig?.extra?.googleAuth || {};
+  const isExpoGo = Constants.appOwnership === 'expo';
   const googleRedirectUri = makeRedirectUri({
     scheme: Constants.expoConfig?.scheme || 'fall-detection',
+    useProxy: isExpoGo,
   });
-  const [googleRequest, googleResponse, googlePromptAsync] = Google.useIdTokenAuthRequest({
+  const [googleRequest, googleResponse, googlePromptAsync] = Google.useAuthRequest({
     expoClientId: googleAuthConfig.expoClientId,
     iosClientId: googleAuthConfig.iosClientId,
     androidClientId: googleAuthConfig.androidClientId,
     webClientId: googleAuthConfig.webClientId || googleAuthConfig.expoClientId,
     redirectUri: googleRedirectUri,
     selectAccount: true,
+    responseType: ResponseType.Code,
+    usePKCE: true,
+    scopes: ['openid', 'profile', 'email'],
   });
   
   // Prevent duplicate actions
@@ -88,12 +94,43 @@ export const LoginScreen: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (googleResponse?.type === 'success') {
-      const idToken = googleResponse.params?.id_token;
+    const runGoogleExchange = async () => {
+      if (googleResponse?.type !== 'success') return;
+      const code = googleResponse.params?.code;
+      if (!code) {
+        Alert.alert('Google Login Error', 'Missing authorization code from Google');
+        return;
+      }
+
+      const clientId = Platform.select({
+        ios: googleAuthConfig.iosClientId,
+        android: googleAuthConfig.androidClientId,
+        default: googleAuthConfig.webClientId || googleAuthConfig.expoClientId,
+      });
+
+      if (!clientId) {
+        Alert.alert('Google Login Error', 'Missing Google client ID for this platform');
+        return;
+      }
+
+      const tokenResult = await AuthSession.exchangeCodeAsync(
+        {
+          clientId,
+          code,
+          redirectUri: googleRedirectUri,
+          extraParams: {
+            code_verifier: googleRequest?.codeVerifier || '',
+          },
+        },
+        { tokenEndpoint: 'https://oauth2.googleapis.com/token' }
+      );
+
+      const idToken = tokenResult.idToken;
       if (!idToken) {
         Alert.alert('Google Login Error', 'Missing ID token from Google');
         return;
       }
+
       const decoded: any = jwtDecode(idToken);
       const userInfo = {
         id: decoded.sub,
@@ -102,7 +139,11 @@ export const LoginScreen: React.FC = () => {
         photo: decoded.picture,
       };
       handleSocialAuth('google', idToken, userInfo);
-    }
+    };
+
+    runGoogleExchange().catch((error) => {
+      Alert.alert('Google Login Error', error?.message || 'Failed to complete Google login');
+    });
   }, [googleResponse]);
 
   const checkDatabaseStatus = async () => {
@@ -283,7 +324,7 @@ export const LoginScreen: React.FC = () => {
         return;
       }
       await googlePromptAsync({
-        useProxy: Constants.appOwnership === 'expo',
+        useProxy: isExpoGo,
         redirectUri: googleRedirectUri,
       });
       return;

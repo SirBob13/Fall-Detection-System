@@ -3,7 +3,7 @@ let Voice: any = null;
 try {
   // Lazy-load to avoid crashing in Expo Go (module not available there).
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  Voice = require('react-native-voice').default || require('react-native-voice');
+  Voice = require('@react-native-voice/voice').default || require('@react-native-voice/voice');
 } catch (error) {
   Voice = null;
 }
