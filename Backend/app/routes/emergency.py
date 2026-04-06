@@ -70,13 +70,8 @@ async def trigger_emergency(
                 alert_type=emergency_data.type,
                 severity="critical",
                 message=f"Emergency triggered: {emergency_data.type}",
-                location=emergency_data.location,
                 status="active",
                 timestamp=datetime.utcnow(),
-                metadata={
-                    "fall_data": emergency_data.fall_data,
-                    "trigger_method": "manual" if emergency_data.type == "manual" else "automatic"
-                } if emergency_data.fall_data else None
             )
             db.add(alert)
             db.commit()
@@ -92,8 +87,11 @@ async def trigger_emergency(
                 "message": alert.message,
                 "status": alert.status,
                 "timestamp": alert.timestamp.isoformat() if alert.timestamp else None,
-                "location": alert.location,
-                "metadata": alert.metadata,
+                "location": emergency_data.location,
+                "metadata": {
+                    "fall_data": emergency_data.fall_data,
+                    "trigger_method": "manual" if emergency_data.type == "manual" else "automatic"
+                } if emergency_data.fall_data else None,
             }
             await notify_user(user.id, "alerts", action="created", payload=payload)
             await notify_admins("alerts", action="created", payload=payload)
@@ -200,11 +198,11 @@ async def get_emergency_history(
                     "type": alert.alert_type,
                     "severity": alert.severity,
                     "message": alert.message,
-                    "location": alert.location,
+                    "location": getattr(alert, "location", None),
                     "status": alert.status,
-                    "resolved_at": alert.resolved_at.isoformat() if alert.resolved_at else None,
-                    "response_notes": alert.response_notes,
-                    "metadata": alert.metadata
+                    "resolved_at": alert.resolved_at.isoformat() if getattr(alert, "resolved_at", None) else None,
+                    "response_notes": getattr(alert, "response_notes", None),
+                    "metadata": getattr(alert, "metadata", None)
                 })
             
             logger.info(f"✅ Found {len(emergency_history)} emergency records for user {user_id}")
