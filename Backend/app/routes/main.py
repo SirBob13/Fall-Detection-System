@@ -1677,10 +1677,10 @@ async def get_user_alerts(
                 "message": alert.message,
                 "status": alert.status,
                 "timestamp": alert.timestamp.isoformat() if alert.timestamp else None,
-                "resolved_at": alert.resolved_at.isoformat() if alert.resolved_at else None,
-                "location": alert.location,
-                "response_notes": alert.response_notes,
-                "metadata": alert.metadata
+                "resolved_at": alert.resolved_at.isoformat() if getattr(alert, "resolved_at", None) else None,
+                "location": getattr(alert, "location", None),
+                "response_notes": getattr(alert, "response_notes", None),
+                "metadata": getattr(alert, "metadata", None)
             })
         
         return JSONResponse(
