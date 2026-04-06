@@ -10,7 +10,6 @@ import threading
 import time
 from typing import Iterable, Optional
 
-import httpx
 import paho.mqtt.client as mqtt
 
 logger = logging.getLogger(__name__)
@@ -23,27 +22,12 @@ MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", "")
 MQTT_TOPICS_RAW = os.getenv("MQTT_TOPICS", "fall-detection/device-data")
 MQTT_QOS = int(os.getenv("MQTT_QOS", "0"))
 MQTT_CLIENT_ID = os.getenv("MQTT_CLIENT_ID", "fall-detection-api")
-MQTT_HTTP_INGEST_URL = os.getenv(
-    "MQTT_HTTP_INGEST_URL",
-    "http://127.0.0.1:8000/api/v1/device-data",
-)
-
 _client: Optional[mqtt.Client] = None
 _thread: Optional[threading.Thread] = None
 
 
 def _topics() -> Iterable[str]:
     return [t.strip() for t in MQTT_TOPICS_RAW.split(",") if t.strip()]
-
-
-def _forward_payload(payload: dict) -> None:
-    try:
-        with httpx.Client(timeout=5.0) as client:
-            resp = client.post(MQTT_HTTP_INGEST_URL, json=payload)
-            if resp.status_code >= 400:
-                logger.warning("MQTT ingest HTTP error %s: %s", resp.status_code, resp.text[:200])
-    except Exception as exc:
-        logger.error("MQTT ingest HTTP failed: %s", exc)
 
 
 def _on_connect(client: mqtt.Client, userdata, flags, rc) -> None:  # type: ignore[override]
@@ -58,10 +42,19 @@ def _on_connect(client: mqtt.Client, userdata, flags, rc) -> None:  # type: igno
 def _on_message(client: mqtt.Client, userdata, msg: mqtt.MQTTMessage) -> None:  # type: ignore[override]
     try:
         raw = msg.payload.decode("utf-8")
-        payload = json.loads(raw)
-        if not isinstance(payload, dict):
+        data = json.loads(raw)
+        if not isinstance(data, dict):
             return
-        _forward_payload(payload)
+        from app.database import SessionLocal
+        from app import schemas
+        from app.routes.main import _handle_device_payload
+
+        db = SessionLocal()
+        try:
+            payload = schemas.DeviceIngestPayload(**data)
+            _handle_device_payload(payload, db)
+        finally:
+            db.close()
     except Exception as exc:
         logger.error("MQTT message error: %s", exc)
 
@@ -94,4 +87,3 @@ def start_mqtt_service() -> None:
     _thread = threading.Thread(target=_run, daemon=True, name="mqtt-listener")
     _thread.start()
     logger.info("🚀 MQTT listener started")
-
