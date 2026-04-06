@@ -238,6 +238,46 @@ class ApiService {
     }
   }
 
+  async getUserDevices(userId: number): Promise<ApiResponse<Device[]>> {
+    try {
+      const response = await this.client.get(`/devices/user/${userId}/all`);
+      const payload = response.data;
+      const devices = Array.isArray(payload?.data)
+        ? payload.data
+        : Array.isArray(payload?.devices)
+        ? payload.devices
+        : [];
+      return { success: payload?.success ?? true, data: devices };
+    } catch (error: any) {
+      console.error('❌ Error getting user devices:', error.message);
+      return {
+        success: false,
+        error: error.message,
+        message: 'فشل تحميل بيانات الأجهزة'
+      };
+    }
+  }
+
+  async getArchivedDevices(userId: number): Promise<ApiResponse<Device[]>> {
+    try {
+      const response = await this.client.get(`/devices/user/${userId}/archived`);
+      const payload = response.data;
+      const devices = Array.isArray(payload?.data)
+        ? payload.data
+        : Array.isArray(payload?.devices)
+        ? payload.devices
+        : [];
+      return { success: payload?.success ?? true, data: devices };
+    } catch (error: any) {
+      console.error('❌ Error getting archived devices:', error.message);
+      return {
+        success: false,
+        error: error.message,
+        message: 'فشل تحميل الأجهزة المؤرشفة'
+      };
+    }
+  }
+
   async connectDevice(payload: {
     user_id: number;
     device_id: string;
@@ -272,6 +312,42 @@ class ApiService {
         success: false,
         error: error.message,
         message: 'فشل فصل الجهاز'
+      };
+    }
+  }
+
+  async removeDevice(deviceId: string, userId?: number): Promise<ApiResponse<Device>> {
+    try {
+      const response = await this.client.delete(`/devices/${deviceId}`, {
+        params: userId ? { user_id: userId } : undefined
+      });
+      const data = response.data;
+      const device = data?.data ?? data?.device ?? data;
+      return { success: data?.success ?? true, data: device, message: data?.message };
+    } catch (error: any) {
+      console.error('❌ Error removing device:', error.message);
+      return {
+        success: false,
+        error: error.message,
+        message: 'فشل إزالة الجهاز'
+      };
+    }
+  }
+
+  async restoreDevice(deviceId: string, userId?: number): Promise<ApiResponse<Device>> {
+    try {
+      const response = await this.client.post(`/devices/${deviceId}/restore`, null, {
+        params: userId ? { user_id: userId } : undefined
+      });
+      const data = response.data;
+      const device = data?.data ?? data?.device ?? data;
+      return { success: data?.success ?? true, data: device, message: data?.message };
+    } catch (error: any) {
+      console.error('❌ Error restoring device:', error.message);
+      return {
+        success: false,
+        error: error.message,
+        message: 'فشل استعادة الجهاز'
       };
     }
   }
@@ -366,6 +442,48 @@ class ApiService {
         success: false,
         error: error.message,
         message: 'فشل إرسال طلب المتابعة'
+      };
+    }
+  }
+
+  async checkEmailExists(email: string): Promise<ApiResponse<{ exists: boolean; valid_format: boolean }>> {
+    try {
+      const response = await this.client.post(`/auth/check-email`, { email });
+      const payload = response.data;
+      return {
+        success: true,
+        data: {
+          exists: !!payload?.exists,
+          valid_format: payload?.valid_format !== false,
+        },
+      };
+    } catch (error: any) {
+      console.error('❌ Error checking email:', error.message);
+      return {
+        success: false,
+        error: error.message,
+        message: 'فشل التحقق من البريد الإلكتروني'
+      };
+    }
+  }
+
+  async checkPhoneExists(phone: string): Promise<ApiResponse<{ exists: boolean; valid_format: boolean }>> {
+    try {
+      const response = await this.client.post(`/auth/check-phone`, { phone });
+      const payload = response.data;
+      return {
+        success: true,
+        data: {
+          exists: !!payload?.exists,
+          valid_format: payload?.valid_format !== false,
+        },
+      };
+    } catch (error: any) {
+      console.error('❌ Error checking phone:', error.message);
+      return {
+        success: false,
+        error: error.message,
+        message: 'فشل التحقق من رقم الهاتف'
       };
     }
   }

@@ -303,6 +303,7 @@ class Device(Base):
     # Status
     battery_level = Column(Float)  # 0-100
     is_connected = Column(Boolean, default=False)
+    is_archived = Column(Boolean, default=False, nullable=False)
     last_seen = Column(DateTime, default=datetime.utcnow)
     
     # Timestamps

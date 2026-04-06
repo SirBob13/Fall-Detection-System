@@ -93,7 +93,7 @@ export const ForgotPasswordScreen: React.FC = () => {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-white">
+    <SafeAreaView className="flex-1 bg-white dark:bg-darkTheme-surface">
       <KeyboardAvoidingView
         className="flex-1"
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -116,10 +116,10 @@ export const ForgotPasswordScreen: React.FC = () => {
               <MaterialIcons name="lock-reset" size={50} color="#2196F3" />
             </View>
             
-            <Text className="text-2xl font-bold text-dark text-center mb-3">
+            <Text className="text-2xl font-bold text-dark dark:text-darkTheme-text text-center mb-3">
               Reset Your Password
             </Text>
-            <Text className="text-base text-gray text-center leading-6 max-w-xs">
+            <Text className="text-base text-gray dark:text-darkTheme-muted text-center leading-6 max-w-xs">
               Enter your email and we'll send you a link to reset your password
             </Text>
           </View>
@@ -136,32 +136,32 @@ export const ForgotPasswordScreen: React.FC = () => {
               <Text className="text-2xl font-bold text-success text-center mb-4">
                 Check Your Email!
               </Text>
-              <Text className="text-base text-gray text-center leading-6 mb-8">
+              <Text className="text-base text-gray dark:text-darkTheme-muted text-center leading-6 mb-8">
                 We've sent password reset instructions to your email address.
               </Text>
               
               {/* Tips Box */}
               <View className="w-full bg-blue-50 rounded-2xl p-5 mb-8 border border-blue-200">
-                <Text className="text-lg font-semibold text-dark mb-4">📌 Important Tips:</Text>
+                <Text className="text-lg font-semibold text-dark dark:text-darkTheme-text mb-4">📌 Important Tips:</Text>
                 
                 <View className="space-y-3">
                   <View className="flex-row items-start">
                     <MaterialIcons name="search" size={18} color="#2196F3" className="mt-0.5" />
-                    <Text className="text-sm text-gray ml-3 flex-1">
+                    <Text className="text-sm text-gray dark:text-darkTheme-muted ml-3 flex-1">
                       Check your spam or junk folder if you don't see the email
                     </Text>
                   </View>
                   
                   <View className="flex-row items-start">
                     <MaterialIcons name="timer" size={18} color="#FF9800" className="mt-0.5" />
-                    <Text className="text-sm text-gray ml-3 flex-1">
+                    <Text className="text-sm text-gray dark:text-darkTheme-muted ml-3 flex-1">
                       Reset link expires in 24 hours for security reasons
                     </Text>
                   </View>
                   
                   <View className="flex-row items-start">
                     <MaterialIcons name="security" size={18} color="#4CAF50" className="mt-0.5" />
-                    <Text className="text-sm text-gray ml-3 flex-1">
+                    <Text className="text-sm text-gray dark:text-darkTheme-muted ml-3 flex-1">
                       Never share your reset link with anyone
                     </Text>
                   </View>
@@ -216,7 +216,7 @@ export const ForgotPasswordScreen: React.FC = () => {
                 <View className="mb-8">
                   {/* Email Field */}
                   <View className="mb-8">
-                    <Text className="text-base font-semibold text-dark mb-3">
+                    <Text className="text-base font-semibold text-dark dark:text-darkTheme-text mb-3">
                       <MaterialIcons name="email" size={16} color="#666" /> Email Address
                     </Text>
                     <TextInput
@@ -261,10 +261,10 @@ export const ForgotPasswordScreen: React.FC = () => {
                   <View className="flex-row p-4 bg-blue-50 rounded-xl border border-blue-200">
                     <MaterialIcons name="info" size={24} color="#2196F3" />
                     <View className="ml-3 flex-1">
-                      <Text className="text-sm font-medium text-dark mb-1">
+                      <Text className="text-sm font-medium text-dark dark:text-darkTheme-text mb-1">
                         What happens next?
                       </Text>
-                      <Text className="text-xs text-gray">
+                      <Text className="text-xs text-gray dark:text-darkTheme-muted">
                         You'll receive an email with a secure link to reset your password. Click the link and create a new password.
                       </Text>
                     </View>
@@ -274,15 +274,15 @@ export const ForgotPasswordScreen: React.FC = () => {
                   <View className="mt-6 p-4 bg-yellow-50 rounded-xl border border-yellow-200">
                     <View className="flex-row items-center mb-2">
                       <MaterialIcons name="security" size={18} color="#FF9800" />
-                      <Text className="text-sm font-medium text-dark ml-2">Security Notice</Text>
+                      <Text className="text-sm font-medium text-dark dark:text-darkTheme-text ml-2">Security Notice</Text>
                     </View>
-                    <Text className="text-xs text-gray">
+                    <Text className="text-xs text-gray dark:text-darkTheme-muted">
                       • Only enter your registered email address
                     </Text>
-                    <Text className="text-xs text-gray mt-1">
+                    <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">
                       • We'll never ask for your password via email
                     </Text>
-                    <Text className="text-xs text-gray mt-1">
+                    <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">
                       • Links expire automatically for your protection
                     </Text>
                   </View>
@@ -294,7 +294,7 @@ export const ForgotPasswordScreen: React.FC = () => {
           {/* Back to Login Link (only show in form mode) */}
           {!emailSent && (
             <TouchableOpacity
-              className="flex-row justify-center items-center py-6 border-t border-lightGray mt-6"
+              className="flex-row justify-center items-center py-6 border-t border-lightGray dark:border-darkTheme-border mt-6"
               onPress={() => navigation.navigate('Login')}
               activeOpacity={0.7}
             >
@@ -309,9 +309,9 @@ export const ForgotPasswordScreen: React.FC = () => {
           <View className="items-center mt-8">
             <View className="flex-row items-center mb-2">
               <MaterialIcons name="support-agent" size={16} color="#757575" />
-              <Text className="text-xs text-gray ml-2">Need help? Contact support</Text>
+              <Text className="text-xs text-gray dark:text-darkTheme-muted ml-2">Need help? Contact support</Text>
             </View>
-            <Text className="text-xs text-lightGray">Fall Detection System • v1.0.0</Text>
+            <Text className="text-xs text-lightGray dark:text-darkTheme-muted">Fall Detection System • v1.0.0</Text>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>

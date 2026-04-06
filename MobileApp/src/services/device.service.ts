@@ -60,6 +60,22 @@ class DeviceService {
     return null;
   }
 
+  async removeDevice(deviceId: string, userId?: number): Promise<boolean> {
+    if (!deviceId) return false;
+
+    const response = await apiService.removeDevice(deviceId, userId);
+    if (response.success) {
+      const stored = await storageService.getDevice();
+      if (stored?.device_id === deviceId) {
+        await storageService.clearDevice();
+        await bleGatewayService.stop();
+      }
+      return true;
+    }
+
+    return false;
+  }
+
   async refreshUserDevice(userId: number): Promise<Device | null> {
     if (!userId) return null;
 
@@ -70,6 +86,24 @@ class DeviceService {
     }
 
     return null;
+  }
+
+  async refreshUserDevices(userId: number): Promise<Device[]> {
+    if (!userId) return [];
+
+    const response = await apiService.getUserDevices(userId);
+    if (response.success && Array.isArray(response.data)) {
+      const stored = await storageService.getDevice();
+      if (stored) {
+        const updated = response.data.find((item) => item.device_id === stored.device_id);
+        if (updated) {
+          await storageService.saveDevice(updated);
+        }
+      }
+      return response.data;
+    }
+
+    return [];
   }
 
   async autoConnectIfEnabled(): Promise<void> {
@@ -84,6 +118,14 @@ class DeviceService {
       if (!userId) return;
 
       let device = await storageService.getDevice();
+      const preferredDeviceId = settings?.defaultDeviceId;
+      if (preferredDeviceId && device?.device_id !== preferredDeviceId) {
+        const devices = await this.refreshUserDevices(userId);
+        const preferred = devices.find((item) => item.device_id === preferredDeviceId);
+        if (preferred) {
+          device = preferred;
+        }
+      }
       if (!device) {
         device = await this.refreshUserDevice(userId);
       }

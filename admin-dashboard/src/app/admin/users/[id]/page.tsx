@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { apiFetch, API_V1, buildDateQuery, getToken } from "../../_lib/api";
+import { useRealtimeEvents } from "../../_lib/realtime";
 
 interface UserDevice {
   id: number;
@@ -138,6 +139,90 @@ export default function UserDetailPage() {
   useEffect(() => {
     loadAll();
   }, [userId]);
+
+  const withinRange = (timestamp?: string | null) => {
+    if (!timestamp) return true;
+    if (!start && !end) return true;
+    const ts = new Date(timestamp).getTime();
+    if (Number.isNaN(ts)) return true;
+    if (start) {
+      const startTs = new Date(start).getTime();
+      if (!Number.isNaN(startTs) && ts < startTs) return false;
+    }
+    if (end) {
+      const endDate = new Date(end);
+      endDate.setHours(23, 59, 59, 999);
+      const endTs = endDate.getTime();
+      if (!Number.isNaN(endTs) && ts > endTs) return false;
+    }
+    return true;
+  };
+
+  const upsertById = <T extends { id: number }>(list: T[], payload: T, limit = 50) => {
+    const exists = list.find((item) => item.id === payload.id);
+    const next = exists
+      ? list.map((item) => (item.id === payload.id ? { ...item, ...payload } : item))
+      : [payload, ...list];
+    return next.slice(0, limit);
+  };
+
+  const upsertWithRange = <T extends { id: number; timestamp?: string | null }>(list: T[], payload: T) => {
+    const exists = list.find((item) => item.id === payload.id);
+    if (!exists && !withinRange(payload.timestamp ?? null)) return list;
+    return upsertById(list, payload, 50);
+  };
+
+  useRealtimeEvents(["users", "alerts", "vitals", "predictions", "devices", "motions"], (event) => {
+    if (!event.payload) return;
+
+    if (event.resource === "users" && event.payload.id === userId) {
+      setDetail((prev) => (prev ? { ...prev, ...event.payload } : prev));
+      return;
+    }
+
+    if (event.resource === "devices" && event.payload.user_id === userId) {
+      setDetail((prev) => {
+        if (!prev) return prev;
+        const devices = upsertById(prev.devices || [], event.payload as UserDevice, 50);
+        return { ...prev, devices };
+      });
+      return;
+    }
+
+    if (event.resource === "alerts" && event.payload.user_id === userId) {
+      setAlerts((prev) => upsertWithRange(prev, event.payload as AlertItem));
+      if (event.action === "created") {
+        setDetail((prev) =>
+          prev ? { ...prev, stats: { ...prev.stats, alerts: prev.stats.alerts + 1 } } : prev
+        );
+      }
+      return;
+    }
+
+    if (event.resource === "vitals" && event.payload.user_id === userId) {
+      setVitals((prev) => upsertWithRange(prev, event.payload as VitalItem));
+      if (event.action === "created") {
+        setDetail((prev) =>
+          prev ? { ...prev, stats: { ...prev.stats, vitals: prev.stats.vitals + 1 } } : prev
+        );
+      }
+      return;
+    }
+
+    if (event.resource === "motions" && event.payload.user_id === userId) {
+      setMotions((prev) => upsertWithRange(prev, event.payload as MotionItem));
+      if (event.action === "created") {
+        setDetail((prev) =>
+          prev ? { ...prev, stats: { ...prev.stats, motions: prev.stats.motions + 1 } } : prev
+        );
+      }
+      return;
+    }
+
+    if (event.resource === "predictions" && event.payload.user_id === userId) {
+      setPredictions((prev) => upsertWithRange(prev, event.payload as PredictionItem));
+    }
+  });
 
   const toggleStatus = async () => {
     if (!detail) return;

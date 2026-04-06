@@ -124,7 +124,7 @@ export const AlertCard: React.FC<AlertCardProps> = ({
     <Animated.View 
       style={{ transform: [{ scale: scaleAnim }] }}
       className={`
-        bg-white rounded-2xl p-4 border-l-4
+        bg-white dark:bg-darkTheme-surface rounded-2xl p-4 border-l-4
         ${isCritical ? 'border-l-danger' : 
           alert.severity === 'high' ? 'border-l-warning' :
           'border-l-primary'}
@@ -148,13 +148,13 @@ export const AlertCard: React.FC<AlertCardProps> = ({
           </View>
           
           <View className="flex-1">
-            <Text className="text-base font-semibold text-dark">
+            <Text className="text-base font-semibold text-dark dark:text-darkTheme-text">
               {getAlertTypeLabel()}
             </Text>
             
             <View className="flex-row items-center mt-1">
               <View className={`w-2 h-2 rounded-full mr-2 ${isPending ? 'bg-warning' : 'bg-success'}`} />
-              <Text className="text-xs text-gray">
+              <Text className="text-xs text-gray dark:text-darkTheme-muted">
                 {formatDate(alert.timestamp)} • 
                 <Text className="font-medium" style={{ color: getStatusColor() }}>
                   {' '}{getStatusLabel()}
@@ -185,29 +185,29 @@ export const AlertCard: React.FC<AlertCardProps> = ({
       </View>
 
       {/* Alert Message */}
-      <Text className="text-sm text-dark mb-4 leading-5">
+      <Text className="text-sm text-dark dark:text-darkTheme-text mb-4 leading-5">
         {alert.message || t('alerts.defaultMessage')}
       </Text>
 
       {/* Alert Details */}
       <View className="flex-row justify-between mb-4 p-3 bg-lightGray/20 rounded-lg">
         <View className="items-center flex-1">
-          <Text className="text-xs text-gray">{t('alerts.alertId')}</Text>
-          <Text className="text-sm font-medium text-dark">
+          <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('alerts.alertId')}</Text>
+          <Text className="text-sm font-medium text-dark dark:text-darkTheme-text">
             #{alert.id.toString().slice(-6)}
           </Text>
         </View>
         
-        <View className="items-center flex-1 border-x border-lightGray">
-          <Text className="text-xs text-gray">{t('alerts.type')}</Text>
-          <Text className="text-sm font-medium text-dark">
+        <View className="items-center flex-1 border-x border-lightGray dark:border-darkTheme-border">
+          <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('alerts.type')}</Text>
+          <Text className="text-sm font-medium text-dark dark:text-darkTheme-text">
             {getAlertTypeLabel()}
           </Text>
         </View>
         
         <View className="items-center flex-1">
-          <Text className="text-xs text-gray">{t('alerts.time')}</Text>
-          <Text className="text-sm font-medium text-dark">
+          <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('alerts.time')}</Text>
+          <Text className="text-sm font-medium text-dark dark:text-darkTheme-text">
             {new Date(alert.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </Text>
         </View>

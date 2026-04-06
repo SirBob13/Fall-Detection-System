@@ -13,6 +13,7 @@ from ..database import get_db
 from .. import crud, schemas
 from ..services.emergency_service import EmergencyService
 from ..models import User, Alert, EmergencyLog
+from ..realtime import notify_user, notify_admins
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -82,6 +83,20 @@ async def trigger_emergency(
             db.refresh(alert)
             
             logger.info(f"✅ Emergency alert created: {alert.id}")
+
+            payload = {
+                "id": alert.id,
+                "user_id": alert.user_id,
+                "alert_type": alert.alert_type,
+                "severity": alert.severity,
+                "message": alert.message,
+                "status": alert.status,
+                "timestamp": alert.timestamp.isoformat() if alert.timestamp else None,
+                "location": alert.location,
+                "metadata": alert.metadata,
+            }
+            await notify_user(user.id, "alerts", action="created", payload=payload)
+            await notify_admins("alerts", action="created", payload=payload)
             
         except Exception as db_error:
             logger.error(f"Database error creating alert: {db_error}")

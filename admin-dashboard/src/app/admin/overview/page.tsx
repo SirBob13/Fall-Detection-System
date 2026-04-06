@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiFetch } from "../_lib/api";
+import { useRealtimeEvents } from "../_lib/realtime";
 
 interface OverviewData {
   users: { total: number; active: number };
@@ -22,6 +23,55 @@ export default function OverviewPage() {
       .then((res) => setData(res.data))
       .catch((err) => setError(err.message));
   }, []);
+
+  useRealtimeEvents(["alerts", "vitals", "predictions", "devices", "motions"], (event) => {
+    if (!event.payload) return;
+    setData((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev };
+      if (event.resource === "alerts" && event.action === "created") {
+        next.alerts = {
+          ...prev.alerts,
+          total: prev.alerts.total + 1,
+          active:
+            event.payload.status === "active" || event.payload.status === "pending"
+              ? prev.alerts.active + 1
+              : prev.alerts.active,
+        };
+        next.last_activity = {
+          ...prev.last_activity,
+          alert: event.payload.timestamp || prev.last_activity.alert,
+        };
+      }
+      if (event.resource === "vitals" && event.action === "created") {
+        next.vitals = prev.vitals + 1;
+        next.last_activity = {
+          ...prev.last_activity,
+          vital: event.payload.timestamp || prev.last_activity.vital,
+        };
+      }
+      if (event.resource === "predictions" && event.action === "created") {
+        next.predictions = prev.predictions + 1;
+        next.last_activity = {
+          ...prev.last_activity,
+          motion: event.payload.timestamp || prev.last_activity.motion,
+        };
+      }
+      if (event.resource === "motions" && event.action === "created") {
+        next.motions = prev.motions + 1;
+        next.last_activity = {
+          ...prev.last_activity,
+          motion: event.payload.timestamp || prev.last_activity.motion,
+        };
+      }
+      if (event.resource === "devices" && event.payload?.is_connected !== undefined) {
+        // best-effort: adjust connected count if device toggled
+        // without a full device list, we keep totals stable
+        next.devices = { ...prev.devices };
+      }
+      return next;
+    });
+  });
 
   return (
     <div className="space-y-6">

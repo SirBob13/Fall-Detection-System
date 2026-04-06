@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { apiFetch, API_V1, getToken } from "../_lib/api";
+import { useRealtimeEvents } from "../_lib/realtime";
 
 interface UserItem {
   id: number;
@@ -29,6 +30,29 @@ export default function UsersPage() {
   useEffect(() => {
     load();
   }, []);
+
+  const matchesSearch = (user: UserItem, query: string) => {
+    if (!query) return true;
+    const q = query.toLowerCase();
+    return `${user.name || ""} ${user.email || ""}`.toLowerCase().includes(q);
+  };
+
+  useRealtimeEvents(["users"], (event) => {
+    if (!event.payload) return;
+    const payload = event.payload as UserItem;
+    setUsers((prev) => {
+      const index = prev.findIndex((item) => item.id === payload.id);
+      const passesFilter = matchesSearch(payload, search);
+      if (index === -1) {
+        if (search && !passesFilter) return prev;
+        return [payload, ...prev].slice(0, 50);
+      }
+      if (search && !passesFilter) {
+        return prev.filter((item) => item.id !== payload.id);
+      }
+      return prev.map((item) => (item.id === payload.id ? { ...item, ...payload } : item));
+    });
+  });
 
   return (
     <div className="space-y-6">

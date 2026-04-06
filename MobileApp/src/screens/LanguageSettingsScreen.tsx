@@ -89,10 +89,10 @@ export const LanguageSettingsScreen: React.FC = () => {
           <View className="w-20 h-20 rounded-full bg-blue-50 justify-center items-center mb-4">
             <MaterialIcons name="language" size={40} color="#2196F3" />
           </View>
-          <Text className="text-2xl font-bold text-dark mb-2">
+          <Text className="text-2xl font-bold text-dark dark:text-darkTheme-text mb-2">
             {t('language.title')}
           </Text>
-          <Text className="text-base text-gray text-center">
+          <Text className="text-base text-gray dark:text-darkTheme-muted text-center">
             {t('language.selectLanguage')}
           </Text>
         </View>
@@ -102,10 +102,10 @@ export const LanguageSettingsScreen: React.FC = () => {
             <TouchableOpacity
               key={lang.code}
               className={`
-                bg-white rounded-xl p-5 mb-4 border-2
+                bg-white dark:bg-darkTheme-surface rounded-xl p-5 mb-4 border-2
                 ${selectedLang === lang.code 
                   ? 'border-primary bg-blue-50' 
-                  : 'border-lightGray'
+                  : 'border-lightGray dark:border-darkTheme-border'
                 }
                 ${(isChanging || language === lang.code) ? 'opacity-60' : 'active:opacity-80'}
               `}
@@ -119,7 +119,7 @@ export const LanguageSettingsScreen: React.FC = () => {
                 </View>
                 <View className="flex-1">
                   <View className="flex-row items-center justify-between mb-1">
-                    <Text className="text-lg font-semibold text-dark">
+                    <Text className="text-lg font-semibold text-dark dark:text-darkTheme-text">
                       {lang.name}
                     </Text>
                     {language === lang.code && (
@@ -134,9 +134,6 @@ export const LanguageSettingsScreen: React.FC = () => {
                   <Text className="text-sm text-primary mb-2">
                     {lang.nativeName}
                   </Text>
-                  <Text className="text-xs text-gray">
-                    {lang.description}
-                  </Text>
                 </View>
                 <MaterialIcons 
                   name={language === lang.code ? "radio-button-checked" : "radio-button-unchecked"} 
@@ -148,36 +145,6 @@ export const LanguageSettingsScreen: React.FC = () => {
           ))}
         </View>
 
-        <View className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6">
-          <View className="flex-row items-start">
-            <MaterialIcons name="info" size={20} color="#2196F3" className="mt-0.5" />
-            <View className="ml-3 flex-1">
-              <Text className="text-sm font-medium text-dark mb-1">
-                {t('language.note')}
-              </Text>
-              <Text className="text-xs text-gray leading-5">
-                {t('language.languageChangeInfo')}
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        <View className="bg-green-50 border border-green-200 rounded-xl p-4">
-          <View className="flex-row items-start">
-            <MaterialIcons name="translate" size={20} color="#4CAF50" className="mt-0.5" />
-            <View className="ml-3 flex-1">
-              <Text className="text-sm font-medium text-dark mb-1">
-                {t('language.currentLanguage')}
-              </Text>
-              <Text className="text-xs text-gray leading-5">
-                {language === 'ar' 
-                  ? t('language.arabicSelected')
-                  : t('language.englishSelected')
-                }
-              </Text>
-            </View>
-          </View>
-        </View>
       </ScrollView>
     </ScreenWrapper>
   );

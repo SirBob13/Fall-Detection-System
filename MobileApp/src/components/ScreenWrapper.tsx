@@ -22,7 +22,7 @@ export const ScreenWrapper: React.FC<ScreenWrapperProps> = ({
   const WrapperView = scrollable ? View : View;
   
   return (
-    <View className={`flex-1 bg-light ${className}`} style={{ direction: isRTL ? 'rtl' : 'ltr' }}>
+    <View className={`flex-1 bg-light dark:bg-darkTheme-background ${className}`} style={{ direction: isRTL ? 'rtl' : 'ltr' }}>
       <StatusBar 
         barStyle={Platform.OS === 'ios' ? 'light-content' : 'light-content'} 
         backgroundColor={statusBarColor}

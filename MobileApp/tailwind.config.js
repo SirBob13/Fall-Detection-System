@@ -28,10 +28,13 @@ module.exports = {
         safe: '#388E3C',
         caution: '#FFA000',
         darkTheme: {
-          primary: '#0A84FF',
-          background: '#000000',
-          surface: '#1C1C1E',
-          text: '#FFFFFF',
+          primary: '#2FA8FF',
+          background: '#061521',
+          surface: '#0B1E2D',
+          card: '#0F2738',
+          border: '#1B3D59',
+          text: '#EAF4FF',
+          muted: '#9BB3C7',
         },
       },
       spacing: {

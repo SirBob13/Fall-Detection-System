@@ -36,12 +36,12 @@ export class ErrorBoundary extends Component<Props, State> {
       }
 
       return (
-        <View className="flex-1 justify-center items-center bg-white p-8">
+        <View className="flex-1 justify-center items-center bg-white dark:bg-darkTheme-surface p-8">
           <Text className="text-6xl mb-4">🚨</Text>
           <Text className="text-2xl font-bold text-danger mb-2">
             Something went wrong
           </Text>
-          <Text className="text-gray text-center mb-6">
+          <Text className="text-gray dark:text-darkTheme-muted text-center mb-6">
             {this.state.error?.message || 'An unexpected error occurred'}
           </Text>
           <TouchableOpacity

@@ -20,6 +20,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Font from 'expo-font';
 import { LanguageProvider } from './src/components/LanguageProvider';
+import { SettingsProvider } from './src/components/SettingsProvider';
 import { AppNavigator } from './src/navigation/AppNavigator';
 import { initI18n, getCurrentLanguage, isArabic } from './src/i18n';
 import { notificationService } from './src/services/notifications';
@@ -370,6 +371,7 @@ export default function App() {
           >
             <SafeAreaProvider>
               <LanguageProvider>
+                <SettingsProvider>
                 <StatusBar
                   barStyle={isArabic() ? "light-content" : "dark-content"}
                   backgroundColor="#2196F3"
@@ -424,6 +426,7 @@ export default function App() {
                     </View>
                   </View>
                 )}
+                </SettingsProvider>
               </LanguageProvider>
             </SafeAreaProvider>
           </PersistGate>

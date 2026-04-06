@@ -7,6 +7,7 @@ import { storageService } from '../services/storage';
 import { apiService } from '../services/api';
 import { CareLink, ReportSummary, User } from '../types';
 import { ScreenHeader } from '../components/ScreenHeader';
+import { realtimeService } from '../services/realtime.service';
 
 export const ReportsScreen: React.FC = () => {
   const { t } = useLanguage();
@@ -64,6 +65,79 @@ export const ReportsScreen: React.FC = () => {
     }
   };
 
+  useEffect(() => {
+    const unsubscribe = realtimeService.subscribe('all', (event) => {
+      if (!activeUser || !report) return;
+      if (event.user_id && event.user_id !== activeUser.id) return;
+      if (!event.payload) return;
+
+      if (event.resource === 'alerts' && event.action === 'created') {
+        setReport((prev) => {
+          if (!prev) return prev;
+          const timestamp = event.payload.timestamp ? new Date(event.payload.timestamp) : null;
+          const withinRange = timestamp
+            ? timestamp.getTime() >= Date.now() - periodDays * 24 * 60 * 60 * 1000
+            : false;
+          if (!withinRange) return prev;
+
+          const byType = { ...(prev.alerts.by_type || {}) };
+          const bySeverity = { ...(prev.alerts.by_severity || {}) };
+          const byStatus = { ...(prev.alerts.by_status || {}) };
+
+          const typeKey = event.payload.type || event.payload.alert_type || 'unknown';
+          const severityKey = event.payload.severity || 'unknown';
+          const statusKey = event.payload.status || 'pending';
+
+          byType[typeKey] = (byType[typeKey] || 0) + 1;
+          bySeverity[severityKey] = (bySeverity[severityKey] || 0) + 1;
+          byStatus[statusKey] = (byStatus[statusKey] || 0) + 1;
+
+          const dateKey = timestamp ? timestamp.toISOString().slice(0, 10) : '';
+          const dailyCounts = [...(prev.alerts.daily_counts || [])];
+          const idx = dailyCounts.findIndex((item) => item.date === dateKey);
+          if (idx >= 0) {
+            dailyCounts[idx] = { ...dailyCounts[idx], count: dailyCounts[idx].count + 1 };
+          } else if (dateKey) {
+            dailyCounts.push({ date: dateKey, count: 1 });
+          }
+
+          return {
+            ...prev,
+            alerts: {
+              ...prev.alerts,
+              total: prev.alerts.total + 1,
+              by_type: byType,
+              by_severity: bySeverity,
+              by_status: byStatus,
+              daily_counts: dailyCounts,
+            },
+          };
+        });
+      }
+
+      if (event.resource === 'vitals' && event.action === 'created') {
+        setReport((prev) => {
+          if (!prev) return prev;
+          const nextTotal = prev.vitals.total + 1;
+          const currentAbnormal = Math.round((prev.vitals.abnormal_rate || 0) * prev.vitals.total);
+          const isAbnormal = !!event.payload.is_abnormal;
+          const nextAbnormal = currentAbnormal + (isAbnormal ? 1 : 0);
+          const nextRate = nextTotal > 0 ? nextAbnormal / nextTotal : 0;
+          return {
+            ...prev,
+            vitals: {
+              ...prev.vitals,
+              total: nextTotal,
+              abnormal_rate: nextRate,
+            },
+          };
+        });
+      }
+    });
+
+    return unsubscribe;
+  }, [activeUser, report, periodDays]);
+
   const handleSelect = async (link: CareLink | null) => {
     if (!link || !link.patient) {
       await storageService.saveMonitoredUser(null);
@@ -93,17 +167,17 @@ export const ReportsScreen: React.FC = () => {
 
   return (
     <ScrollView
-      className="flex-1 bg-light"
+      className="flex-1 bg-light dark:bg-darkTheme-background"
       showsVerticalScrollIndicator={false}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
     >
       <ScreenHeader title={t('reports.title')} subtitle={t('reports.subtitle')} />
 
       {links.length > 0 ? (
-        <View className="mx-4 mt-4 bg-white rounded-2xl shadow-lg border border-lightGray p-4">
-          <Text className="text-sm font-semibold text-dark mb-2">{t('reports.viewing')}</Text>
+        <View className="mx-4 mt-4 bg-white dark:bg-darkTheme-surface rounded-2xl shadow-lg border border-lightGray dark:border-darkTheme-border p-4">
+          <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text mb-2">{t('reports.viewing')}</Text>
           {activeUser ? (
-            <Text className="text-xs text-gray">{activeUser.name}</Text>
+            <Text className="text-xs text-gray dark:text-darkTheme-muted">{activeUser.name}</Text>
           ) : null}
           <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mt-3">
             <TouchableOpacity
@@ -112,7 +186,7 @@ export const ReportsScreen: React.FC = () => {
               }`}
               onPress={() => handleSelect(null)}
             >
-              <Text className={`${!activeUser || activeUser.id === currentUser?.id ? 'text-white' : 'text-dark'} text-xs`}>
+              <Text className={`${!activeUser || activeUser.id === currentUser?.id ? 'text-white' : 'text-dark dark:text-darkTheme-text'} text-xs`}>
                 {t('dashboard.myData')}
               </Text>
             </TouchableOpacity>
@@ -123,7 +197,7 @@ export const ReportsScreen: React.FC = () => {
                 onPress={() => handleSelect(link)}
                 disabled={!link.patient}
               >
-                <Text className={`${activeUser?.id === link.patient?.id ? 'text-white' : 'text-dark'} text-xs`}>
+                <Text className={`${activeUser?.id === link.patient?.id ? 'text-white' : 'text-dark dark:text-darkTheme-text'} text-xs`}>
                   {link.patient?.name ?? t('dashboard.noUser')}
                 </Text>
               </TouchableOpacity>
@@ -139,7 +213,7 @@ export const ReportsScreen: React.FC = () => {
             className={`px-4 py-2 rounded-full mr-2 ${period === value ? 'bg-primary' : 'bg-lightGray'}`}
             onPress={() => setPeriod(value)}
           >
-            <Text className={`${period === value ? 'text-white' : 'text-dark'} text-xs`}>
+            <Text className={`${period === value ? 'text-white' : 'text-dark dark:text-darkTheme-text'} text-xs`}>
               {t(`reports.${value}`)}
             </Text>
           </TouchableOpacity>
@@ -152,12 +226,12 @@ export const ReportsScreen: React.FC = () => {
         </View>
       ) : !report ? (
         <View className="mx-4 mt-6">
-          <Text className="text-xs text-gray">{t('reports.noData')}</Text>
+          <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('reports.noData')}</Text>
         </View>
       ) : (
         <>
-          <View className="mx-4 mt-4 bg-white rounded-2xl shadow-lg border border-lightGray p-4">
-            <Text className="text-sm font-semibold text-dark mb-3">{t('reports.summary')}</Text>
+          <View className="mx-4 mt-4 bg-white dark:bg-darkTheme-surface rounded-2xl shadow-lg border border-lightGray dark:border-darkTheme-border p-4">
+            <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text mb-3">{t('reports.summary')}</Text>
             <View className="flex-row justify-between">
               <View className="items-center flex-1 bg-primary rounded-xl py-3 mx-1">
                 <Text className="text-white text-lg font-bold">{report.alerts.total}</Text>
@@ -174,8 +248,8 @@ export const ReportsScreen: React.FC = () => {
             </View>
           </View>
 
-          <View className="mx-4 mt-4 bg-white rounded-2xl shadow-lg border border-lightGray p-4">
-            <Text className="text-sm font-semibold text-dark mb-3">{t('reports.trend')}</Text>
+          <View className="mx-4 mt-4 bg-white dark:bg-darkTheme-surface rounded-2xl shadow-lg border border-lightGray dark:border-darkTheme-border p-4">
+            <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text mb-3">{t('reports.trend')}</Text>
             {data.length > 1 ? (
               <LineChart
                 data={{
@@ -204,40 +278,40 @@ export const ReportsScreen: React.FC = () => {
                 style={{ borderRadius: 12 }}
               />
             ) : (
-              <Text className="text-xs text-gray">{t('reports.noTrend')}</Text>
+              <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('reports.noTrend')}</Text>
             )}
           </View>
 
-          <View className="mx-4 mt-4 bg-white rounded-2xl shadow-lg border border-lightGray p-4">
-            <Text className="text-sm font-semibold text-dark mb-3">{t('reports.vitals')}</Text>
+          <View className="mx-4 mt-4 bg-white dark:bg-darkTheme-surface rounded-2xl shadow-lg border border-lightGray dark:border-darkTheme-border p-4">
+            <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text mb-3">{t('reports.vitals')}</Text>
             <View className="flex-row justify-between mb-2">
-              <Text className="text-xs text-gray">{t('vitals.heartRate')}</Text>
-              <Text className="text-sm font-semibold text-dark">
+              <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('vitals.heartRate')}</Text>
+              <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text">
                 {report.vitals.avg_heart_rate ?? '--'} {t('vitals.bpm')}
               </Text>
             </View>
             <View className="flex-row justify-between mb-2">
-              <Text className="text-xs text-gray">{t('vitals.oxygen')}</Text>
-              <Text className="text-sm font-semibold text-dark">
+              <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('vitals.oxygen')}</Text>
+              <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text">
                 {report.vitals.avg_oxygen ?? '--'} {t('vitals.percent')}
               </Text>
             </View>
             <View className="flex-row justify-between mb-2">
-              <Text className="text-xs text-gray">{t('vitals.temperature')}</Text>
-              <Text className="text-sm font-semibold text-dark">
+              <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('vitals.temperature')}</Text>
+              <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text">
                 {report.vitals.avg_temperature ?? '--'} {t('vitals.celsius')}
               </Text>
             </View>
             <View className="flex-row justify-between">
-              <Text className="text-xs text-gray">{t('reports.abnormalRate')}</Text>
-              <Text className="text-sm font-semibold text-dark">{abnormalRate}%</Text>
+              <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('reports.abnormalRate')}</Text>
+              <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text">{abnormalRate}%</Text>
             </View>
           </View>
 
-          <View className="mx-4 mt-4 mb-10 bg-white rounded-2xl shadow-lg border border-lightGray p-4">
-            <Text className="text-sm font-semibold text-dark mb-3">{t('reports.recommendations')}</Text>
+          <View className="mx-4 mt-4 mb-10 bg-white dark:bg-darkTheme-surface rounded-2xl shadow-lg border border-lightGray dark:border-darkTheme-border p-4">
+            <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text mb-3">{t('reports.recommendations')}</Text>
             {report.recommendations.map((rec, idx) => (
-              <Text key={`${rec}-${idx}`} className="text-xs text-gray mb-2">
+              <Text key={`${rec}-${idx}`} className="text-xs text-gray dark:text-darkTheme-muted mb-2">
                 • {rec}
               </Text>
             ))}

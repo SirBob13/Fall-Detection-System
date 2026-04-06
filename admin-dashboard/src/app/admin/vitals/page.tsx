@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiFetch, buildDateQuery } from "../_lib/api";
+import { useRealtimeEvents } from "../_lib/realtime";
 
 interface VitalItem {
   id: number;
@@ -31,6 +32,37 @@ export default function VitalsPage() {
   useEffect(() => {
     load();
   }, []);
+
+  const withinRange = (timestamp?: string | null) => {
+    if (!timestamp) return true;
+    if (!start && !end) return true;
+    const ts = new Date(timestamp).getTime();
+    if (Number.isNaN(ts)) return true;
+    if (start) {
+      const startTs = new Date(start).getTime();
+      if (!Number.isNaN(startTs) && ts < startTs) return false;
+    }
+    if (end) {
+      const endDate = new Date(end);
+      endDate.setHours(23, 59, 59, 999);
+      const endTs = endDate.getTime();
+      if (!Number.isNaN(endTs) && ts > endTs) return false;
+    }
+    return true;
+  };
+
+  useRealtimeEvents(["vitals"], (event) => {
+    if (!event.payload) return;
+    const payload = event.payload as VitalItem;
+    if (!withinRange(payload.timestamp ?? null)) return;
+    setVitals((prev) => {
+      const exists = prev.find((item) => item.id === payload.id);
+      const next = exists
+        ? prev.map((item) => (item.id === payload.id ? { ...item, ...payload } : item))
+        : [payload, ...prev];
+      return next.slice(0, 50);
+    });
+  });
 
   return (
     <div className="space-y-6">

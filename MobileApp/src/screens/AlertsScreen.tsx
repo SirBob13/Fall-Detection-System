@@ -10,35 +10,75 @@ import {
 } from 'react-native';
 import { AlertCard } from '../components/AlertCard';
 import { apiService } from '../services/api';
+import { authService } from '../services/auth.service';
 import { storageService } from '../services/storage';
 import { Alert as AlertType, CareLink, User } from '../types';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLanguage } from '../components/LanguageProvider';
 import { ScreenHeader } from '../components/ScreenHeader';
+import { realtimeService } from '../services/realtime.service';
 
 export const AlertsScreen: React.FC = () => {
   const { t } = useLanguage();
   const [refreshing, setRefreshing] = useState(false);
   const [alerts, setAlerts] = useState<AlertType[]>([]);
+  const [allAlerts, setAllAlerts] = useState<AlertType[]>([]);
   const [filter, setFilter] = useState<'all' | 'pending' | 'resolved'>('all');
   const [isLoading, setIsLoading] = useState(true);
   const [monitoredUser, setMonitoredUser] = useState<User | null>(null);
   const [links, setLinks] = useState<CareLink[]>([]);
+  const [user, setUser] = useState<User | null>(null);
   
   // Get safe area insets
   const insets = useSafeAreaInsets();
 
   useEffect(() => {
     loadAlerts();
-  }, [filter, monitoredUser]);
+  }, [monitoredUser]);
+
+  useEffect(() => {
+    setAlerts(applyFilter(allAlerts, filter));
+  }, [allAlerts, filter]);
+
+  const applyFilter = (items: AlertType[], activeFilter: typeof filter) => {
+    if (activeFilter === 'pending') {
+      return items.filter((alert) => alert.status === 'pending' || alert.status === 'sent');
+    }
+    if (activeFilter === 'resolved') {
+      return items.filter((alert) => alert.status === 'resolved');
+    }
+    return items;
+  };
 
   const loadAlerts = async () => {
     try {
       setIsLoading(true);
-      const user = await storageService.getUser();
+      const sessionUser = await authService.getCurrentUser();
+      const normalizedSessionUser = sessionUser
+        ? ({
+            id: Number(sessionUser.id ?? 0),
+            name: sessionUser.name || '',
+            email: sessionUser.email,
+            phone: sessionUser.phone,
+            age: sessionUser.age ?? 0,
+            gender: (sessionUser.gender as User['gender']) || 'other',
+            weight: sessionUser.weight,
+            height: sessionUser.height,
+            medical_conditions: sessionUser.medical_conditions,
+            emergency_contact: sessionUser.emergency_contact,
+            is_active: sessionUser.is_active ?? true,
+            created_at: sessionUser.created_at || new Date().toISOString(),
+          } as User)
+        : null;
+
+      if (normalizedSessionUser) {
+        await storageService.saveUser(normalizedSessionUser);
+      }
+      const storedUser = normalizedSessionUser || (await storageService.getUser());
+      setUser(storedUser || null);
       const monitoredUser = await storageService.getMonitoredUser();
       setMonitoredUser(monitoredUser || null);
-      const activeUser = monitoredUser || user;
+      const activeUser = monitoredUser || storedUser;
 
       if (!activeUser) {
         RNAlert.alert(t('common.error'), t('errors.loginRequired'));
@@ -57,19 +97,8 @@ export const AlertsScreen: React.FC = () => {
 
       const response = await apiService.getUserAlerts(activeUser.id, 50);
       if (response.success && response.data) {
-        let filteredAlerts = response.data;
-        
-        if (filter === 'pending') {
-          filteredAlerts = filteredAlerts.filter(
-            (alert) => alert.status === 'pending' || alert.status === 'sent'
-          );
-        } else if (filter === 'resolved') {
-          filteredAlerts = filteredAlerts.filter(
-            (alert) => alert.status === 'resolved'
-          );
-        }
-        
-        setAlerts(filteredAlerts);
+        setAllAlerts(response.data);
+        setAlerts(applyFilter(response.data, filter));
       } else {
         RNAlert.alert(t('common.error'), response.message || t('alerts.loadFailed'));
       }
@@ -80,6 +109,25 @@ export const AlertsScreen: React.FC = () => {
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    const unsubscribe = realtimeService.subscribe('alerts', (event) => {
+      const activeUser = monitoredUser || user;
+      if (!activeUser) return;
+      if (event.user_id && event.user_id !== activeUser.id) return;
+      if (!event.payload) return;
+
+      setAllAlerts((prev) => {
+        const exists = prev.find((item) => item.id === event.payload.id);
+        const next = exists
+          ? prev.map((item) => (item.id === event.payload.id ? { ...item, ...event.payload } : item))
+          : [event.payload, ...prev];
+        return next.slice(0, 50);
+      });
+    });
+
+    return unsubscribe;
+  }, [monitoredUser, user]);
 
   const handleSelectMonitored = async (link: CareLink | null) => {
     if (!link || !link.patient) {
@@ -173,7 +221,7 @@ export const AlertsScreen: React.FC = () => {
   const stats = getAlertStats();
 
   return (
-    <SafeAreaView className="flex-1 bg-light">
+    <SafeAreaView className="flex-1 bg-light dark:bg-darkTheme-background">
       <ScrollView
         className="flex-1"
         contentContainerStyle={{ paddingHorizontal: 8, paddingTop: insets.top }}
@@ -189,14 +237,14 @@ export const AlertsScreen: React.FC = () => {
       >
         <ScreenHeader title={t('alerts.historyTitle')} subtitle={t('alerts.historySubtitle')} />
 
-        <View className="mx-4 mb-4 bg-white border border-lightGray rounded-xl p-3">
-          <Text className="text-xs text-gray mb-2">{t('care.monitoring')}</Text>
+        <View className="mx-4 mb-4 bg-white dark:bg-darkTheme-surface border border-lightGray dark:border-darkTheme-border rounded-xl p-3">
+          <Text className="text-xs text-gray dark:text-darkTheme-muted mb-2">{t('care.monitoring')}</Text>
           <View className="flex-row flex-wrap">
             <TouchableOpacity
               className={`px-3 py-2 rounded-full mr-2 mb-2 ${!monitoredUser ? 'bg-primary' : 'bg-lightGray'}`}
               onPress={() => handleSelectMonitored(null)}
             >
-              <Text className={`${!monitoredUser ? 'text-white' : 'text-dark'} text-xs`}>
+              <Text className={`${!monitoredUser ? 'text-white' : 'text-dark dark:text-darkTheme-text'} text-xs`}>
                 {t('dashboard.myData')}
               </Text>
             </TouchableOpacity>
@@ -209,7 +257,7 @@ export const AlertsScreen: React.FC = () => {
                 onPress={() => handleSelectMonitored(link)}
                 disabled={!link.patient}
               >
-                <Text className={`${monitoredUser?.id === link.patient?.id ? 'text-white' : 'text-dark'} text-xs`}>
+                <Text className={`${monitoredUser?.id === link.patient?.id ? 'text-white' : 'text-dark dark:text-darkTheme-text'} text-xs`}>
                   {link.patient?.name || t('common.unknown')}
                 </Text>
               </TouchableOpacity>
@@ -245,7 +293,7 @@ export const AlertsScreen: React.FC = () => {
           
           {/* Last Updated */}
           <View className="mt-4 items-center">
-            <Text className="text-xs text-gray">
+            <Text className="text-xs text-gray dark:text-darkTheme-muted">
               {t('alerts.lastUpdated')}: {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </Text>
           </View>
@@ -272,7 +320,7 @@ export const AlertsScreen: React.FC = () => {
                 activeOpacity={0.7}
               >
                 <Text className={`font-semibold ${
-                  filter === filterType ? 'text-white' : 'text-dark'
+                  filter === filterType ? 'text-white' : 'text-dark dark:text-darkTheme-text'
                 }`}>
                   {filterType === 'all' && t('alerts.all')}
                   {filterType === 'pending' && t('alerts.pending')}
@@ -284,7 +332,7 @@ export const AlertsScreen: React.FC = () => {
           
           {/* Filter Summary */}
           <View className="flex-row items-center justify-between p-3 bg-blue-50 rounded-lg">
-            <Text className="text-sm font-medium text-dark">
+            <Text className="text-sm font-medium text-dark dark:text-darkTheme-text">
               {t('alerts.showing')}: <Text className="text-primary">{alerts.length}</Text> {t('alerts.alerts')}
             </Text>
             {alerts.length > 0 && (
@@ -305,7 +353,7 @@ export const AlertsScreen: React.FC = () => {
             <View className="w-16 h-16 rounded-full bg-blue-50 justify-center items-center mb-4">
               <Text className="text-primary text-2xl">⏳</Text>
             </View>
-            <Text className="text-base text-gray">{t('alerts.loading')}</Text>
+            <Text className="text-base text-gray dark:text-darkTheme-muted">{t('alerts.loading')}</Text>
           </View>
         ) : alerts.length > 0 ? (
           <View className="mx-2 mb-8">
@@ -334,12 +382,12 @@ export const AlertsScreen: React.FC = () => {
             <View className="w-24 h-24 rounded-full bg-green-50 justify-center items-center mb-6">
               <Text className="text-4xl">✅</Text>
             </View>
-            <Text className="text-xl text-gray font-medium mb-2">
+            <Text className="text-xl text-gray dark:text-darkTheme-muted font-medium mb-2">
               {filter === 'all' && t('alerts.noAlertsAll')}
               {filter === 'pending' && t('alerts.noAlertsPending')}
               {filter === 'resolved' && t('alerts.noAlertsResolved')}
             </Text>
-            <Text className="text-sm text-lightGray text-center max-w-xs">
+            <Text className="text-sm text-lightGray dark:text-darkTheme-muted text-center max-w-xs">
               {filter === 'all' 
                 ? t('alerts.noAlertsAllDesc')
                 : filter === 'pending'
@@ -363,15 +411,15 @@ export const AlertsScreen: React.FC = () => {
         {alerts.length > 0 && (
           <View className="mx-4 mb-8 p-4 bg-blue-50 rounded-2xl border border-blue-200">
             <View className="flex-row items-center mb-3">
-              <Text className="text-lg font-semibold text-dark">⚠️ {t('alerts.importantNotes')}</Text>
+              <Text className="text-lg font-semibold text-dark dark:text-darkTheme-text">⚠️ {t('alerts.importantNotes')}</Text>
             </View>
-            <Text className="text-sm text-gray mb-2">
+            <Text className="text-sm text-gray dark:text-darkTheme-muted mb-2">
               • {t('alerts.noteCritical')}
             </Text>
-            <Text className="text-sm text-gray mb-2">
+            <Text className="text-sm text-gray dark:text-darkTheme-muted mb-2">
               • {t('alerts.noteRetention')}
             </Text>
-            <Text className="text-sm text-gray">
+            <Text className="text-sm text-gray dark:text-darkTheme-muted">
               • {t('alerts.noteContact')}
             </Text>
           </View>

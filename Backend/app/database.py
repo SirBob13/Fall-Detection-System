@@ -108,6 +108,7 @@ def init_db():
         from . import models
         Base.metadata.create_all(bind=engine)
         ensure_user_phone_column()
+        ensure_device_archived_column()
         print("✅ Database initialized successfully")
         
         # إنشاء بيانات تجريبية إذا كانت قاعدة البيانات فارغة
@@ -136,6 +137,26 @@ def ensure_user_phone_column():
         print("✅ Added users.phone column")
     except Exception as e:
         print(f"⚠️ Unable to add users.phone column: {e}")
+
+def ensure_device_archived_column():
+    """
+    Ensure devices.is_archived column exists (safe, additive migration).
+    """
+    try:
+        inspector = inspect(engine)
+        if not inspector.has_table("devices"):
+            return
+        columns = [col["name"] for col in inspector.get_columns("devices")]
+        if "is_archived" in columns:
+            return
+        ddl = "ALTER TABLE devices ADD COLUMN is_archived BOOLEAN DEFAULT 0"
+        if engine.dialect.name != "sqlite":
+            ddl = "ALTER TABLE devices ADD COLUMN is_archived BOOLEAN DEFAULT FALSE"
+        with engine.begin() as conn:
+            conn.execute(text(ddl))
+        print("✅ Added devices.is_archived column")
+    except Exception as e:
+        print(f"⚠️ Unable to add devices.is_archived column: {e}")
 
 def create_test_data():
     """

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiFetch, API_V1, buildDateQuery, getToken } from "../_lib/api";
+import { useRealtimeEvents } from "../_lib/realtime";
 
 interface SeriesPoint {
   date: string;
@@ -53,6 +54,58 @@ export default function ReportsPage() {
   useEffect(() => {
     load();
   }, []);
+
+  const withinRange = (timestamp?: string | null, snapshot?: ReportData | null) => {
+    if (!timestamp || !snapshot) return false;
+    const ts = new Date(timestamp).getTime();
+    const since = new Date(snapshot.since).getTime();
+    const until = new Date(snapshot.until).getTime();
+    if (!Number.isNaN(since) && ts < since) return false;
+    if (!Number.isNaN(until) && ts > until) return false;
+    return true;
+  };
+
+  const bumpSeries = (series: SeriesPoint[], timestamp: string) => {
+    const dateKey = new Date(timestamp).toISOString().slice(0, 10);
+    const existing = series.find((point) => point.date === dateKey);
+    if (existing) {
+      return series.map((point) => (point.date === dateKey ? { ...point, count: point.count + 1 } : point));
+    }
+    return [...series, { date: dateKey, count: 1 }].sort((a, b) => a.date.localeCompare(b.date));
+  };
+
+  useRealtimeEvents(["alerts", "vitals", "predictions", "motions"], (event) => {
+    if (event.action !== "created" || !event.payload?.timestamp) return;
+    setData((prev) => {
+      if (!prev) return prev;
+      if (!withinRange(event.payload.timestamp, prev)) return prev;
+      const next: ReportData = {
+        ...prev,
+        summary: { ...prev.summary },
+        series: {
+          motions: [...prev.series.motions],
+          vitals: [...prev.series.vitals],
+          alerts: [...prev.series.alerts],
+        },
+      };
+      if (event.resource === "alerts") {
+        next.summary.alerts += 1;
+        next.series.alerts = bumpSeries(next.series.alerts, event.payload.timestamp);
+      }
+      if (event.resource === "vitals") {
+        next.summary.vitals += 1;
+        next.series.vitals = bumpSeries(next.series.vitals, event.payload.timestamp);
+      }
+      if (event.resource === "motions") {
+        next.summary.motions += 1;
+        next.series.motions = bumpSeries(next.series.motions, event.payload.timestamp);
+      }
+      if (event.resource === "predictions") {
+        next.summary.predictions += 1;
+      }
+      return next;
+    });
+  });
 
   const exportPdf = async () => {
     const token = getToken();

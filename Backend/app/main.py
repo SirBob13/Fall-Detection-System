@@ -40,10 +40,12 @@ init_db()
 # Import routes
 try:
     from .routes import auth, main as api_routes, admin
+    from .realtime import router as realtime_router
     
     app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
     app.include_router(api_routes.router, prefix="/api/v1", tags=["api"])
     app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
+    app.include_router(realtime_router, tags=["realtime"])
     
     logger.info("✅ Routes loaded successfully")
     

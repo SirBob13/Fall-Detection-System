@@ -305,11 +305,25 @@ class CareLinkRequestAction(BaseModel):
 
 # ==================== Device Schemas ====================
 
+DEVICE_ID_REGEX = re.compile(r"^([0-9A-Fa-f]{2}([-:])){5}[0-9A-Fa-f]{2}$")
+DEVICE_ID_FALLBACK_REGEX = re.compile(r"^[A-Za-z0-9_-]{4,50}$")
+
+def _validate_device_id(value: str) -> str:
+    if DEVICE_ID_REGEX.match(value):
+        return value
+    if DEVICE_ID_FALLBACK_REGEX.match(value):
+        return value
+    raise ValueError("Invalid device_id format")
+
 class DeviceBase(BaseModel):
     device_id: str
     mac_address: Optional[str] = None
     firmware_version: Optional[str] = None
     battery_level: Optional[float] = Field(None, ge=0, le=100)
+
+    @validator("device_id")
+    def validate_device_id(cls, value: str) -> str:
+        return _validate_device_id(value)
 
 class DeviceCreate(DeviceBase):
     user_id: int
@@ -318,6 +332,7 @@ class DeviceResponse(DeviceBase):
     id: int
     user_id: int
     is_connected: bool
+    is_archived: Optional[bool] = False
     last_seen: datetime
     created_at: datetime
     
@@ -329,12 +344,8 @@ class DeviceUpdate(BaseModel):
     is_connected: Optional[bool] = None
     firmware_version: Optional[str] = None
 
-class DeviceConnect(BaseModel):
+class DeviceConnect(DeviceBase):
     user_id: int
-    device_id: str
-    mac_address: Optional[str] = None
-    firmware_version: Optional[str] = None
-    battery_level: Optional[float] = Field(None, ge=0, le=100)
 
 class DeviceDisconnect(BaseModel):
     device_id: str

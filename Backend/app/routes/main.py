@@ -3,9 +3,10 @@ Main API routes for the Fall Detection system - FIXED WITH PROPER HTTP STATUS CO
 """
 
 import logging
+import re
 import io
 from datetime import datetime, timedelta, timezone
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Query, Header
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy.orm import Session
@@ -21,6 +22,7 @@ from ..models import User, Alert, Prediction, Device, CareLink, VitalSensorData,
 from ..device_auth import device_auth
 from ..double_verification import DoubleVerificationSystem
 from ..services.notification_service import NotificationService
+from ..realtime import notify_user, notify_users, notify_admins
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -29,6 +31,112 @@ notification_service = NotificationService()
 # ======================
 # Helper functions
 # ======================
+
+def _serialize_alert(alert: Alert) -> Dict[str, Any]:
+    return {
+        "id": alert.id,
+        "user_id": alert.user_id,
+        "prediction_id": alert.prediction_id,
+        "type": alert.alert_type,
+        "alert_type": alert.alert_type,
+        "severity": alert.severity,
+        "message": alert.message,
+        "status": alert.status,
+        "timestamp": alert.timestamp.isoformat() if alert.timestamp else None,
+        "resolved_at": alert.resolved_at.isoformat() if alert.resolved_at else None,
+        "location": alert.location,
+        "response_notes": alert.response_notes,
+        "metadata": alert.metadata,
+        "acknowledged_by": getattr(alert, "acknowledged_by", None),
+        "acknowledged_at": alert.acknowledged_at.isoformat() if getattr(alert, "acknowledged_at", None) else None,
+    }
+
+def _serialize_device(device: Device) -> Dict[str, Any]:
+    return {
+        "id": device.id,
+        "user_id": device.user_id,
+        "device_id": device.device_id,
+        "mac_address": device.mac_address,
+        "firmware_version": device.firmware_version,
+        "battery_level": device.battery_level,
+        "is_connected": device.is_connected,
+        "is_archived": device.is_archived,
+        "last_seen": device.last_seen.isoformat() if device.last_seen else None,
+        "created_at": device.created_at.isoformat() if device.created_at else None,
+    }
+
+def _serialize_motion(motion: models.MotionSensorData) -> Dict[str, Any]:
+    return {
+        "id": motion.id,
+        "user_id": motion.user_id,
+        "device_id": motion.device_id,
+        "acc_x": motion.acc_x,
+        "acc_y": motion.acc_y,
+        "acc_z": motion.acc_z,
+        "acc_mag": motion.acc_mag,
+        "gyro_x": motion.gyro_x,
+        "gyro_y": motion.gyro_y,
+        "gyro_z": motion.gyro_z,
+        "gyro_mag": motion.gyro_mag,
+        "temperature": motion.temperature,
+        "is_fall_suspected": motion.is_fall_suspected,
+        "timestamp": motion.timestamp.isoformat() if motion.timestamp else None,
+    }
+
+def _serialize_user_profile(user: User) -> Dict[str, Any]:
+    devices = list(getattr(user, "devices", []) or [])
+    last_seen = None
+    for device in devices:
+        if device.last_seen and (last_seen is None or device.last_seen > last_seen):
+            last_seen = device.last_seen
+    return {
+        "id": user.id,
+        "name": user.name,
+        "email": user.auth.email if getattr(user, "auth", None) else None,
+        "phone": getattr(user, "phone", None),
+        "age": user.age,
+        "gender": user.gender,
+        "weight": user.weight,
+        "height": user.height,
+        "medical_conditions": user.medical_conditions,
+        "emergency_contact": user.emergency_contact,
+        "is_active": user.is_active,
+        "created_at": user.created_at.isoformat() if user.created_at else None,
+        "updated_at": user.updated_at.isoformat() if user.updated_at else None,
+        "devices": len(devices),
+        "last_seen": last_seen.isoformat() if last_seen else None,
+    }
+
+def _serialize_vital(vital: VitalSensorData) -> Dict[str, Any]:
+    return {
+        "id": vital.id,
+        "user_id": vital.user_id,
+        "heart_rate": vital.heart_rate,
+        "blood_pressure_systolic": vital.blood_pressure_systolic,
+        "blood_pressure_diastolic": vital.blood_pressure_diastolic,
+        "oxygen_saturation": vital.oxygen_saturation,
+        "body_temperature": vital.body_temperature,
+        "respiration_rate": vital.respiration_rate,
+        "is_abnormal": bool(vital.is_abnormal),
+        "abnormality_type": vital.abnormality_type,
+        "timestamp": vital.timestamp.isoformat() if vital.timestamp else None,
+    }
+
+def _serialize_prediction(pred: Prediction) -> Dict[str, Any]:
+    return {
+        "id": pred.id,
+        "user_id": pred.user_id,
+        "motion_data_id": pred.motion_data_id,
+        "fall_now_probability": pred.fall_now_probability,
+        "fall_soon_probability": pred.fall_soon_probability,
+        "fall_now_prediction": pred.fall_now_prediction,
+        "fall_soon_prediction": pred.fall_soon_prediction,
+        "vital_check_performed": pred.vital_check_performed,
+        "vital_check_result": pred.vital_check_result,
+        "final_verdict": pred.final_verdict,
+        "confidence_score": pred.confidence_score,
+        "timestamp": pred.timestamp.isoformat() if pred.timestamp else None,
+    }
 
 def _ensure_device_for_ingest(
     db: Session,
@@ -66,6 +174,9 @@ def _ensure_device_for_ingest(
         updated = True
     if firmware_version:
         device.firmware_version = firmware_version
+        updated = True
+    if device.is_archived:
+        device.is_archived = False
         updated = True
 
     if updated:
@@ -109,7 +220,8 @@ def _handle_device_payload(
         motion_dict["device_id"] = device.device_id
         if payload.timestamp and not motion_dict.get("timestamp"):
             motion_dict["timestamp"] = payload.timestamp
-        result["motion"] = process_motion_data(motion_dict, db)
+        response, _, _, _ = _process_motion_data_internal(motion_dict, db)
+        result["motion"] = response
 
     if payload.vitals:
         vitals_dict = payload.vitals.dict(exclude_unset=True)
@@ -825,12 +937,211 @@ async def check_email(
             }
         )
 
+@router.post("/auth/check-phone", response_model=Dict[str, Any])
+async def check_phone(
+    phone_data: Dict[str, Any],
+    db: Session = Depends(get_db)
+):
+    """Check if phone exists in database"""
+    try:
+        phone = phone_data.get("phone", "").strip()
+
+        if not phone:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "success": False,
+                    "error": "Phone is required"
+                }
+            )
+
+        normalized = re.sub(r'[\s\-\(\)]', '', phone).strip()
+        if not normalized:
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                content={
+                    "exists": False,
+                    "phone": phone,
+                    "valid_format": False,
+                    "message": "Invalid phone format"
+                }
+            )
+
+        exists = crud.get_user_by_phone(db, normalized) is not None
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "exists": exists,
+                "phone": normalized,
+                "valid_format": True,
+                "message": "Phone found in database" if exists else "Phone not found in database"
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Check phone error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "success": False,
+                "error": f"Phone check failed: {str(e)}"
+            }
+        )
+
 # ======================
 # Motion Data Routes - WITH PROPER STATUS CODES
 # ======================
 
+def _process_motion_data_internal(
+    data: Dict[str, Any],
+    db: Session,
+) -> Tuple[Dict[str, Any], models.MotionSensorData, Prediction, Optional[Alert]]:
+    """Core motion processing logic without realtime notifications."""
+    logger.info(f"Processing motion data: {data}")
+
+    required_fields = ['user_id', 'device_id', 'acc_x', 'acc_y', 'acc_z', 'gyro_x', 'gyro_y', 'gyro_z']
+    for field in required_fields:
+        if field not in data:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Missing required field: {field}"
+            )
+
+    acc_x = float(data.get('acc_x', 0.0))
+    acc_y = float(data.get('acc_y', 0.0))
+    acc_z = float(data.get('acc_z', 0.0))
+    gyro_x = float(data.get('gyro_x', 0.0))
+    gyro_y = float(data.get('gyro_y', 0.0))
+    gyro_z = float(data.get('gyro_z', 0.0))
+    raw_temperature = data.get('temperature', 36.5)
+    temperature = float(36.5 if raw_temperature is None else raw_temperature)
+    user_id = int(data.get('user_id'))
+    device_id = data.get('device_id')
+
+    device = crud.get_device_by_id(db, device_id)
+    if device is None:
+        device_payload = schemas.DeviceCreate(
+            user_id=user_id,
+            device_id=device_id,
+            mac_address=data.get('mac_address'),
+            firmware_version=data.get('firmware_version'),
+            battery_level=data.get('battery_level')
+        )
+        device = crud.create_device(db, device_payload)
+    elif device.user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "success": False,
+                "error": "Device ID already registered to another user"
+            }
+        )
+
+    buffer_key = f"{user_id}:{device_id}"
+    ai_result = predict_from_sample(
+        acc_x=acc_x,
+        acc_y=acc_y,
+        acc_z=acc_z,
+        gyro_x=gyro_x,
+        gyro_y=gyro_y,
+        gyro_z=gyro_z,
+        buffer_key=buffer_key
+    )
+
+    if not ai_result.get("success", False):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "success": False,
+                "error": "AI prediction failed",
+                "details": ai_result.get("error")
+            }
+        )
+
+    motion_data_schema = schemas.MotionDataCreate(
+        user_id=user_id,
+        device_id=device_id,
+        acc_x=acc_x,
+        acc_y=acc_y,
+        acc_z=acc_z,
+        gyro_x=gyro_x,
+        gyro_y=gyro_y,
+        gyro_z=gyro_z,
+        temperature=temperature,
+        timestamp=data.get('timestamp')
+    )
+    stored_motion = crud.create_motion_data(db, motion_data_schema)
+
+    verification_system = DoubleVerificationSystem(db)
+    verified = verification_system.verify_fall_with_vitals(
+        user_id=user_id,
+        fall_prediction=ai_result,
+        current_vitals=None
+    )
+
+    db_pred = Prediction(
+        user_id=user_id,
+        motion_data_id=stored_motion.id,
+        fall_now_probability=verified.get("fall_now_probability", 0.0),
+        fall_soon_probability=verified.get("fall_soon_probability", 0.0),
+        fall_now_prediction=verified.get("fall_now_prediction", False),
+        fall_soon_prediction=verified.get("fall_soon_prediction", False),
+        vital_check_performed=verified.get("vital_check_performed", False),
+        vital_check_result=verified.get("vital_check_result"),
+        final_verdict=verified.get("final_verdict", False),
+        confidence_score=verified.get("confidence_score", 0.0),
+        timestamp=datetime.utcnow()
+    )
+    db.add(db_pred)
+    db.commit()
+    db.refresh(db_pred)
+
+    alert = None
+    if verified.get("final_verdict", False):
+        alert = verification_system.create_alert_if_needed(
+            user_id=user_id,
+            prediction_id=db_pred.id,
+            verification_result=verified
+        )
+        if alert:
+            notification_service.notify_caregivers_alert(
+                db=db,
+                patient_id=user_id,
+                alert=alert,
+                reason="fall",
+            )
+
+    response = {
+        "success": True,
+        "message": "Prediction completed",
+        "prediction": {
+            "fall_now_probability": verified.get("fall_now_probability", 0.0),
+            "fall_soon_probability": verified.get("fall_soon_probability", 0.0),
+            "fall_now_prediction": verified.get("fall_now_prediction", False),
+            "fall_soon_prediction": verified.get("fall_soon_prediction", False),
+            "confidence_score": verified.get("confidence_score", 0.0),
+            "final_verdict": verified.get("final_verdict", False),
+            "vital_check_performed": verified.get("vital_check_performed", False),
+            "vital_check_result": verified.get("vital_check_result"),
+            "timestamp": datetime.utcnow().isoformat(),
+            "is_mock": ai_result.get("is_mock", False),
+            "model_type": "dual_output" if "fall_soon_probability" in ai_result else "single_output"
+        },
+        "is_test_data": ai_result.get("is_mock", False),
+        "timestamp": datetime.utcnow().isoformat(),
+        "database_stored": True,
+        "motion_id": stored_motion.id,
+        "prediction_id": db_pred.id,
+        "alert_generated": alert is not None,
+        "alert_id": alert.id if alert else None
+    }
+
+    return response, stored_motion, db_pred, alert
+
+
 @router.post("/motion", response_model=Dict[str, Any])
-def process_motion_data(
+async def process_motion_data(
     data: Dict[str, Any],
     db: Session = Depends(get_db)
 ):
@@ -839,156 +1150,22 @@ def process_motion_data(
     Now supports dual output (fall_now and fall_soon).
     """
     try:
-        logger.info(f"Processing motion data: {data}")
-        
-        # Validate required fields
-        required_fields = ['user_id', 'device_id', 'acc_x', 'acc_y', 'acc_z', 'gyro_x', 'gyro_y', 'gyro_z']
-        for field in required_fields:
-            if field not in data:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Missing required field: {field}"
-                )
-        
-        # Extract sensor data
-        acc_x = float(data.get('acc_x', 0.0))
-        acc_y = float(data.get('acc_y', 0.0))
-        acc_z = float(data.get('acc_z', 0.0))
-        gyro_x = float(data.get('gyro_x', 0.0))
-        gyro_y = float(data.get('gyro_y', 0.0))
-        gyro_z = float(data.get('gyro_z', 0.0))
-        raw_temperature = data.get('temperature', 36.5)
-        temperature = float(36.5 if raw_temperature is None else raw_temperature)
-        user_id = int(data.get('user_id'))
-        device_id = data.get('device_id')
+        response, stored_motion, db_pred, alert = _process_motion_data_internal(data, db)
 
-        # Ensure device exists (auto-register if missing)
-        device = crud.get_device_by_id(db, device_id)
-        if device is None:
-            device_payload = schemas.DeviceCreate(
-                user_id=user_id,
-                device_id=device_id,
-                mac_address=data.get('mac_address'),
-                firmware_version=data.get('firmware_version'),
-                battery_level=data.get('battery_level')
-            )
-            device = crud.create_device(db, device_payload)
-        elif device.user_id != user_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "success": False,
-                    "error": "Device ID already registered to another user"
-                }
-            )
-        
-        # Use AI model for prediction (per-user/device buffer)
-        buffer_key = f"{user_id}:{device_id}"
-        ai_result = predict_from_sample(
-            acc_x=acc_x,
-            acc_y=acc_y,
-            acc_z=acc_z,
-            gyro_x=gyro_x,
-            gyro_y=gyro_y,
-            gyro_z=gyro_z,
-            buffer_key=buffer_key
-        )
+        prediction_payload = _serialize_prediction(db_pred)
+        motion_payload = _serialize_motion(stored_motion)
+        await notify_user(stored_motion.user_id, "motions", action="created", payload=motion_payload, throttle_seconds=2.0)
+        await notify_admins("motions", action="created", payload=motion_payload, throttle_seconds=2.0)
+        await notify_user(stored_motion.user_id, "predictions", action="created", payload=prediction_payload, throttle_seconds=2.0)
+        await notify_admins("predictions", action="created", payload=prediction_payload, throttle_seconds=2.0)
 
-        if not ai_result.get("success", False):
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail={
-                    "success": False,
-                    "error": "AI prediction failed",
-                    "details": ai_result.get("error")
-                }
-            )
-
-        # Store motion data
-        motion_data_schema = schemas.MotionDataCreate(
-            user_id=user_id,
-            device_id=device_id,
-            acc_x=acc_x,
-            acc_y=acc_y,
-            acc_z=acc_z,
-            gyro_x=gyro_x,
-            gyro_y=gyro_y,
-            gyro_z=gyro_z,
-            temperature=temperature,
-            timestamp=data.get('timestamp')
-        )
-        stored_motion = crud.create_motion_data(db, motion_data_schema)
-
-        # Double verification with vitals
-        verification_system = DoubleVerificationSystem(db)
-        verified = verification_system.verify_fall_with_vitals(
-            user_id=user_id,
-            fall_prediction=ai_result,
-            current_vitals=None
-        )
-
-        # Store prediction in DB
-        db_pred = Prediction(
-            user_id=user_id,
-            motion_data_id=stored_motion.id,
-            fall_now_probability=verified.get("fall_now_probability", 0.0),
-            fall_soon_probability=verified.get("fall_soon_probability", 0.0),
-            fall_now_prediction=verified.get("fall_now_prediction", False),
-            fall_soon_prediction=verified.get("fall_soon_prediction", False),
-            vital_check_performed=verified.get("vital_check_performed", False),
-            vital_check_result=verified.get("vital_check_result"),
-            final_verdict=verified.get("final_verdict", False),
-            confidence_score=verified.get("confidence_score", 0.0),
-            timestamp=datetime.utcnow()
-        )
-        db.add(db_pred)
-        db.commit()
-        db.refresh(db_pred)
-
-        # Create alert if needed
-        alert = None
-        if verified.get("final_verdict", False):
-            alert = verification_system.create_alert_if_needed(
-                user_id=user_id,
-                prediction_id=db_pred.id,
-                verification_result=verified
-            )
-            if alert:
-                notification_service.notify_caregivers_alert(
-                    db=db,
-                    patient_id=user_id,
-                    alert=alert,
-                    reason="fall",
-                )
-
-        # Prepare response with dual output + verification
-        response = {
-            "success": True,
-            "message": "Prediction completed",
-            "prediction": {
-                "fall_now_probability": verified.get("fall_now_probability", 0.0),
-                "fall_soon_probability": verified.get("fall_soon_probability", 0.0),
-                "fall_now_prediction": verified.get("fall_now_prediction", False),
-                "fall_soon_prediction": verified.get("fall_soon_prediction", False),
-                "confidence_score": verified.get("confidence_score", 0.0),
-                "final_verdict": verified.get("final_verdict", False),
-                "vital_check_performed": verified.get("vital_check_performed", False),
-                "vital_check_result": verified.get("vital_check_result"),
-                "timestamp": datetime.utcnow().isoformat(),
-                "is_mock": ai_result.get("is_mock", False),
-                "model_type": "dual_output" if "fall_soon_probability" in ai_result else "single_output"
-            },
-            "is_test_data": ai_result.get("is_mock", False),
-            "timestamp": datetime.utcnow().isoformat(),
-            "database_stored": True,
-            "motion_id": stored_motion.id,
-            "prediction_id": db_pred.id,
-            "alert_generated": alert is not None,
-            "alert_id": alert.id if alert else None
-        }
+        if alert:
+            alert_payload = _serialize_alert(alert)
+            await notify_user(alert.user_id, "alerts", action="created", payload=alert_payload)
+            await notify_admins("alerts", action="created", payload=alert_payload)
 
         return response
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -1003,13 +1180,44 @@ def process_motion_data(
 # ======================
 
 @router.post("/device-data", response_model=Dict[str, Any])
-def ingest_device_data(
+async def ingest_device_data(
     payload: schemas.DeviceIngestPayload,
     db: Session = Depends(get_db)
 ):
     """Ingest combined device data (motion + vitals)."""
     try:
         result = _handle_device_payload(payload, db)
+        user_id = result.get("user_id")
+        if user_id:
+            latest_prediction = db.query(Prediction).filter(Prediction.user_id == user_id).order_by(Prediction.timestamp.desc()).first()
+            latest_vital = db.query(VitalSensorData).filter(VitalSensorData.user_id == user_id).order_by(VitalSensorData.timestamp.desc()).first()
+            latest_alert = db.query(Alert).filter(Alert.user_id == user_id).order_by(Alert.timestamp.desc()).first()
+            latest_motion = db.query(models.MotionSensorData).filter(models.MotionSensorData.user_id == user_id).order_by(models.MotionSensorData.timestamp.desc()).first()
+            device_obj = db.query(Device).filter(Device.user_id == user_id).order_by(Device.created_at.desc()).first()
+
+            prediction_payload = _serialize_prediction(latest_prediction) if latest_prediction else None
+            vital_payload = _serialize_vital(latest_vital) if latest_vital else None
+            alert_payload = _serialize_alert(latest_alert) if latest_alert else None
+            motion_payload = _serialize_motion(latest_motion) if latest_motion else None
+            device_payload = _serialize_device(device_obj) if device_obj else None
+
+            if result.get("motion"):
+                if motion_payload:
+                    await notify_user(user_id, "motions", action="created", payload=motion_payload, throttle_seconds=2.0)
+                    await notify_admins("motions", action="created", payload=motion_payload, throttle_seconds=2.0)
+                await notify_user(user_id, "predictions", action="created", payload=prediction_payload, throttle_seconds=2.0)
+                await notify_admins("predictions", action="created", payload=prediction_payload, throttle_seconds=2.0)
+            if result.get("vitals"):
+                await notify_user(user_id, "vitals", action="created", payload=vital_payload, throttle_seconds=5.0)
+                await notify_admins("vitals", action="created", payload=vital_payload, throttle_seconds=5.0)
+            motion_alert_id = (result.get("motion") or {}).get("alert_id")
+            vital_alert_id = (result.get("vitals") or {}).get("alert_id")
+            if motion_alert_id or vital_alert_id:
+                await notify_user(user_id, "alerts", action="created", payload=alert_payload)
+                await notify_admins("alerts", action="created", payload=alert_payload)
+            if device_payload:
+                await notify_user(user_id, "devices", action="updated", payload=device_payload, throttle_seconds=10.0)
+                await notify_admins("devices", action="updated", payload=device_payload, throttle_seconds=10.0)
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
@@ -1029,20 +1237,61 @@ def ingest_device_data(
         )
 
 @router.post("/device-data/batch", response_model=Dict[str, Any])
-def ingest_device_data_batch(
+async def ingest_device_data_batch(
     batch: schemas.DeviceIngestBatch,
     db: Session = Depends(get_db)
 ):
     """Ingest batch device data for offline sync."""
     results = []
     errors = []
+    touched_users = set()
+    alerts_users = set()
+    motion_users = set()
+    vitals_users = set()
 
     for idx, item in enumerate(batch.items):
         try:
             res = _handle_device_payload(item, db)
             results.append(res)
+            user_id = res.get("user_id")
+            if user_id:
+                touched_users.add(user_id)
+                if res.get("motion"):
+                    motion_users.add(user_id)
+                if res.get("vitals"):
+                    vitals_users.add(user_id)
+                motion_alert_id = (res.get("motion") or {}).get("alert_id")
+                vital_alert_id = (res.get("vitals") or {}).get("alert_id")
+                if motion_alert_id or vital_alert_id:
+                    alerts_users.add(user_id)
         except Exception as e:
             errors.append({"index": idx, "error": str(e)})
+
+    for uid in motion_users:
+        latest_motion = db.query(models.MotionSensorData).filter(models.MotionSensorData.user_id == uid).order_by(models.MotionSensorData.timestamp.desc()).first()
+        motion_payload = _serialize_motion(latest_motion) if latest_motion else None
+        if motion_payload:
+            await notify_user(uid, "motions", action="created", payload=motion_payload, throttle_seconds=2.0)
+            await notify_admins("motions", action="created", payload=motion_payload, throttle_seconds=2.0)
+        latest_prediction = db.query(Prediction).filter(Prediction.user_id == uid).order_by(Prediction.timestamp.desc()).first()
+        payload = _serialize_prediction(latest_prediction) if latest_prediction else None
+        await notify_user(uid, "predictions", action="created", payload=payload, throttle_seconds=2.0)
+        await notify_admins("predictions", action="created", payload=payload, throttle_seconds=2.0)
+    for uid in vitals_users:
+        latest_vital = db.query(VitalSensorData).filter(VitalSensorData.user_id == uid).order_by(VitalSensorData.timestamp.desc()).first()
+        payload = _serialize_vital(latest_vital) if latest_vital else None
+        await notify_user(uid, "vitals", action="created", payload=payload, throttle_seconds=5.0)
+        await notify_admins("vitals", action="created", payload=payload, throttle_seconds=5.0)
+    for uid in alerts_users:
+        latest_alert = db.query(Alert).filter(Alert.user_id == uid).order_by(Alert.timestamp.desc()).first()
+        payload = _serialize_alert(latest_alert) if latest_alert else None
+        await notify_user(uid, "alerts", action="created", payload=payload)
+        await notify_admins("alerts", action="created", payload=payload)
+    for uid in touched_users:
+        device_obj = db.query(Device).filter(Device.user_id == uid).order_by(Device.created_at.desc()).first()
+        payload = _serialize_device(device_obj) if device_obj else None
+        await notify_user(uid, "devices", action="updated", payload=payload, throttle_seconds=10.0)
+        await notify_admins("devices", action="updated", payload=payload, throttle_seconds=10.0)
 
     return JSONResponse(
         status_code=status.HTTP_200_OK,
@@ -1188,6 +1437,15 @@ async def process_vital_data(
             }
             
             status_code = status.HTTP_200_OK if not is_abnormal else status.HTTP_202_ACCEPTED
+
+            vital_payload = _serialize_vital(stored_vital)
+            await notify_user(user_id, "vitals", action="created", payload=vital_payload, throttle_seconds=5.0)
+            await notify_admins("vitals", action="created", payload=vital_payload, throttle_seconds=5.0)
+            if alert_id:
+                alert = db.query(Alert).filter(Alert.id == alert_id).first()
+                alert_payload = _serialize_alert(alert) if alert else None
+                await notify_user(user_id, "alerts", action="created", payload=alert_payload)
+                await notify_admins("alerts", action="created", payload=alert_payload)
             
             return JSONResponse(
                 status_code=status_code,
@@ -1494,6 +1752,10 @@ async def update_alert_status(
             alert.resolved_at = datetime.utcnow()
         
         db.commit()
+
+        payload = _serialize_alert(alert)
+        await notify_user(alert.user_id, "alerts", action="updated", payload=payload)
+        await notify_admins("alerts", action="updated", payload=payload)
         
         return JSONResponse(
             status_code=status.HTTP_200_OK,
@@ -1545,6 +1807,10 @@ async def acknowledge_alert(
                 }
             )
 
+        payload = _serialize_alert(alert)
+        await notify_user(alert.user_id, "alerts", action="updated", payload=payload)
+        await notify_admins("alerts", action="updated", payload=payload)
+
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
@@ -1587,6 +1853,10 @@ async def resolve_alert(
                     "error": f"Alert with ID {alert_id} not found"
                 }
             )
+
+        payload = _serialize_alert(alert)
+        await notify_user(alert.user_id, "alerts", action="updated", payload=payload)
+        await notify_admins("alerts", action="updated", payload=payload)
 
         return JSONResponse(
             status_code=status.HTTP_200_OK,
@@ -1797,25 +2067,16 @@ async def update_user_profile(
         db.commit()
         db.refresh(user)
 
+        payload = _serialize_user_profile(user)
+        await notify_user(user.id, "profile", action="updated", payload=payload)
+        await notify_admins("users", action="updated", payload=payload)
+
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
                 "success": True,
                 "message": "User updated successfully",
-                "data": {
-                    "id": user.id,
-                    "name": user.name,
-                    "phone": getattr(user, "phone", None),
-                    "age": user.age,
-                    "gender": user.gender,
-                    "weight": user.weight,
-                    "height": user.height,
-                    "medical_conditions": user.medical_conditions,
-                    "emergency_contact": user.emergency_contact,
-                    "is_active": user.is_active,
-                    "created_at": user.created_at.isoformat() if user.created_at else None,
-                    "updated_at": user.updated_at.isoformat() if user.updated_at else None
-                },
+                "data": payload,
                 "timestamp": datetime.utcnow().isoformat()
             }
         )
@@ -1879,26 +2140,31 @@ async def create_care_link(
 
         patient_email = patient.auth.email if getattr(patient, "auth", None) else None
 
+        payload = {
+            "id": link.id,
+            "caregiver_id": link.caregiver_id,
+            "patient_id": link.patient_id,
+            "relationship": link.relationship_type,
+            "is_active": link.is_active,
+            "created_at": link.created_at.isoformat() if link.created_at else None,
+            "patient": {
+                "id": patient.id,
+                "name": patient.name,
+                "email": patient_email,
+                "age": patient.age,
+                "gender": patient.gender,
+            },
+        }
+
+        await notify_users([caregiver.id, patient.id], "care", action="updated", payload=payload)
+        await notify_admins("care", action="updated", payload=payload)
+
         return JSONResponse(
             status_code=status.HTTP_201_CREATED,
             content={
                 "success": True,
                 "message": "Link created successfully",
-                "data": {
-                    "id": link.id,
-                    "caregiver_id": link.caregiver_id,
-                    "patient_id": link.patient_id,
-                    "relationship": link.relationship_type,
-                    "is_active": link.is_active,
-                    "created_at": link.created_at.isoformat() if link.created_at else None,
-                    "patient": {
-                        "id": patient.id,
-                        "name": patient.name,
-                        "email": patient_email,
-                        "age": patient.age,
-                        "gender": patient.gender,
-                    },
-                },
+                "data": payload,
             },
         )
     except HTTPException:
@@ -1966,27 +2232,30 @@ async def create_care_link_request(
 
         if existing_request:
             patient_email = patient.auth.email if getattr(patient, "auth", None) else None
+            payload = {
+                "id": existing_request.id,
+                "caregiver_id": existing_request.caregiver_id,
+                "patient_id": existing_request.patient_id,
+                "relationship": existing_request.relationship_type,
+                "message": existing_request.message,
+                "status": existing_request.status,
+                "created_at": existing_request.created_at.isoformat() if existing_request.created_at else None,
+                "patient": {
+                    "id": patient.id,
+                    "name": patient.name,
+                    "email": patient_email,
+                    "age": patient.age,
+                    "gender": patient.gender,
+                },
+            }
+            await notify_users([caregiver.id, patient.id], "care", action="updated", payload=payload)
+            await notify_admins("care", action="updated", payload=payload)
             return JSONResponse(
                 status_code=status.HTTP_200_OK,
                 content={
                     "success": True,
                     "message": "Request already pending",
-                    "data": {
-                        "id": existing_request.id,
-                        "caregiver_id": existing_request.caregiver_id,
-                        "patient_id": existing_request.patient_id,
-                        "relationship": existing_request.relationship_type,
-                        "message": existing_request.message,
-                        "status": existing_request.status,
-                        "created_at": existing_request.created_at.isoformat() if existing_request.created_at else None,
-                        "patient": {
-                            "id": patient.id,
-                            "name": patient.name,
-                            "email": patient_email,
-                            "age": patient.age,
-                            "gender": patient.gender,
-                        },
-                    },
+                    "data": payload,
                 },
             )
 
@@ -1999,27 +2268,31 @@ async def create_care_link_request(
         )
 
         patient_email = patient.auth.email if getattr(patient, "auth", None) else None
+        payload = {
+            "id": created.id,
+            "caregiver_id": created.caregiver_id,
+            "patient_id": created.patient_id,
+            "relationship": created.relationship_type,
+            "message": created.message,
+            "status": created.status,
+            "created_at": created.created_at.isoformat() if created.created_at else None,
+            "patient": {
+                "id": patient.id,
+                "name": patient.name,
+                "email": patient_email,
+                "age": patient.age,
+                "gender": patient.gender,
+            },
+        }
+
+        await notify_users([caregiver.id, patient.id], "care", action="updated", payload=payload)
+        await notify_admins("care", action="updated", payload=payload)
         return JSONResponse(
             status_code=status.HTTP_201_CREATED,
             content={
                 "success": True,
                 "message": "Request created",
-                "data": {
-                    "id": created.id,
-                    "caregiver_id": created.caregiver_id,
-                    "patient_id": created.patient_id,
-                    "relationship": created.relationship_type,
-                    "message": created.message,
-                    "status": created.status,
-                    "created_at": created.created_at.isoformat() if created.created_at else None,
-                    "patient": {
-                        "id": patient.id,
-                        "name": patient.name,
-                        "email": patient_email,
-                        "age": patient.age,
-                        "gender": patient.gender,
-                    },
-                },
+                "data": payload,
             },
         )
     except HTTPException:
@@ -2173,8 +2446,44 @@ async def accept_care_link_request(
                 patient_id=req.patient_id,
                 relationship=req.relationship_type
             )
+        link = db.query(CareLink).filter(
+            CareLink.caregiver_id == req.caregiver_id,
+            CareLink.patient_id == req.patient_id,
+            CareLink.is_active == True
+        ).first()
 
         req = crud.update_care_link_request_status(db, req, "accepted")
+
+        payload = {
+            "id": req.id,
+            "status": req.status,
+            "responded_at": req.responded_at.isoformat() if req.responded_at else None,
+            "caregiver_id": req.caregiver_id,
+            "patient_id": req.patient_id,
+        }
+        await notify_users([req.caregiver_id, req.patient_id], "care", action="updated", payload=payload)
+        await notify_admins("care", action="updated", payload=payload)
+
+        if link and link.patient:
+            patient = link.patient
+            patient_email = patient.auth.email if getattr(patient, "auth", None) else None
+            link_payload = {
+                "id": link.id,
+                "caregiver_id": link.caregiver_id,
+                "patient_id": link.patient_id,
+                "relationship": link.relationship_type,
+                "is_active": link.is_active,
+                "created_at": link.created_at.isoformat() if link.created_at else None,
+                "patient": {
+                    "id": patient.id,
+                    "name": patient.name,
+                    "email": patient_email,
+                    "age": patient.age,
+                    "gender": patient.gender,
+                },
+            }
+            await notify_users([req.caregiver_id, req.patient_id], "care", action="updated", payload=link_payload)
+            await notify_admins("care", action="updated", payload=link_payload)
 
         return JSONResponse(
             status_code=status.HTTP_200_OK,
@@ -2223,6 +2532,16 @@ async def reject_care_link_request(
 
         req = crud.update_care_link_request_status(db, req, "rejected")
 
+        payload = {
+            "id": req.id,
+            "status": req.status,
+            "responded_at": req.responded_at.isoformat() if req.responded_at else None,
+            "caregiver_id": req.caregiver_id,
+            "patient_id": req.patient_id,
+        }
+        await notify_users([req.caregiver_id, req.patient_id], "care", action="updated", payload=payload)
+        await notify_admins("care", action="updated", payload=payload)
+
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={"success": True, "message": "Request rejected", "data": {
@@ -2269,6 +2588,16 @@ async def cancel_care_link_request(
             )
 
         req = crud.update_care_link_request_status(db, req, "cancelled")
+
+        payload = {
+            "id": req.id,
+            "status": req.status,
+            "responded_at": req.responded_at.isoformat() if req.responded_at else None,
+            "caregiver_id": req.caregiver_id,
+            "patient_id": req.patient_id,
+        }
+        await notify_users([req.caregiver_id, req.patient_id], "care", action="updated", payload=payload)
+        await notify_admins("care", action="updated", payload=payload)
 
         return JSONResponse(
             status_code=status.HTTP_200_OK,
@@ -2635,12 +2964,25 @@ async def remove_care_link(
 ):
     """Delete care link."""
     try:
+        link = db.query(CareLink).filter(CareLink.id == link_id).first()
         deleted = crud.delete_care_link(db, link_id, caregiver_id)
         if not deleted:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail={"success": False, "error": "Link not found"}
             )
+
+        if link:
+            payload = {
+                "id": link.id,
+                "caregiver_id": link.caregiver_id,
+                "patient_id": link.patient_id,
+                "relationship": link.relationship_type,
+                "is_active": link.is_active,
+                "created_at": link.created_at.isoformat() if link.created_at else None,
+            }
+            await notify_users([link.caregiver_id, link.patient_id], "care", action="updated", payload=payload)
+            await notify_admins("care", action="updated", payload=payload)
 
         return JSONResponse(
             status_code=status.HTTP_200_OK,
@@ -2729,6 +3071,7 @@ async def connect_device(
             if payload.battery_level is not None:
                 device.battery_level = payload.battery_level
             device.is_connected = True
+            device.is_archived = False
             device.last_seen = datetime.utcnow()
             db.commit()
             db.refresh(device)
@@ -2740,6 +3083,7 @@ async def connect_device(
                 firmware_version=payload.firmware_version,
                 battery_level=payload.battery_level,
                 is_connected=True,
+                is_archived=False,
                 last_seen=datetime.utcnow()
             )
             db.add(device)
@@ -2747,6 +3091,24 @@ async def connect_device(
             db.refresh(device)
 
         device_token = device_auth.generate_device_token(device.device_id, device.user_id)
+
+        payload = _serialize_device(device)
+        await notify_user(device.user_id, "devices", action="updated", payload=payload)
+        await notify_admins("devices", action="updated", payload=payload)
+        user = db.query(User).filter(User.id == device.user_id).first()
+        if user:
+            user_payload = _serialize_user_profile(user)
+            await notify_admins("users", action="updated", payload=user_payload, throttle_seconds=10.0)
+        user = db.query(User).filter(User.id == device.user_id).first()
+        if user:
+            user_payload = _serialize_user_profile(user)
+            await notify_admins("users", action="updated", payload=user_payload, throttle_seconds=10.0)
+        user = db.query(User).filter(User.id == device.user_id).first()
+        if user:
+            user_payload = _serialize_user_profile(user)
+            await notify_admins("users", action="updated", payload=user_payload, throttle_seconds=10.0)
+        user_payload = _serialize_user_profile(user)
+        await notify_admins("users", action="updated", payload=user_payload, throttle_seconds=10.0)
 
         return JSONResponse(
             status_code=status.HTTP_200_OK,
@@ -2761,6 +3123,7 @@ async def connect_device(
                     "firmware_version": device.firmware_version,
                     "battery_level": device.battery_level,
                     "is_connected": device.is_connected,
+                    "is_archived": device.is_archived,
                     "last_seen": device.last_seen.isoformat() if device.last_seen else None,
                     "created_at": device.created_at.isoformat() if device.created_at else None
                 },
@@ -2803,6 +3166,10 @@ async def disconnect_device(
         db.commit()
         db.refresh(device)
 
+        payload = _serialize_device(device)
+        await notify_user(device.user_id, "devices", action="updated", payload=payload)
+        await notify_admins("devices", action="updated", payload=payload)
+
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
@@ -2816,6 +3183,7 @@ async def disconnect_device(
                     "firmware_version": device.firmware_version,
                     "battery_level": device.battery_level,
                     "is_connected": device.is_connected,
+                    "is_archived": device.is_archived,
                     "last_seen": device.last_seen.isoformat() if device.last_seen else None,
                     "created_at": device.created_at.isoformat() if device.created_at else None
                 },
@@ -2832,6 +3200,76 @@ async def disconnect_device(
             detail={
                 "success": False,
                 "error": f"Failed to disconnect device: {str(e)}"
+            }
+        )
+
+@router.delete("/devices/{device_id}", response_model=Dict[str, Any])
+async def remove_device(
+    device_id: str,
+    user_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """Unlink (archive) a device without deleting its data."""
+    try:
+        device = crud.get_device_by_id(db, device_id)
+        if not device:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "success": False,
+                    "error": f"Device with ID {device_id} not found"
+                }
+            )
+
+        if user_id is not None and device.user_id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "success": False,
+                    "error": "Device does not belong to this user"
+                }
+            )
+
+        device.is_connected = False
+        device.is_archived = True
+        device.last_seen = datetime.utcnow()
+        db.commit()
+        db.refresh(device)
+
+        payload = _serialize_device(device)
+        await notify_user(device.user_id, "devices", action="updated", payload=payload)
+        await notify_admins("devices", action="updated", payload=payload)
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "message": "Device unlinked successfully",
+                "data": {
+                    "id": device.id,
+                    "user_id": device.user_id,
+                    "device_id": device.device_id,
+                    "mac_address": device.mac_address,
+                    "firmware_version": device.firmware_version,
+                    "battery_level": device.battery_level,
+                    "is_connected": device.is_connected,
+                    "is_archived": device.is_archived,
+                    "last_seen": device.last_seen.isoformat() if device.last_seen else None,
+                    "created_at": device.created_at.isoformat() if device.created_at else None
+                },
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error removing device: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "success": False,
+                "error": f"Failed to remove device: {str(e)}"
             }
         )
 
@@ -2864,6 +3302,7 @@ async def get_device(
                     "firmware_version": device.firmware_version,
                     "battery_level": device.battery_level,
                     "is_connected": device.is_connected,
+                    "is_archived": device.is_archived,
                     "last_seen": device.last_seen.isoformat() if device.last_seen else None,
                     "created_at": device.created_at.isoformat() if device.created_at else None
                 },
@@ -2912,6 +3351,7 @@ async def get_device_for_user(
                     "firmware_version": device.firmware_version,
                     "battery_level": device.battery_level,
                     "is_connected": device.is_connected,
+                    "is_archived": device.is_archived,
                     "last_seen": device.last_seen.isoformat() if device.last_seen else None,
                     "created_at": device.created_at.isoformat() if device.created_at else None
                 },
@@ -2928,6 +3368,162 @@ async def get_device_for_user(
             detail={
                 "success": False,
                 "error": f"Failed to get user device: {str(e)}"
+            }
+        )
+
+@router.get("/devices/user/{user_id}/all", response_model=Dict[str, Any])
+async def get_devices_for_user(
+    user_id: int,
+    db: Session = Depends(get_db)
+):
+    """Get all devices for a user."""
+    try:
+        devices = crud.get_devices_by_user(db, user_id)
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "data": [
+                    {
+                        "id": device.id,
+                        "user_id": device.user_id,
+                        "device_id": device.device_id,
+                        "mac_address": device.mac_address,
+                        "firmware_version": device.firmware_version,
+                        "battery_level": device.battery_level,
+                        "is_connected": device.is_connected,
+                        "is_archived": device.is_archived,
+                        "last_seen": device.last_seen.isoformat() if device.last_seen else None,
+                        "created_at": device.created_at.isoformat() if device.created_at else None
+                    }
+                    for device in devices
+                ],
+                "count": len(devices),
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Error getting user devices: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "success": False,
+                "error": f"Failed to get user devices: {str(e)}"
+            }
+        )
+
+@router.get("/devices/user/{user_id}/archived", response_model=Dict[str, Any])
+async def get_archived_devices_for_user(
+    user_id: int,
+    db: Session = Depends(get_db)
+):
+    """Get archived devices for a user."""
+    try:
+        devices = crud.get_archived_devices_by_user(db, user_id)
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "data": [
+                    {
+                        "id": device.id,
+                        "user_id": device.user_id,
+                        "device_id": device.device_id,
+                        "mac_address": device.mac_address,
+                        "firmware_version": device.firmware_version,
+                        "battery_level": device.battery_level,
+                        "is_connected": device.is_connected,
+                        "is_archived": device.is_archived,
+                        "last_seen": device.last_seen.isoformat() if device.last_seen else None,
+                        "created_at": device.created_at.isoformat() if device.created_at else None
+                    }
+                    for device in devices
+                ],
+                "count": len(devices),
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Error getting archived devices: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "success": False,
+                "error": f"Failed to get archived devices: {str(e)}"
+            }
+        )
+
+@router.post("/devices/{device_id}/restore", response_model=Dict[str, Any])
+async def restore_device(
+    device_id: str,
+    user_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """Restore an archived device."""
+    try:
+        device = crud.get_device_by_id(db, device_id)
+        if not device:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "success": False,
+                    "error": f"Device with ID {device_id} not found"
+                }
+            )
+
+        if user_id is not None and device.user_id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "success": False,
+                    "error": "Device does not belong to this user"
+                }
+            )
+
+        device.is_archived = False
+        device.is_connected = False
+        device.last_seen = datetime.utcnow()
+        db.commit()
+        db.refresh(device)
+
+        payload = _serialize_device(device)
+        await notify_user(device.user_id, "devices", action="updated", payload=payload)
+        await notify_admins("devices", action="updated", payload=payload)
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "message": "Device restored successfully",
+                "data": {
+                    "id": device.id,
+                    "user_id": device.user_id,
+                    "device_id": device.device_id,
+                    "mac_address": device.mac_address,
+                    "firmware_version": device.firmware_version,
+                    "battery_level": device.battery_level,
+                    "is_connected": device.is_connected,
+                    "is_archived": device.is_archived,
+                    "last_seen": device.last_seen.isoformat() if device.last_seen else None,
+                    "created_at": device.created_at.isoformat() if device.created_at else None
+                },
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error restoring device: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "success": False,
+                "error": f"Failed to restore device: {str(e)}"
             }
         )
 

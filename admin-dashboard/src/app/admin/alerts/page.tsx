@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiFetch, buildDateQuery } from "../_lib/api";
+import { useRealtimeEvents } from "../_lib/realtime";
 
 interface AlertItem {
   id: number;
@@ -29,6 +30,18 @@ export default function AlertsPage() {
   useEffect(() => {
     load();
   }, []);
+
+  useRealtimeEvents(["alerts"], (event) => {
+    if (!event.payload) return;
+    setAlerts((prev) => {
+      const payload = event.payload as AlertItem;
+      const exists = prev.find((item) => item.id === payload.id);
+      const next = exists
+        ? prev.map((item) => (item.id === payload.id ? { ...item, ...payload } : item))
+        : [payload, ...prev];
+      return next.slice(0, 50);
+    });
+  });
 
   return (
     <div className="space-y-6">

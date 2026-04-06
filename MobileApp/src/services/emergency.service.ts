@@ -59,8 +59,6 @@ export class EmergencyService {
       enable_sound: true,
       notification_preview: 'show_all',
       emergency_numbers: {
-        ambulance: '911',
-        police: '911',
         fire: '911',
       },
     };
@@ -107,28 +105,7 @@ export class EmergencyService {
         return JSON.parse(contactsJson);
       }
       // Default emergency contacts
-      return [
-        {
-          id: '1',
-          name: 'Ambulance',
-          phone: '911',
-          relationship: 'emergency',
-          priority: 1,
-          is_active: true,
-          notification_enabled: true,
-          can_receive_location: true,
-        },
-        {
-          id: '2',
-          name: 'Police',
-          phone: '911',
-          relationship: 'emergency',
-          priority: 1,
-          is_active: true,
-          notification_enabled: true,
-          can_receive_location: true,
-        },
-      ];
+      return [];
     } catch (error) {
       console.error('❌ [Emergency] Error getting emergency contacts:', error);
       return [];
@@ -233,26 +210,48 @@ export class EmergencyService {
         return { contacts: [], permissionStatus };
       }
 
-      const { data } = await Contacts.getContactsAsync({
+      const firstPage = await Contacts.getContactsAsync({
         fields: [Contacts.Fields.Name, Contacts.Fields.PhoneNumbers, Contacts.Fields.Emails],
+        pageSize: 500,
+        pageOffset: 0,
+        sort: Contacts.SortTypes.FirstName,
       });
 
-      console.log(`📱 [Emergency] Found ${data.length} contacts`);
+      let allContacts = firstPage.data || [];
+      let pageOffset = allContacts.length;
+      let hasNextPage = firstPage.hasNextPage === true;
 
-      const importedContacts: EmergencyContact[] = data
-        .filter(contact => contact.phoneNumbers && contact.phoneNumbers.length > 0)
-        .slice(0, 50) // Limit to 50 contacts
-        .map(contact => ({
-          id: contact.id || Date.now().toString(),
+      while (hasNextPage) {
+        const page = await Contacts.getContactsAsync({
+          fields: [Contacts.Fields.Name, Contacts.Fields.PhoneNumbers, Contacts.Fields.Emails],
+          pageSize: 500,
+          pageOffset,
+          sort: Contacts.SortTypes.FirstName,
+        });
+        allContacts = allContacts.concat(page.data || []);
+        hasNextPage = page.hasNextPage === true && (page.data?.length ?? 0) > 0;
+        pageOffset += page.data?.length ?? 0;
+      }
+
+      console.log(`📱 [Emergency] Found ${allContacts.length} contacts`);
+
+      const importedContacts: EmergencyContact[] = allContacts.map(contact => {
+        const primaryNumber =
+          contact.phoneNumbers?.find((item: any) => item?.isPrimary)?.number ||
+          contact.phoneNumbers?.[0]?.number ||
+          '';
+        return {
+          id: contact.id || `${Date.now()}-${Math.random()}`,
           name: contact.name || 'Contact',
-          phone: contact.phoneNumbers![0].number || '',
+          phone: primaryNumber,
           email: contact.emails?.[0]?.email || '',
           relationship: 'friend',
           priority: 3,
           is_active: false,
           notification_enabled: true,
           can_receive_location: true,
-        }));
+        };
+      });
 
       console.log(`✅ [Emergency] Imported ${importedContacts.length} contacts`);
       return { contacts: importedContacts, permissionStatus };
@@ -291,9 +290,10 @@ export class EmergencyService {
       // Get settings and contacts
       const settings = await this.getEmergencySettings();
       const contacts = await this.getEmergencyContacts();
-      const activeContacts = contacts.filter(c => c.is_active);
+      const targetContacts = (type === 'manual' ? contacts : contacts.filter(c => c.is_active))
+        .filter((contact) => contact.phone && contact.phone.trim().length > 0);
 
-      if (activeContacts.length === 0) {
+      if (targetContacts.length === 0) {
         Alert.alert(
           '⚠️ No Emergency Contacts',
           'Please add emergency contacts in settings before triggering an emergency.',
@@ -314,10 +314,14 @@ export class EmergencyService {
       const emergencyMessage = this.createEmergencyMessage(type, location, fallData);
       
       // Process emergency notifications
+      const effectiveSettings =
+        type === 'manual'
+          ? { ...settings, send_sms: true, auto_call_emergency: false }
+          : settings;
       const responses = await this.processEmergencyNotifications(
-        emergencyMessage, 
-        activeContacts, 
-        settings
+        emergencyMessage,
+        targetContacts,
+        effectiveSettings
       );
 
       // Log the emergency
@@ -327,7 +331,7 @@ export class EmergencyService {
       await this.updateLastEmergencyTimestamp();
 
       // Send push notifications to app contacts
-      await this.sendPushNotificationToContacts(activeContacts, emergencyMessage);
+      await this.sendPushNotificationToContacts(targetContacts, emergencyMessage);
 
       this.isEmergencyActive = false;
       this.emergencyInProgress = false;
@@ -490,7 +494,7 @@ export class EmergencyService {
         };
 
         // Send SMS if enabled
-        if (settings.send_sms && contact.can_receive_location) {
+        if (settings.send_sms) {
           const smsSent = await this.sendSMS(contact.phone, emergencyMessage.message);
           response.response_type = smsSent ? 'sms_sent' : 'sms_failed';
         }

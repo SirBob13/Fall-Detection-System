@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiFetch } from "../_lib/api";
+import { useRealtimeEvents } from "../_lib/realtime";
 
 interface DeviceItem {
   id: number;
@@ -22,6 +23,18 @@ export default function DevicesPage() {
       .then((res) => setDevices(res.data))
       .catch((err) => setError(err.message));
   }, []);
+
+  useRealtimeEvents(["devices"], (event) => {
+    if (!event.payload) return;
+    setDevices((prev) => {
+      const payload = event.payload as DeviceItem;
+      const exists = prev.find((item) => item.id === payload.id);
+      const next = exists
+        ? prev.map((item) => (item.id === payload.id ? { ...item, ...payload } : item))
+        : [payload, ...prev];
+      return next.slice(0, 100);
+    });
+  });
 
   return (
     <div className="space-y-6">

@@ -183,6 +183,13 @@
   box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
 }
 
+.card:is(.dark *) {
+  --tw-border-opacity: 1;
+  border-color: rgb(27 61 89 / var(--tw-border-opacity, 1));
+  --tw-bg-opacity: 1;
+  background-color: rgb(11 30 45 / var(--tw-bg-opacity, 1));
+}
+
 /* تنسيقات الأزرار */
 
 .btn-primary {
@@ -193,13 +200,6 @@
   --tw-shadow: 0 4px 8px rgba(33, 150, 243, 0.25);
   --tw-shadow-colored: 0 4px 8px var(--tw-shadow-color);
   box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
-}
-
-.btn-success {
-  --tw-bg-opacity: 1;
-  background-color: rgb(76 175 80 / var(--tw-bg-opacity, 1));
-  --tw-text-opacity: 1;
-  color: rgb(255 255 255 / var(--tw-text-opacity, 1));
 }
 
 /* تنسيقات الإدخال */
@@ -233,6 +233,13 @@
   --tw-ring-color: rgb(33 150 243 / 0.2);
 }
 
+.\!input:is(.dark *) {
+  --tw-border-opacity: 1;
+  border-color: rgb(27 61 89 / var(--tw-border-opacity, 1));
+  --tw-text-opacity: 1;
+  color: rgb(234 244 255 / var(--tw-text-opacity, 1));
+}
+
 .input {
   border-radius: 0.5rem;
   border-width: 1px;
@@ -262,6 +269,13 @@
   --tw-ring-color: rgb(33 150 243 / 0.2);
 }
 
+.input:is(.dark *) {
+  --tw-border-opacity: 1;
+  border-color: rgb(27 61 89 / var(--tw-border-opacity, 1));
+  --tw-text-opacity: 1;
+  color: rgb(234 244 255 / var(--tw-text-opacity, 1));
+}
+
 .input-label {
   margin-bottom: 0.5rem;
   font-size: 0.875rem;
@@ -269,6 +283,11 @@
   font-weight: 600;
   --tw-text-opacity: 1;
   color: rgb(33 33 33 / var(--tw-text-opacity, 1));
+}
+
+.input-label:is(.dark *) {
+  --tw-text-opacity: 1;
+  color: rgb(234 244 255 / var(--tw-text-opacity, 1));
 }
 
 .input-field {
@@ -286,6 +305,15 @@
   line-height: 1.5rem;
   --tw-text-opacity: 1;
   color: rgb(33 33 33 / var(--tw-text-opacity, 1));
+}
+
+.input-field:is(.dark *) {
+  --tw-border-opacity: 1;
+  border-color: rgb(27 61 89 / var(--tw-border-opacity, 1));
+  --tw-bg-opacity: 1;
+  background-color: rgb(11 30 45 / var(--tw-bg-opacity, 1));
+  --tw-text-opacity: 1;
+  color: rgb(234 244 255 / var(--tw-text-opacity, 1));
 }
 
 .error-text {
@@ -319,6 +347,11 @@
   color: rgb(33 33 33 / var(--tw-text-opacity, 1));
 }
 
+.section-title:is(.dark *) {
+  --tw-text-opacity: 1;
+  color: rgb(234 244 255 / var(--tw-text-opacity, 1));
+}
+
 /* تنسيقات الشبكة */
 
 .emergency-card {
@@ -335,6 +368,11 @@
   box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
 }
 
+.emergency-card:is(.dark *) {
+  --tw-bg-opacity: 1;
+  background-color: rgb(11 30 45 / var(--tw-bg-opacity, 1));
+}
+
 .setting-row {
   flex-direction: row;
   align-items: center;
@@ -344,6 +382,11 @@
   border-color: rgb(189 189 189 / var(--tw-border-opacity, 1));
   padding-top: 0.75rem;
   padding-bottom: 0.75rem;
+}
+
+.setting-row:is(.dark *) {
+  --tw-border-opacity: 1;
+  border-color: rgb(27 61 89 / var(--tw-border-opacity, 1));
 }
 
 .setting-row:last-child {
@@ -892,6 +935,10 @@
   margin-bottom: calc(0.75rem * var(--tw-space-y-reverse));
 }
 
+.self-start {
+  align-self: flex-start;
+}
+
 .self-end {
   align-self: flex-end;
 }
@@ -1094,11 +1141,6 @@
 
 .bg-danger\/90 {
   background-color: rgb(244 67 54 / 0.9);
-}
-
-.bg-dark {
-  --tw-bg-opacity: 1;
-  background-color: rgb(33 33 33 / var(--tw-bg-opacity, 1));
 }
 
 .bg-dark\/70 {
@@ -1722,4 +1764,29 @@
 
 .active\:opacity-90:active {
   opacity: 0.9;
+}
+
+.dark\:border-darkTheme-border:is(.dark *) {
+  --tw-border-opacity: 1;
+  border-color: rgb(27 61 89 / var(--tw-border-opacity, 1));
+}
+
+.dark\:bg-darkTheme-background:is(.dark *) {
+  --tw-bg-opacity: 1;
+  background-color: rgb(6 21 33 / var(--tw-bg-opacity, 1));
+}
+
+.dark\:bg-darkTheme-surface:is(.dark *) {
+  --tw-bg-opacity: 1;
+  background-color: rgb(11 30 45 / var(--tw-bg-opacity, 1));
+}
+
+.dark\:text-darkTheme-muted:is(.dark *) {
+  --tw-text-opacity: 1;
+  color: rgb(155 179 199 / var(--tw-text-opacity, 1));
+}
+
+.dark\:text-darkTheme-text:is(.dark *) {
+  --tw-text-opacity: 1;
+  color: rgb(234 244 255 / var(--tw-text-opacity, 1));
 }

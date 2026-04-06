@@ -13,18 +13,27 @@ import { useLanguage } from '../components/LanguageProvider';
 import { storageService } from '../services/storage';
 import { authService } from '../services/auth.service';
 import { bluetoothService, ScannedDevice, isBluetoothSupported } from '../services/bluetooth.service';
+import { apiService } from '../services/api';
 import { deviceService } from '../services/device.service';
 import { Device, User } from '../types';
+import { realtimeService } from '../services/realtime.service';
 
 export const DeviceManagementScreen: React.FC = () => {
   const { t } = useLanguage();
   const [user, setUser] = useState<User | null>(null);
-  const [device, setDevice] = useState<Device | null>(null);
+  const [devices, setDevices] = useState<Device[]>([]);
   const [scanResults, setScanResults] = useState<ScannedDevice[]>([]);
   const [manualDeviceId, setManualDeviceId] = useState('');
   const [isScanning, setIsScanning] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
-  const [isDisconnecting, setIsDisconnecting] = useState(false);
+  const [isLoadingDevices, setIsLoadingDevices] = useState(false);
+  const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+  const [defaultDeviceId, setDefaultDeviceId] = useState<string | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
+  const [archivedDevices, setArchivedDevices] = useState<Device[]>([]);
+  const [isLoadingArchived, setIsLoadingArchived] = useState(false);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
 
   useEffect(() => {
     loadData();
@@ -53,15 +62,107 @@ export const DeviceManagementScreen: React.FC = () => {
     }
     setUser(storedUser);
 
+    const settings = await storageService.getSettings();
+    setDefaultDeviceId(settings?.defaultDeviceId ?? null);
+
     const storedDevice = await storageService.getDevice();
-    setDevice(storedDevice);
+    setDevices(storedDevice ? [storedDevice] : []);
 
     if (storedUser) {
-      const refreshed = await deviceService.refreshUserDevice(storedUser.id);
-      if (refreshed) {
-        setDevice(refreshed);
+      await refreshDevices(storedUser.id, storedDevice, settings?.defaultDeviceId);
+    }
+  };
+
+  useEffect(() => {
+    const unsubscribe = realtimeService.subscribe('devices', (event) => {
+      if (!user?.id) return;
+      if (event.user_id && event.user_id !== user.id) return;
+      if (!event.payload) return;
+
+      const payload = event.payload as Device;
+      if (payload.is_archived) {
+        setDevices((prev) => prev.filter((item) => item.device_id !== payload.device_id));
+        setArchivedDevices((prev) => {
+          const exists = prev.find((item) => item.device_id === payload.device_id);
+          const next = exists
+            ? prev.map((item) => (item.device_id === payload.device_id ? { ...item, ...payload } : item))
+            : [payload, ...prev];
+          return next;
+        });
+      } else {
+        setArchivedDevices((prev) => prev.filter((item) => item.device_id !== payload.device_id));
+        setDevices((prev) => {
+          const exists = prev.find((item) => item.device_id === payload.device_id);
+          const next = exists
+            ? prev.map((item) => (item.device_id === payload.device_id ? { ...item, ...payload } : item))
+            : [payload, ...prev];
+          return next;
+        });
+      }
+    });
+
+    return unsubscribe;
+  }, [user?.id]);
+
+  const refreshDevices = async (
+    userId: number,
+    fallback?: Device | null,
+    preferredDefaultId?: string | null
+  ) => {
+    setIsLoadingDevices(true);
+    try {
+      const refreshed = await deviceService.refreshUserDevices(userId);
+      const nextDevices = refreshed.length > 0 ? refreshed : fallback ? [fallback] : [];
+      setDevices(nextDevices);
+      await syncDefaultDevice(nextDevices, preferredDefaultId);
+    } finally {
+      setIsLoadingDevices(false);
+    }
+  };
+
+  const loadArchivedDevices = async (userId: number) => {
+    setIsLoadingArchived(true);
+    try {
+      const response = await apiService.getArchivedDevices(userId);
+      if (response.success && Array.isArray(response.data)) {
+        setArchivedDevices(response.data);
+      } else {
+        setArchivedDevices([]);
+      }
+    } finally {
+      setIsLoadingArchived(false);
+    }
+  };
+
+  const syncDefaultDevice = async (availableDevices: Device[], preferredDefaultId?: string | null) => {
+    const settings = await storageService.getSettings();
+    const currentDefault = preferredDefaultId ?? settings?.defaultDeviceId ?? null;
+    const exists = currentDefault
+      ? availableDevices.find((item) => item.device_id === currentDefault)
+      : null;
+    const nextDefault = exists ? exists.device_id : availableDevices[0]?.device_id ?? null;
+
+    if (nextDefault !== currentDefault) {
+      await storageService.saveSettings({
+        ...(settings || {}),
+        defaultDeviceId: nextDefault,
+      });
+    }
+
+    if (nextDefault) {
+      const selected = availableDevices.find((item) => item.device_id === nextDefault);
+      if (selected) {
+        await storageService.saveDevice(selected);
       }
     }
+
+    setDefaultDeviceId(nextDefault);
+  };
+
+  const isValidDeviceId = (value: string): boolean => {
+    const macPattern = /^([0-9A-F]{2}([-:])){5}[0-9A-F]{2}$/i;
+    const fallbackPattern = /^[A-Za-z0-9_-]{4,50}$/;
+    return macPattern.test(value) || fallbackPattern.test(value);
   };
 
   const handleScan = async () => {
@@ -92,6 +193,10 @@ export const DeviceManagementScreen: React.FC = () => {
       Alert.alert(t('common.error'), t('system.deviceIdRequired'));
       return;
     }
+    if (!isValidDeviceId(deviceId)) {
+      Alert.alert(t('common.error'), t('system.deviceIdInvalid'));
+      return;
+    }
 
     setIsConnecting(true);
     try {
@@ -102,7 +207,10 @@ export const DeviceManagementScreen: React.FC = () => {
       });
 
       if (connected) {
-        setDevice(connected);
+        await refreshDevices(user.id, connected, connected.device_id);
+        if (showArchived) {
+          await loadArchivedDevices(user.id);
+        }
         setManualDeviceId('');
         setScanResults([]);
         Alert.alert(t('success.connected'), t('system.deviceConnected'));
@@ -116,14 +224,14 @@ export const DeviceManagementScreen: React.FC = () => {
     }
   };
 
-  const handleDisconnect = async () => {
-    if (!device?.device_id) return;
+  const handleDisconnect = async (deviceId: string) => {
+    if (!deviceId || !user?.id) return;
 
-    setIsDisconnecting(true);
+    setDisconnectingId(deviceId);
     try {
-      const updated = await deviceService.disconnectDevice(device.device_id);
+      const updated = await deviceService.disconnectDevice(deviceId);
       if (updated) {
-        setDevice(updated);
+        await refreshDevices(user.id, updated, defaultDeviceId);
         Alert.alert(t('success.updated'), t('system.disconnected'));
       } else {
         Alert.alert(t('common.error'), t('errors.unknown'));
@@ -131,51 +239,214 @@ export const DeviceManagementScreen: React.FC = () => {
     } catch (error: any) {
       Alert.alert(t('common.error'), error?.message || t('errors.unknown'));
     } finally {
-      setIsDisconnecting(false);
+      setDisconnectingId(null);
     }
   };
 
+  const handleRemove = (deviceId: string) => {
+    if (!user?.id || !deviceId) return;
+
+    Alert.alert(
+      t('system.removeDeviceTitle'),
+      t('system.removeDeviceBody'),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('common.confirm'),
+          style: 'destructive',
+          onPress: async () => {
+            setRemovingId(deviceId);
+            try {
+              const removed = await deviceService.removeDevice(deviceId, user.id);
+              if (removed) {
+                await refreshDevices(user.id);
+                if (showArchived) {
+                  await loadArchivedDevices(user.id);
+                }
+                Alert.alert(t('success.deleted'), t('system.deviceRemoved'));
+              } else {
+                Alert.alert(t('common.error'), t('errors.unknown'));
+              }
+            } catch (error: any) {
+              Alert.alert(t('common.error'), error?.message || t('errors.unknown'));
+            } finally {
+              setRemovingId(null);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const formatLastSeen = (value?: string) => {
+    if (!value) return '--';
+    return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
   return (
-    <ScrollView className="flex-1 bg-light" showsVerticalScrollIndicator={false}>
+    <ScrollView className="flex-1 bg-light dark:bg-darkTheme-background" showsVerticalScrollIndicator={false}>
       <View className="mx-4 mt-4">
-        <Text className="text-lg font-bold text-dark">{t('settings.deviceManagement')}</Text>
-        <Text className="text-xs text-gray mt-1">{t('settings.deviceManagementDesc')}</Text>
+        <Text className="text-lg font-bold text-dark dark:text-darkTheme-text">{t('settings.deviceManagement')}</Text>
+        <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">{t('settings.deviceManagementDesc')}</Text>
       </View>
 
-      <View className="mx-4 mt-4 bg-white rounded-2xl shadow-lg border border-lightGray p-4">
-        <Text className="text-base font-semibold text-dark mb-3">{t('settings.deviceInfo')}</Text>
-        {device ? (
-          <>
-            <View className="flex-row items-center mb-3">
-              <MaterialCommunityIcons name="devices" size={20} color="#4CAF50" />
-              <Text className="text-base text-dark ml-2">{device.device_id}</Text>
-              <View className="flex-1 items-end">
-                <View className={`w-3 h-3 rounded-full ${device.is_connected ? 'bg-success' : 'bg-danger'}`} />
+      <View className="mx-4 mt-4 bg-white dark:bg-darkTheme-surface rounded-2xl shadow-lg border border-lightGray dark:border-darkTheme-border p-4">
+        <Text className="text-base font-semibold text-dark dark:text-darkTheme-text mb-3">{t('settings.deviceInfo')}</Text>
+        {isLoadingDevices ? (
+          <ActivityIndicator size="small" color="#2196F3" />
+        ) : devices.length > 0 ? (
+          devices.map((item) => (
+            <View key={item.device_id} className="border border-lightGray dark:border-darkTheme-border rounded-xl p-3 mb-3">
+              <View className="flex-row items-center mb-2">
+                <MaterialCommunityIcons name="devices" size={18} color="#4CAF50" />
+                <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text ml-2">{item.device_id}</Text>
+                <View className="flex-1 items-end">
+                  <View className={`w-3 h-3 rounded-full ${item.is_connected ? 'bg-success' : 'bg-danger'}`} />
+                </View>
+              </View>
+              {defaultDeviceId === item.device_id ? (
+                <View className="self-start mb-2 px-2 py-1 rounded-full bg-blue-50">
+                  <Text className="text-xs text-primary font-semibold">{t('system.defaultDevice')}</Text>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  className="self-start mb-2 px-2 py-1 rounded-full border border-primary"
+                  onPress={async () => {
+                    const settings = await storageService.getSettings();
+                    await storageService.saveSettings({
+                      ...(settings || {}),
+                      defaultDeviceId: item.device_id,
+                    });
+                    await storageService.saveDevice(item);
+                    setDefaultDeviceId(item.device_id);
+                    Alert.alert(t('success.updated'), t('system.defaultDeviceSet'));
+                  }}
+                >
+                  <Text className="text-xs text-primary font-semibold">{t('system.setDefault')}</Text>
+                </TouchableOpacity>
+              )}
+              <View className="flex-row justify-between">
+                <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('home.battery')}</Text>
+                <Text className="text-xs text-gray dark:text-darkTheme-muted">
+                  {item.battery_level?.toFixed(0) || '--'}%
+                </Text>
+              </View>
+              <View className="flex-row justify-between mt-1">
+                <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('system.lastSeen')}</Text>
+                <Text className="text-xs text-gray dark:text-darkTheme-muted">
+                  {formatLastSeen(item.last_seen)}
+                </Text>
+              </View>
+
+              <View className="flex-row items-center mt-3">
+                {item.is_connected ? (
+                  <TouchableOpacity
+                    className="flex-1 bg-danger rounded-xl py-2 items-center"
+                    onPress={() => handleDisconnect(item.device_id)}
+                    disabled={disconnectingId === item.device_id}
+                  >
+                    <Text className="text-white text-xs font-semibold">
+                      {disconnectingId === item.device_id
+                        ? t('system.connecting')
+                        : t('system.disconnectAction')}
+                    </Text>
+                  </TouchableOpacity>
+                ) : (
+                  <View className="flex-1">
+                    <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('system.disconnected')}</Text>
+                  </View>
+                )}
+                <TouchableOpacity
+                  className="ml-2 px-4 py-2 border border-danger rounded-xl"
+                  onPress={() => handleRemove(item.device_id)}
+                  disabled={removingId === item.device_id}
+                >
+                  <Text className="text-danger text-xs font-semibold">
+                    {t('common.delete')}
+                  </Text>
+                </TouchableOpacity>
               </View>
             </View>
-            <View className="flex-row justify-between">
-              <Text className="text-xs text-gray">{t('home.battery')}</Text>
-              <Text className="text-xs text-gray">
-                {device.battery_level?.toFixed(0) || '--'}%
-              </Text>
-            </View>
-            <View className="flex-row justify-between mt-1">
-              <Text className="text-xs text-gray">{t('system.lastSeen')}</Text>
-              <Text className="text-xs text-gray">
-                {device.last_seen ? new Date(device.last_seen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--'}
-              </Text>
-            </View>
-          </>
+          ))
         ) : (
-          <Text className="text-xs text-gray">{t('system.noDevice')}</Text>
+          <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('system.noDevice')}</Text>
         )}
       </View>
 
-      <View className="mx-4 mt-4 bg-white rounded-2xl shadow-lg border border-lightGray p-4">
-        <Text className="text-base font-semibold text-dark mb-3">{t('system.scanBluetooth')}</Text>
+      <View className="mx-4 mt-4 bg-white dark:bg-darkTheme-surface rounded-2xl shadow-lg border border-lightGray dark:border-darkTheme-border p-4">
+        <View className="flex-row items-center justify-between">
+          <Text className="text-base font-semibold text-dark dark:text-darkTheme-text">{t('system.archivedDevices')}</Text>
+          <TouchableOpacity
+            className="px-3 py-2 rounded-full border border-primary"
+            onPress={async () => {
+              const next = !showArchived;
+              setShowArchived(next);
+              if (next && user?.id) {
+                await loadArchivedDevices(user.id);
+              }
+            }}
+          >
+            <Text className="text-xs text-primary font-semibold">
+              {showArchived ? t('common.hide') : t('common.show')}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {showArchived ? (
+          isLoadingArchived ? (
+            <ActivityIndicator size="small" color="#2196F3" className="mt-3" />
+          ) : archivedDevices.length > 0 ? (
+            <View className="mt-3">
+              {archivedDevices.map((item) => (
+                <View key={item.device_id} className="border border-lightGray dark:border-darkTheme-border rounded-xl p-3 mb-3">
+                  <View className="flex-row items-center mb-2">
+                    <MaterialCommunityIcons name="archive" size={18} color="#9E9E9E" />
+                    <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text ml-2">{item.device_id}</Text>
+                  </View>
+                  <View className="flex-row justify-between">
+                    <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('system.lastSeen')}</Text>
+                    <Text className="text-xs text-gray dark:text-darkTheme-muted">{formatLastSeen(item.last_seen)}</Text>
+                  </View>
+                  <TouchableOpacity
+                    className="mt-3 bg-primary rounded-xl py-2 items-center"
+                    onPress={async () => {
+                      if (!user?.id) return;
+                      setRestoringId(item.device_id);
+                      try {
+                        const restored = await apiService.restoreDevice(item.device_id, user.id);
+                        if (restored.success) {
+                          await refreshDevices(user.id);
+                          await loadArchivedDevices(user.id);
+                          Alert.alert(t('success.updated'), t('system.deviceRestored'));
+                        } else {
+                          Alert.alert(t('common.error'), t('errors.unknown'));
+                        }
+                      } finally {
+                        setRestoringId(null);
+                      }
+                    }}
+                    disabled={restoringId === item.device_id}
+                  >
+                    <Text className="text-white text-xs font-semibold">
+                      {restoringId === item.device_id ? t('system.connecting') : t('system.restoreDevice')}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <Text className="text-xs text-gray dark:text-darkTheme-muted mt-3">{t('system.noArchivedDevices')}</Text>
+          )
+        ) : (
+          <Text className="text-xs text-gray dark:text-darkTheme-muted mt-2">{t('system.archivedDevicesHint')}</Text>
+        )}
+      </View>
+
+      <View className="mx-4 mt-4 bg-white dark:bg-darkTheme-surface rounded-2xl shadow-lg border border-lightGray dark:border-darkTheme-border p-4">
+        <Text className="text-base font-semibold text-dark dark:text-darkTheme-text mb-3">{t('system.scanBluetooth')}</Text>
         {!isBluetoothSupported() && (
           <View className="bg-orange-50 border border-orange-200 rounded-xl p-3 mb-3">
-            <Text className="text-xs text-dark">{t('system.bluetoothRequiresDevBuild')}</Text>
+            <Text className="text-xs text-dark dark:text-darkTheme-text">{t('system.bluetoothRequiresDevBuild')}</Text>
           </View>
         )}
         <TouchableOpacity
@@ -196,20 +467,20 @@ export const DeviceManagementScreen: React.FC = () => {
             {scanResults.map((item) => (
               <TouchableOpacity
                 key={item.id}
-                className="border border-lightGray rounded-xl p-3 mb-2"
+                className="border border-lightGray dark:border-darkTheme-border rounded-xl p-3 mb-2"
                 onPress={() => handleConnect(item.id)}
                 disabled={isConnecting}
               >
-                <Text className="text-sm font-semibold text-dark">{item.name}</Text>
-                <Text className="text-xs text-gray mt-1">{item.id}</Text>
+                <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text">{item.name}</Text>
+                <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">{item.id}</Text>
               </TouchableOpacity>
             ))}
           </View>
         )}
       </View>
 
-      <View className="mx-4 mt-4 bg-white rounded-2xl shadow-lg border border-lightGray p-4">
-        <Text className="text-base font-semibold text-dark mb-3">{t('system.enterDeviceId')}</Text>
+      <View className="mx-4 mt-4 bg-white dark:bg-darkTheme-surface rounded-2xl shadow-lg border border-lightGray dark:border-darkTheme-border p-4">
+        <Text className="text-base font-semibold text-dark dark:text-darkTheme-text mb-3">{t('system.enterDeviceId')}</Text>
         <TextInput
           className="input-field"
           value={manualDeviceId}
@@ -228,20 +499,6 @@ export const DeviceManagementScreen: React.FC = () => {
           </Text>
         </TouchableOpacity>
       </View>
-
-      {device && (
-        <View className="mx-4 mt-4">
-          <TouchableOpacity
-            className="bg-danger rounded-xl py-3 items-center"
-            onPress={handleDisconnect}
-            disabled={isDisconnecting}
-          >
-            <Text className="text-white font-semibold">
-              {isDisconnecting ? t('system.connecting') : t('system.disconnectAction')}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      )}
 
       <View className="h-20" />
     </ScrollView>

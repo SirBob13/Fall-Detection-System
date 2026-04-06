@@ -12,9 +12,9 @@ export const ScreenHeader: React.FC<ScreenHeaderProps> = ({ title, subtitle }) =
       <View className="absolute -right-8 -top-8 w-24 h-24 rounded-full bg-primary/20" />
       <View className="absolute -left-10 -bottom-10 w-32 h-32 rounded-full bg-primary/10" />
       <View className="p-5">
-        <Text className="text-2xl font-bold text-dark">{title}</Text>
+        <Text className="text-2xl font-bold text-dark dark:text-darkTheme-text">{title}</Text>
         {subtitle ? (
-          <Text className="text-xs text-gray mt-1">{subtitle}</Text>
+          <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">{subtitle}</Text>
         ) : null}
       </View>
     </View>

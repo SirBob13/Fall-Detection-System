@@ -18,6 +18,7 @@ import { Alert as AlertType, CareDashboardItem, CareLink, LastKnownLocation, Use
 import { LineChart } from 'react-native-chart-kit';
 import { Dimensions } from 'react-native';
 import { ScreenHeader } from '../components/ScreenHeader';
+import { realtimeService } from '../services/realtime.service';
 
 export const CaregiverDashboardScreen: React.FC = () => {
   const { t } = useLanguage();
@@ -131,6 +132,68 @@ export const CaregiverDashboardScreen: React.FC = () => {
     }
   };
 
+  useEffect(() => {
+    const unsubscribe = realtimeService.subscribe('all', (event) => {
+      const active = monitoredUser || user;
+      if (!active) return;
+      if (event.user_id && event.user_id !== active.id) return;
+      if (!event.payload) return;
+
+      if (event.resource === 'vitals') {
+        setVitals(event.payload);
+        setVitalsHistory((prev) => {
+          const next = [...prev, event.payload];
+          return next.slice(-10);
+        });
+        setDashboardItems((prev) =>
+          prev.map((item) =>
+            item.patient?.id === event.payload.user_id
+              ? { ...item, vitals: { ...item.vitals, ...event.payload } }
+              : item
+          )
+        );
+      }
+
+      if (event.resource === 'alerts') {
+        setAlerts((prev) => {
+          const exists = prev.find((item) => item.id === event.payload.id);
+          const next = exists
+            ? prev.map((item) => (item.id === event.payload.id ? { ...item, ...event.payload } : item))
+            : [event.payload, ...prev];
+          return next.slice(0, 10);
+        });
+        setDashboardItems((prev) =>
+          prev.map((item) =>
+            item.patient?.id === event.payload.user_id
+              ? {
+                  ...item,
+                  alerts: {
+                    ...(item.alerts || { pending: 0 }),
+                    last: {
+                      id: event.payload.id,
+                      type: event.payload.type || event.payload.alert_type,
+                      severity: event.payload.severity,
+                      message: event.payload.message,
+                      status: event.payload.status,
+                      timestamp: event.payload.timestamp,
+                    },
+                  },
+                }
+              : item
+          )
+        );
+      }
+
+      if (event.resource === 'profile') {
+        if (event.payload?.id === active.id) {
+          setUser((prev) => ({ ...(prev || {}), ...event.payload }));
+        }
+      }
+    });
+
+    return unsubscribe;
+  }, [user, monitoredUser]);
+
   const onRefresh = async () => {
     setRefreshing(true);
     await loadDashboard();
@@ -172,7 +235,7 @@ export const CaregiverDashboardScreen: React.FC = () => {
 
   return (
     <ScrollView
-      className="flex-1 bg-light"
+      className="flex-1 bg-light dark:bg-darkTheme-background"
       showsVerticalScrollIndicator={false}
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
@@ -180,14 +243,14 @@ export const CaregiverDashboardScreen: React.FC = () => {
     >
       <ScreenHeader title={t('dashboard.title')} subtitle={t('dashboard.subtitle')} />
 
-      <View className="mx-4 mt-4 bg-white rounded-2xl shadow-lg border border-lightGray p-4">
-        <Text className="text-sm font-semibold text-dark mb-2">{t('dashboard.monitoring')}</Text>
+      <View className="mx-4 mt-4 bg-white dark:bg-darkTheme-surface rounded-2xl shadow-lg border border-lightGray dark:border-darkTheme-border p-4">
+        <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text mb-2">{t('dashboard.monitoring')}</Text>
         {activeUser ? (
           <View className="flex-row items-center justify-between">
             <View>
-              <Text className="text-base font-semibold text-dark">{activeUser.name}</Text>
+              <Text className="text-base font-semibold text-dark dark:text-darkTheme-text">{activeUser.name}</Text>
               {activeUser.email ? (
-                <Text className="text-xs text-gray mt-1">{activeUser.email}</Text>
+                <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">{activeUser.email}</Text>
               ) : null}
             </View>
             <View className="flex-row items-center">
@@ -196,7 +259,7 @@ export const CaregiverDashboardScreen: React.FC = () => {
             </View>
           </View>
         ) : (
-          <Text className="text-xs text-gray">{t('dashboard.noUser')}</Text>
+          <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('dashboard.noUser')}</Text>
         )}
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mt-3">
@@ -204,7 +267,7 @@ export const CaregiverDashboardScreen: React.FC = () => {
             className={`px-3 py-2 rounded-full mr-2 ${!monitoredUser ? 'bg-primary' : 'bg-lightGray'}`}
             onPress={() => handleSelect(null)}
           >
-            <Text className={`${!monitoredUser ? 'text-white' : 'text-dark'} text-xs`}>
+            <Text className={`${!monitoredUser ? 'text-white' : 'text-dark dark:text-darkTheme-text'} text-xs`}>
               {t('dashboard.myData')}
             </Text>
           </TouchableOpacity>
@@ -217,7 +280,7 @@ export const CaregiverDashboardScreen: React.FC = () => {
               onPress={() => handleSelect(link)}
               disabled={!link.patient}
             >
-              <Text className={`${monitoredUser?.id === link.patient?.id ? 'text-white' : 'text-dark'} text-xs`}>
+              <Text className={`${monitoredUser?.id === link.patient?.id ? 'text-white' : 'text-dark dark:text-darkTheme-text'} text-xs`}>
                 {link.patient?.name || t('common.unknown')}
               </Text>
             </TouchableOpacity>
@@ -231,37 +294,37 @@ export const CaregiverDashboardScreen: React.FC = () => {
         </View>
       ) : (
         <>
-          <View className="mx-4 mt-4 bg-white rounded-2xl shadow-lg border border-lightGray p-4">
-            <Text className="text-sm font-semibold text-dark mb-3">{t('dashboard.vitals')}</Text>
+          <View className="mx-4 mt-4 bg-white dark:bg-darkTheme-surface rounded-2xl shadow-lg border border-lightGray dark:border-darkTheme-border p-4">
+            <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text mb-3">{t('dashboard.vitals')}</Text>
             {vitals ? (
               <View>
                 <View className="flex-row justify-between mb-2">
-                  <Text className="text-xs text-gray">{t('vitals.heartRate')}</Text>
-                  <Text className="text-sm font-semibold text-dark">
+                  <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('vitals.heartRate')}</Text>
+                  <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text">
                     {heartRate ?? '--'} {t('vitals.bpm')}
                   </Text>
                 </View>
                 <View className="flex-row justify-between mb-2">
-                  <Text className="text-xs text-gray">{t('vitals.oxygen')}</Text>
-                  <Text className="text-sm font-semibold text-dark">
+                  <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('vitals.oxygen')}</Text>
+                  <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text">
                     {oxygen ?? '--'} {t('vitals.percent')}
                   </Text>
                 </View>
                 <View className="flex-row justify-between mb-2">
-                  <Text className="text-xs text-gray">{t('vitals.bloodPressure')}</Text>
-                  <Text className="text-sm font-semibold text-dark">
+                  <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('vitals.bloodPressure')}</Text>
+                  <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text">
                     {bpSys ?? '--'}/{bpDia ?? '--'} {t('vitals.mmHg')}
                   </Text>
                 </View>
                 <View className="flex-row justify-between">
-                  <Text className="text-xs text-gray">{t('vitals.temperature')}</Text>
-                  <Text className="text-sm font-semibold text-dark">
+                  <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('vitals.temperature')}</Text>
+                  <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text">
                     {temp ?? '--'} {t('vitals.celsius')}
                   </Text>
                 </View>
                 {chartData.length > 1 ? (
                   <View className="mt-4">
-                    <Text className="text-xs text-gray mb-2">{t('dashboard.heartRateTrend')}</Text>
+                    <Text className="text-xs text-gray dark:text-darkTheme-muted mb-2">{t('dashboard.heartRateTrend')}</Text>
                     <LineChart
                       data={{
                         labels: chartLabels.slice(-5),
@@ -292,12 +355,12 @@ export const CaregiverDashboardScreen: React.FC = () => {
                 ) : null}
               </View>
             ) : (
-              <Text className="text-xs text-gray">{t('vitals.noData')}</Text>
+              <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('vitals.noData')}</Text>
             )}
           </View>
 
-          <View className="mx-4 mt-4 bg-white rounded-2xl shadow-lg border border-lightGray p-4">
-            <Text className="text-sm font-semibold text-dark mb-3">{t('dashboard.alerts')}</Text>
+          <View className="mx-4 mt-4 bg-white dark:bg-darkTheme-surface rounded-2xl shadow-lg border border-lightGray dark:border-darkTheme-border p-4">
+            <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text mb-3">{t('dashboard.alerts')}</Text>
             <View className="flex-row justify-between">
               <View className="items-center flex-1 bg-primary rounded-xl py-3 mx-1">
                 <Text className="text-white text-lg font-bold">{stats.total}</Text>
@@ -312,24 +375,24 @@ export const CaregiverDashboardScreen: React.FC = () => {
                 <Text className="text-white/90 text-xs">{t('alerts.critical')}</Text>
               </View>
             </View>
-            <Text className="text-[10px] text-gray mt-3">
+            <Text className="text-[10px] text-gray dark:text-darkTheme-muted mt-3">
               {t('dashboard.lastUpdated')}: {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </Text>
             {alerts.length > 0 ? (
               <View className="mt-4 p-3 rounded-xl bg-lightGray/40">
-                <Text className="text-xs text-gray">{t('dashboard.latestAlert')}</Text>
-                <Text className="text-sm font-semibold text-dark mt-1">{alerts[0].message}</Text>
-                <Text className="text-[10px] text-gray mt-1">
+                <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('dashboard.latestAlert')}</Text>
+                <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text mt-1">{alerts[0].message}</Text>
+                <Text className="text-[10px] text-gray dark:text-darkTheme-muted mt-1">
                   {new Date(alerts[0].timestamp).toLocaleString()}
                 </Text>
               </View>
             ) : (
-              <Text className="text-xs text-gray mt-3">{t('dashboard.noAlerts')}</Text>
+              <Text className="text-xs text-gray dark:text-darkTheme-muted mt-3">{t('dashboard.noAlerts')}</Text>
             )}
           </View>
 
-          <View className="mx-4 mt-4 bg-white rounded-2xl shadow-lg border border-lightGray p-4">
-            <Text className="text-sm font-semibold text-dark mb-3">{t('dashboard.location')}</Text>
+          <View className="mx-4 mt-4 bg-white dark:bg-darkTheme-surface rounded-2xl shadow-lg border border-lightGray dark:border-darkTheme-border p-4">
+            <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text mb-3">{t('dashboard.location')}</Text>
             {hasLocation ? (
               <View className="h-44 rounded-xl overflow-hidden">
                 <MapView
@@ -349,22 +412,22 @@ export const CaregiverDashboardScreen: React.FC = () => {
                 </MapView>
               </View>
             ) : (
-              <Text className="text-xs text-gray">{t('dashboard.noLocation')}</Text>
+              <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('dashboard.noLocation')}</Text>
             )}
           </View>
 
-          <View className="mx-4 mt-4 bg-white rounded-2xl shadow-lg border border-lightGray p-4">
-            <Text className="text-sm font-semibold text-dark mb-3">{t('dashboard.allMonitored')}</Text>
+          <View className="mx-4 mt-4 bg-white dark:bg-darkTheme-surface rounded-2xl shadow-lg border border-lightGray dark:border-darkTheme-border p-4">
+            <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text mb-3">{t('dashboard.allMonitored')}</Text>
             {dashboardItems.length === 0 ? (
-              <Text className="text-xs text-gray">{t('dashboard.noMonitored')}</Text>
+              <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('dashboard.noMonitored')}</Text>
             ) : (
               dashboardItems.map((item) => (
-                <View key={item.patient.id} className="border border-lightGray rounded-xl p-3 mb-3">
+                <View key={item.patient.id} className="border border-lightGray dark:border-darkTheme-border rounded-xl p-3 mb-3">
                   <View className="flex-row justify-between items-center">
                     <View>
-                      <Text className="text-sm font-semibold text-dark">{item.patient.name}</Text>
+                      <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text">{item.patient.name}</Text>
                       {item.relationship ? (
-                        <Text className="text-[10px] text-gray mt-1">{item.relationship}</Text>
+                        <Text className="text-[10px] text-gray dark:text-darkTheme-muted mt-1">{item.relationship}</Text>
                       ) : null}
                     </View>
                     <TouchableOpacity
@@ -377,20 +440,20 @@ export const CaregiverDashboardScreen: React.FC = () => {
 
                   <View className="mt-3 flex-row justify-between">
                     <View>
-                      <Text className="text-[10px] text-gray">{t('vitals.heartRate')}</Text>
-                      <Text className="text-sm font-semibold text-dark">
+                      <Text className="text-[10px] text-gray dark:text-darkTheme-muted">{t('vitals.heartRate')}</Text>
+                      <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text">
                         {item.vitals?.heart_rate ?? '--'} {t('vitals.bpm')}
                       </Text>
                     </View>
                     <View>
-                      <Text className="text-[10px] text-gray">{t('vitals.oxygen')}</Text>
-                      <Text className="text-sm font-semibold text-dark">
+                      <Text className="text-[10px] text-gray dark:text-darkTheme-muted">{t('vitals.oxygen')}</Text>
+                      <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text">
                         {item.vitals?.oxygen_saturation ?? '--'} {t('vitals.percent')}
                       </Text>
                     </View>
                     <View>
-                      <Text className="text-[10px] text-gray">{t('dashboard.pending')}</Text>
-                      <Text className="text-sm font-semibold text-dark">
+                      <Text className="text-[10px] text-gray dark:text-darkTheme-muted">{t('dashboard.pending')}</Text>
+                      <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text">
                         {item.alerts?.pending ?? 0}
                       </Text>
                     </View>
@@ -398,13 +461,13 @@ export const CaregiverDashboardScreen: React.FC = () => {
 
                   {item.alerts?.last ? (
                     <View className="mt-3 p-2 rounded-lg bg-lightGray/40">
-                      <Text className="text-[10px] text-gray">{t('dashboard.latestAlert')}</Text>
-                      <Text className="text-xs text-dark mt-1" numberOfLines={2}>
+                      <Text className="text-[10px] text-gray dark:text-darkTheme-muted">{t('dashboard.latestAlert')}</Text>
+                      <Text className="text-xs text-dark dark:text-darkTheme-text mt-1" numberOfLines={2}>
                         {item.alerts.last.message}
                       </Text>
                     </View>
                   ) : (
-                    <Text className="text-[10px] text-gray mt-2">{t('dashboard.noAlerts')}</Text>
+                    <Text className="text-[10px] text-gray dark:text-darkTheme-muted mt-2">{t('dashboard.noAlerts')}</Text>
                   )}
                 </View>
               ))
@@ -418,20 +481,6 @@ export const CaregiverDashboardScreen: React.FC = () => {
               disabled={!activeUser}
             >
               <Text className="text-white font-semibold">{t('dashboard.openAlerts')}</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              className="bg-dark rounded-xl py-3 items-center"
-              onPress={() => {
-                if (!monitoredUser) return;
-                navigation.navigate('Chat', {
-                  patientId: monitoredUser.id,
-                  patientName: monitoredUser.name,
-                });
-              }}
-              disabled={!monitoredUser}
-            >
-              <Text className="text-white font-semibold">{t('dashboard.openChat')}</Text>
             </TouchableOpacity>
           </View>
         </>

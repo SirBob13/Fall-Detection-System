@@ -11,6 +11,8 @@ import { authService } from '../services/auth.service';
 import { deviceService } from '../services/device.service';
 import { useLanguage } from '../components/LanguageProvider';
 import { analyticsService } from '../services/analytics.service';
+import { useSettings } from '../components/SettingsProvider';
+import { realtimeService } from '../services/realtime.service';
 
 // Import authentication screens
 import { LoginScreen } from '../screens/auth/LoginScreen';
@@ -32,6 +34,7 @@ import { CaregiverDashboardScreen } from '../screens/CaregiverDashboardScreen';
 import { ChatScreen } from '../screens/ChatScreen';
 import { VideoCallScreen } from '../screens/VideoCallScreen';
 import { ReportsScreen } from '../screens/ReportsScreen';
+import { PrivacyPolicyScreen } from '../screens/PrivacyPolicyScreen';
 
 // Define navigation types
 type RootStackParamList = {
@@ -66,6 +69,7 @@ type SettingsStackParamList = {
   EmergencySettings: undefined;
   LanguageSettings: undefined;
   DeviceManagement: undefined;
+  PrivacyPolicy: undefined;
 };
 
 type EmergencyStackParamList = {
@@ -80,42 +84,34 @@ const MainTab = createBottomTabNavigator<MainTabParamList>();
 const SettingsStack = createNativeStackNavigator<SettingsStackParamList>();
 const EmergencyStack = createNativeStackNavigator<EmergencyStackParamList>();
 
-// Custom navigation theme
-const MyTheme = {
-  ...DefaultTheme,
-  colors: {
-    ...DefaultTheme.colors,
-    primary: AUTH_CONFIG.COLORS.primary,
-    background: '#FFF',
-    card: '#FFF',
-    text: '#333',
-    border: '#E0E0E0',
-  },
+// Loading component
+const LoadingScreen = () => {
+  const { isDark } = useSettings();
+  return (
+    <View style={{ 
+      flex: 1, 
+      justifyContent: 'center', 
+      alignItems: 'center',
+      backgroundColor: isDark ? '#061521' : '#FFF'
+    }}>
+      <ActivityIndicator size="large" color={AUTH_CONFIG.COLORS.primary} />
+      <Text style={{ marginTop: 16, color: isDark ? '#9BB3C7' : '#666' }}>Loading...</Text>
+    </View>
+  );
 };
 
-// Loading component
-const LoadingScreen = () => (
-  <View style={{ 
-    flex: 1, 
-    justifyContent: 'center', 
-    alignItems: 'center',
-    backgroundColor: '#FFF'
-  }}>
-    <ActivityIndicator size="large" color={AUTH_CONFIG.COLORS.primary} />
-    <Text style={{ marginTop: 16, color: '#666' }}>Loading...</Text>
-  </View>
-);
-
 // Authentication screens
-const AuthNavigator = () => (
-  <AuthStack.Navigator
-    initialRouteName="Login"
-    screenOptions={{
-      headerShown: false,
-      contentStyle: { backgroundColor: '#FFF' },
-      animation: 'slide_from_right',
-    }}
-  >
+const AuthNavigator = () => {
+  const { isDark } = useSettings();
+  return (
+    <AuthStack.Navigator
+      initialRouteName="Login"
+      screenOptions={{
+        headerShown: false,
+        contentStyle: { backgroundColor: isDark ? '#061521' : '#FFF' },
+        animation: 'slide_from_right',
+      }}
+    >
     <AuthStack.Screen 
       name="Login" 
       component={LoginScreen}
@@ -148,8 +144,9 @@ const AuthNavigator = () => (
         animation: 'slide_from_right',
       }}
     />
-  </AuthStack.Navigator>
-);
+    </AuthStack.Navigator>
+  );
+};
 
 // Settings Stack
 const SettingsNavigator = () => {
@@ -226,6 +223,11 @@ const SettingsNavigator = () => {
         name="DeviceManagement" 
         component={DeviceManagementScreen}
         options={{ title: t('settings.deviceManagement') }}
+      />
+      <SettingsStack.Screen 
+        name="PrivacyPolicy" 
+        component={PrivacyPolicyScreen}
+        options={{ title: t('settings.privacy') }}
       />
     </SettingsStack.Navigator>
   );
@@ -344,6 +346,7 @@ const MainNavigator = () => {
 
 // Main navigation component
 export const AppNavigator: React.FC = () => {
+  const { isDark } = useSettings();
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [needsProfileCompletion, setNeedsProfileCompletion] = useState(false);
@@ -367,7 +370,7 @@ export const AppNavigator: React.FC = () => {
         
         if (validation.isValid) {
           console.log('✅ [Auth Check] Valid session found');
-          
+
           // Update user in analytics
           analyticsService.setUserId(session.user.id);
           if (typeof analyticsService.setUserProperties === 'function') {
@@ -380,6 +383,10 @@ export const AppNavigator: React.FC = () => {
           setIsAuthenticated(true);
           const completion = authService.getProfileCompletion(session.user);
           setNeedsProfileCompletion(!completion.complete);
+
+          if (session?.token) {
+            realtimeService.connect(session.token);
+          }
           
           // Start session monitoring if not already started
           if (!backgroundCheck) {
@@ -398,6 +405,7 @@ export const AppNavigator: React.FC = () => {
           await authService.clearSession();
           setIsAuthenticated(false);
           setNeedsProfileCompletion(false);
+          realtimeService.disconnect();
           
           // Show alert only if not in background and not initial load
           if (!backgroundCheck && !isLoading) {
@@ -511,6 +519,9 @@ export const AppNavigator: React.FC = () => {
             });
           }
         }
+        if (session?.token) {
+          realtimeService.connect(session.token);
+        }
         if (session?.user) {
           const completion = authService.getProfileCompletion(session.user);
           setNeedsProfileCompletion(!completion.complete);
@@ -520,6 +531,7 @@ export const AppNavigator: React.FC = () => {
         await deviceService.autoConnectIfEnabled();
       } else {
         setNeedsProfileCompletion(false);
+        realtimeService.disconnect();
       }
     });
 
@@ -546,6 +558,18 @@ export const AppNavigator: React.FC = () => {
       deviceService.autoConnectIfEnabled();
     }
   }, [isAuthenticated, isLoading]);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      realtimeService.disconnect();
+      return;
+    }
+    authService.loadSession().then((session) => {
+      if (session?.token) {
+        realtimeService.connect(session.token);
+      }
+    });
+  }, [isAuthenticated]);
 
   // Handle logout
   const handleLogout = async () => {
@@ -594,6 +618,21 @@ export const AppNavigator: React.FC = () => {
     };
   }, []);
 
+  const navigationTheme = React.useMemo(
+    () => ({
+      ...DefaultTheme,
+      colors: {
+        ...DefaultTheme.colors,
+        primary: AUTH_CONFIG.COLORS.primary,
+        background: isDark ? '#061521' : '#FFF',
+        card: isDark ? '#0F2738' : '#FFF',
+        text: isDark ? '#EAF4FF' : '#333',
+        border: isDark ? '#1B3D59' : '#E0E0E0',
+      },
+    }),
+    [isDark]
+  );
+
   if (isLoading) {
     return <LoadingScreen />;
   }
@@ -601,7 +640,7 @@ export const AppNavigator: React.FC = () => {
   return (
     <NavigationContainer 
       ref={navigationRef}
-      theme={MyTheme}
+      theme={navigationTheme}
       onStateChange={(state) => {
         // Track navigation state changes
         const currentRoute = state?.routes[state.index];

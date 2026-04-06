@@ -16,13 +16,11 @@ import { emergencyService } from '../services/emergency.service';
 import { EmergencyContact } from '../services/emergency.types';
 import { useLanguage } from '../components/LanguageProvider';
 import { storageService } from '../services/storage';
-import { useNavigation } from '@react-navigation/native';
 import { User } from '../types';
 import { ScreenHeader } from '../components/ScreenHeader';
 
 export const EmergencyContactsScreen: React.FC = () => {
   const { t } = useLanguage();
-  const navigation = useNavigation<any>();
   const [contacts, setContacts] = useState<EmergencyContact[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
@@ -33,7 +31,6 @@ export const EmergencyContactsScreen: React.FC = () => {
   const [editablePhones, setEditablePhones] = useState<Record<string, string>>({});
   const [editingContact, setEditingContact] = useState<EmergencyContact | null>(null);
   const [user, setUser] = useState<User | null>(null);
-  const [monitoredUser, setMonitoredUser] = useState<User | null>(null);
   const [formData, setFormData] = useState({
     name: '',
     phone: '',
@@ -62,9 +59,7 @@ export const EmergencyContactsScreen: React.FC = () => {
 
   const loadContext = async () => {
     const storedUser = await storageService.getUser();
-    const storedMonitored = await storageService.getMonitoredUser();
     setUser(storedUser);
-    setMonitoredUser(storedMonitored);
   };
 
   const handleAddContact = () => {
@@ -77,35 +72,6 @@ export const EmergencyContactsScreen: React.FC = () => {
       is_active: true,
     });
     setModalVisible(true);
-  };
-
-  const handleOpenChat = () => {
-    if (!monitoredUser) {
-      Alert.alert(t('common.error'), t('emergency.communicationNoUser'));
-      return;
-    }
-    navigation.getParent?.()?.navigate?.('Settings', {
-      screen: 'Chat',
-      params: {
-        patientId: monitoredUser.id,
-        patientName: monitoredUser.name,
-      },
-    });
-  };
-
-  const handleOpenVideo = () => {
-    if (!user && !monitoredUser) {
-      Alert.alert(t('common.error'), t('errors.loginRequired'));
-      return;
-    }
-    const targetId = monitoredUser?.id || user?.id || 0;
-    navigation.getParent?.()?.navigate?.('Settings', {
-      screen: 'VideoCall',
-      params: {
-        channel: `emergency-${targetId}`,
-        title: t('video.emergencyTitle'),
-      },
-    });
   };
 
   const handleEditContact = (contact: EmergencyContact) => {
@@ -213,7 +179,30 @@ export const EmergencyContactsScreen: React.FC = () => {
                 return;
               }
 
+              if (importResult.permissionStatus === 'limited') {
+                Alert.alert(
+                  t('emergency.contacts.limitedAccessTitle'),
+                  t('emergency.contacts.limitedAccessMessage'),
+                  [
+                    { text: t('common.ok') },
+                    {
+                      text: t('emergency.contacts.openSettings'),
+                      onPress: () => Linking.openSettings(),
+                    },
+                  ]
+                );
+              }
+
               if (importResult.contacts.length > 0) {
+                const missingPhoneCount = importResult.contacts.filter(
+                  (contact) => !contact.phone || contact.phone.trim().length === 0
+                ).length;
+                if (missingPhoneCount > 0) {
+                  Alert.alert(
+                    t('emergency.contacts.missingPhoneTitle'),
+                    t('emergency.contacts.missingPhoneMessage', { count: missingPhoneCount })
+                  );
+                }
                 setPhoneContacts(importResult.contacts);
                 setSelectedContactIds(new Set());
                 setEditablePhones(
@@ -328,64 +317,40 @@ export const EmergencyContactsScreen: React.FC = () => {
 
   if (isLoading) {
     return (
-      <View className="flex-1 justify-center items-center bg-white">
+      <View className="flex-1 justify-center items-center bg-white dark:bg-darkTheme-surface">
         <MaterialCommunityIcons name="account-group" size={60} color="#2196F3" />
-        <Text className="mt-4 text-base text-gray">{t('common.loading')}</Text>
+        <Text className="mt-4 text-base text-gray dark:text-darkTheme-muted">{t('common.loading')}</Text>
         <ActivityIndicator color="#2196F3" size="large" className="mt-4" />
       </View>
     );
   }
 
   return (
-    <View className="flex-1 bg-light">
+    <View className="flex-1 bg-light dark:bg-darkTheme-background">
       <ScreenHeader title={t('emergency.contacts.title')} subtitle={t('emergency.contacts.description')} />
 
       {/* Quick Stats */}
-      <View className="mx-5 mt-1 bg-white rounded-2xl shadow-lg border border-lightGray p-4">
+      <View className="mx-5 mt-1 bg-white dark:bg-darkTheme-surface rounded-2xl shadow-lg border border-lightGray dark:border-darkTheme-border p-4">
         <View className="flex-row justify-between">
           <View className="items-center flex-1">
-            <Text className="text-2xl font-bold text-dark">{contacts.length}</Text>
-            <Text className="text-xs text-gray">{t('emergency.contacts.total')}</Text>
+            <Text className="text-2xl font-bold text-dark dark:text-darkTheme-text">{contacts.length}</Text>
+            <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('emergency.contacts.total')}</Text>
           </View>
           
           <View className="items-center flex-1">
-            <Text className="text-2xl font-bold text-dark">
+            <Text className="text-2xl font-bold text-dark dark:text-darkTheme-text">
               {contacts.filter(c => c.is_active).length}
             </Text>
-            <Text className="text-xs text-gray">{t('emergency.contacts.active')}</Text>
+            <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('emergency.contacts.active')}</Text>
           </View>
           
           <View className="items-center flex-1">
-            <Text className="text-2xl font-bold text-dark">
+            <Text className="text-2xl font-bold text-dark dark:text-darkTheme-text">
               {contacts.filter(c => c.priority === 1).length}
             </Text>
-            <Text className="text-xs text-gray">{t('emergency.contacts.highPriority')}</Text>
+            <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('emergency.contacts.highPriority')}</Text>
           </View>
         </View>
-      </View>
-
-      {/* Communication Section */}
-      <View className="mx-5 mt-4 bg-white rounded-2xl shadow-lg border border-lightGray p-4">
-        <Text className="text-base font-semibold text-dark mb-2">{t('emergency.communicationTitle')}</Text>
-        <Text className="text-xs text-gray mb-3">{t('emergency.communicationDesc')}</Text>
-
-        <TouchableOpacity
-          className="flex-row items-center justify-center py-3 rounded-xl bg-primary mb-3"
-          onPress={handleOpenVideo}
-          activeOpacity={0.7}
-        >
-          <MaterialCommunityIcons name="video" size={18} color="#FFF" />
-          <Text className="text-white font-semibold ml-2">{t('emergency.videoCall')}</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          className="flex-row items-center justify-center py-3 rounded-xl bg-dark"
-          onPress={handleOpenChat}
-          activeOpacity={0.7}
-        >
-          <MaterialCommunityIcons name="message-text" size={18} color="#FFF" />
-          <Text className="text-white font-semibold ml-2">{t('emergency.openChat')}</Text>
-        </TouchableOpacity>
       </View>
 
       {/* Contacts List */}
@@ -395,8 +360,8 @@ export const EmergencyContactsScreen: React.FC = () => {
             <View className="w-24 h-24 rounded-full bg-gray-100 justify-center items-center mb-6">
               <MaterialCommunityIcons name="account-alert" size={40} color="#BDBDBD" />
             </View>
-            <Text className="text-lg text-gray font-medium">{t('emergency.contacts.emptyTitle')}</Text>
-            <Text className="text-sm text-lightGray text-center mt-2 px-8">
+            <Text className="text-lg text-gray dark:text-darkTheme-muted font-medium">{t('emergency.contacts.emptyTitle')}</Text>
+            <Text className="text-sm text-lightGray dark:text-darkTheme-muted text-center mt-2 px-8">
               {t('emergency.contacts.emptyDesc')}
             </Text>
             
@@ -412,14 +377,14 @@ export const EmergencyContactsScreen: React.FC = () => {
           contacts.map(contact => (
             <View
               key={contact.id}
-              className={`bg-white rounded-2xl shadow-card p-4 mb-3 border ${
+              className={`bg-white dark:bg-darkTheme-surface rounded-2xl shadow-card p-4 mb-3 border ${
                 contact.is_active 
                   ? contact.priority === 1 
                     ? 'border-danger/30' 
                     : contact.priority === 2
                     ? 'border-warning/30'
                     : 'border-success/30'
-                  : 'border-lightGray'
+                  : 'border-lightGray dark:border-darkTheme-border'
               } ${!contact.is_active && 'opacity-60'}`}
             >
               {/* Contact Header */}
@@ -449,15 +414,15 @@ export const EmergencyContactsScreen: React.FC = () => {
                   
                   {/* Contact Info */}
                   <View className="flex-1">
-                    <Text className="text-base font-semibold text-dark">{contact.name}</Text>
+                    <Text className="text-base font-semibold text-dark dark:text-darkTheme-text">{contact.name}</Text>
                     <Text className="text-sm text-primary mt-1">{contact.phone}</Text>
                     <View className="flex-row items-center mt-1">
-                      <Text className="text-xs text-gray">
+                      <Text className="text-xs text-gray dark:text-darkTheme-muted">
                         {getRelationshipText(contact.relationship)}
                       </Text>
                       <View className="w-1 h-1 rounded-full bg-gray mx-2" />
                       <Text className={`text-xs ${
-                        contact.is_active ? 'text-success' : 'text-gray'
+                        contact.is_active ? 'text-success' : 'text-gray dark:text-darkTheme-muted'
                       }`}>
                         {contact.is_active ? 'Active' : 'Inactive'}
                       </Text>
@@ -475,7 +440,7 @@ export const EmergencyContactsScreen: React.FC = () => {
               </View>
 
               {/* Contact Actions */}
-              <View className="flex-row justify-end border-t border-lightGray pt-3">
+              <View className="flex-row justify-end border-t border-lightGray dark:border-darkTheme-border pt-3">
                 <TouchableOpacity
                   className="flex-row items-center px-3 py-1.5 bg-blue-50 rounded-lg mr-2"
                   onPress={() => handleEditContact(contact)}
@@ -503,15 +468,15 @@ export const EmergencyContactsScreen: React.FC = () => {
           <View className="mt-6 mb-4 p-4 bg-blue-50 rounded-2xl border border-blue-200">
             <View className="flex-row items-center mb-2">
               <MaterialCommunityIcons name="lightbulb" size={20} color="#2196F3" />
-              <Text className="text-base font-semibold text-dark ml-2">Tips</Text>
+              <Text className="text-base font-semibold text-dark dark:text-darkTheme-text ml-2">Tips</Text>
             </View>
-            <Text className="text-sm text-gray">
+            <Text className="text-sm text-gray dark:text-darkTheme-muted">
               • High priority contacts are called first in emergencies
             </Text>
-            <Text className="text-sm text-gray mt-1">
+            <Text className="text-sm text-gray dark:text-darkTheme-muted mt-1">
               • Keep at least 2-3 active contacts
             </Text>
-            <Text className="text-sm text-gray mt-1">
+            <Text className="text-sm text-gray dark:text-darkTheme-muted mt-1">
               • Inform your contacts about their emergency role
             </Text>
           </View>
@@ -519,7 +484,7 @@ export const EmergencyContactsScreen: React.FC = () => {
       </ScrollView>
 
       {/* Footer Actions */}
-      <View className="bg-white border-t border-lightGray p-4">
+      <View className="bg-white dark:bg-darkTheme-surface border-t border-lightGray dark:border-darkTheme-border p-4">
         <TouchableOpacity
           className="flex-row items-center justify-center py-3 px-4 bg-info rounded-xl mb-3"
           onPress={handleImportContacts}
@@ -547,7 +512,7 @@ export const EmergencyContactsScreen: React.FC = () => {
         onRequestClose={() => setModalVisible(false)}
       >
         <View className="flex-1 justify-center items-center bg-black/50">
-          <View className="bg-white rounded-2xl w-11/12 max-w-md p-6">
+          <View className="bg-white dark:bg-darkTheme-surface rounded-2xl w-11/12 max-w-md p-6">
             <View className="items-center mb-6">
               <View className="w-16 h-16 rounded-full bg-blue-50 justify-center items-center mb-3">
                 <MaterialCommunityIcons 
@@ -556,7 +521,7 @@ export const EmergencyContactsScreen: React.FC = () => {
                   color="#2196F3" 
                 />
               </View>
-              <Text className="text-xl font-bold text-dark">
+              <Text className="text-xl font-bold text-dark dark:text-darkTheme-text">
                 {editingContact ? 'Edit Contact' : 'Add New Contact'}
               </Text>
             </View>
@@ -580,7 +545,7 @@ export const EmergencyContactsScreen: React.FC = () => {
 
             {/* Priority Selection */}
             <View className="mb-6">
-              <Text className="text-base font-medium text-dark mb-3">Priority Level</Text>
+              <Text className="text-base font-medium text-dark dark:text-darkTheme-text mb-3">Priority Level</Text>
               <View className="flex-row justify-between">
                 {[
                   { value: 1, label: 'High', color: 'bg-danger', textColor: 'text-danger' },
@@ -592,7 +557,7 @@ export const EmergencyContactsScreen: React.FC = () => {
                     className={`flex-1 items-center py-3 rounded-lg mx-1 border ${
                       formData.priority === priority.value
                         ? `${priority.color} border-transparent`
-                        : 'bg-white border-lightGray'
+                        : 'bg-white dark:bg-darkTheme-surface border-lightGray dark:border-darkTheme-border'
                     }`}
                     onPress={() => setFormData({ ...formData, priority: priority.value })}
                     activeOpacity={0.7}
@@ -619,7 +584,7 @@ export const EmergencyContactsScreen: React.FC = () => {
               </View>
               
               {/* Priority Description */}
-              <Text className="text-xs text-gray mt-2">
+              <Text className="text-xs text-gray dark:text-darkTheme-muted mt-2">
                 {formData.priority === 1 && 'High: Called first in emergencies'}
                 {formData.priority === 2 && 'Medium: Called if high priority fails'}
                 {formData.priority === 3 && 'Low: Called as last resort'}
@@ -628,7 +593,7 @@ export const EmergencyContactsScreen: React.FC = () => {
 
             {/* Relationship Selection */}
             <View className="mb-6">
-              <Text className="text-base font-medium text-dark mb-3">Relationship</Text>
+              <Text className="text-base font-medium text-dark dark:text-darkTheme-text mb-3">Relationship</Text>
               <View className="flex-row flex-wrap justify-between">
                 {[
                   { value: 'family', label: 'Family', icon: 'account-group' },
@@ -641,7 +606,7 @@ export const EmergencyContactsScreen: React.FC = () => {
                     className={`w-1/2 p-3 mb-2 flex-row items-center rounded-lg ${
                       formData.relationship === rel.value
                         ? 'bg-blue-50 border border-primary'
-                        : 'bg-lightGray/20 border border-lightGray'
+                        : 'bg-lightGray/20 border border-lightGray dark:border-darkTheme-border'
                     }`}
                     onPress={() => setFormData({ ...formData, relationship: rel.value })}
                     activeOpacity={0.7}
@@ -654,7 +619,7 @@ export const EmergencyContactsScreen: React.FC = () => {
                     <Text className={`ml-2 ${
                       formData.relationship === rel.value
                         ? 'text-primary font-semibold'
-                        : 'text-gray'
+                        : 'text-gray dark:text-darkTheme-muted'
                     }`}>
                       {rel.label}
                     </Text>
@@ -670,7 +635,7 @@ export const EmergencyContactsScreen: React.FC = () => {
                 onPress={() => setModalVisible(false)}
                 activeOpacity={0.7}
               >
-                <Text className="text-dark font-semibold">Cancel</Text>
+                <Text className="text-dark dark:text-darkTheme-text font-semibold">Cancel</Text>
               </TouchableOpacity>
               
               <TouchableOpacity
@@ -688,7 +653,7 @@ export const EmergencyContactsScreen: React.FC = () => {
             </View>
             
             {/* Footer Note */}
-            <Text className="text-xs text-center text-gray mt-4">
+            <Text className="text-xs text-center text-gray dark:text-darkTheme-muted mt-4">
               This contact will be notified during emergency situations
             </Text>
           </View>
@@ -703,9 +668,9 @@ export const EmergencyContactsScreen: React.FC = () => {
         onRequestClose={() => setImportModalVisible(false)}
       >
         <View className="flex-1 justify-center items-center bg-black/50">
-          <View className="bg-white rounded-2xl w-11/12 max-w-md p-6 max-h-[80%]">
+          <View className="bg-white dark:bg-darkTheme-surface rounded-2xl w-11/12 max-w-md p-6 max-h-[80%]">
             <View className="flex-row items-center justify-between mb-4">
-              <Text className="text-lg font-bold text-dark">Select a contact</Text>
+              <Text className="text-lg font-bold text-dark dark:text-darkTheme-text">Select a contact</Text>
               <TouchableOpacity onPress={() => setImportModalVisible(false)}>
                 <MaterialCommunityIcons name="close" size={22} color="#757575" />
               </TouchableOpacity>
@@ -736,7 +701,7 @@ export const EmergencyContactsScreen: React.FC = () => {
                   return (
                     <View
                       key={`${contact.id}-${contact.phone}`}
-                      className="py-3 border-b border-lightGray"
+                      className="py-3 border-b border-lightGray dark:border-darkTheme-border"
                     >
                       <TouchableOpacity
                         className="flex-row items-center"
@@ -748,7 +713,7 @@ export const EmergencyContactsScreen: React.FC = () => {
                           size={22}
                           color={isSelected ? '#2196F3' : '#9E9E9E'}
                         />
-                        <Text className="text-base font-medium text-dark ml-3 flex-1">
+                        <Text className="text-base font-medium text-dark dark:text-darkTheme-text ml-3 flex-1">
                           {contact.name}
                         </Text>
                       </TouchableOpacity>
@@ -774,7 +739,7 @@ export const EmergencyContactsScreen: React.FC = () => {
                 onPress={() => setImportModalVisible(false)}
                 activeOpacity={0.7}
               >
-                <Text className="text-dark font-semibold">Cancel</Text>
+                <Text className="text-dark dark:text-darkTheme-text font-semibold">Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 className="flex-1 bg-primary py-3 rounded-lg ml-2 items-center"

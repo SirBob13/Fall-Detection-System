@@ -59,6 +59,14 @@ class StorageService {
     }
   }
 
+  async clearDevice(): Promise<void> {
+    try {
+      await AsyncStorage.removeItem(STORAGE_KEYS.DEVICE_DATA);
+    } catch (error) {
+      console.error('Error clearing device:', error);
+    }
+  }
+
   // Monitored User (Caregiver mode)
   async saveMonitoredUser(user: User | null): Promise<boolean> {
     try {

@@ -23,8 +23,8 @@ export const HealthDashboard: React.FC<HealthDashboardProps> = ({ metrics, onVie
       >
         <View className="flex-row items-center justify-between">
           <View>
-            <Text className="text-sm text-gray">Heart Rate</Text>
-            <Text className="text-2xl font-bold text-dark">{metrics.heartRate.value} BPM</Text>
+            <Text className="text-sm text-gray dark:text-darkTheme-muted">Heart Rate</Text>
+            <Text className="text-2xl font-bold text-dark dark:text-darkTheme-text">{metrics.heartRate.value} BPM</Text>
             <Text className={`text-xs mt-1 ${
               metrics.heartRate.status === 'normal' ? 'text-success' :
               metrics.heartRate.status === 'critical' ? 'text-danger' :
@@ -46,11 +46,11 @@ export const HealthDashboard: React.FC<HealthDashboardProps> = ({ metrics, onVie
       >
         <View className="flex-row items-center justify-between">
           <View>
-            <Text className="text-sm text-gray">Blood Pressure</Text>
-            <Text className="text-2xl font-bold text-dark">
+            <Text className="text-sm text-gray dark:text-darkTheme-muted">Blood Pressure</Text>
+            <Text className="text-2xl font-bold text-dark dark:text-darkTheme-text">
               {metrics.bloodPressure.systolic}/{metrics.bloodPressure.diastolic}
             </Text>
-            <Text className="text-xs text-gray mt-1">mmHg</Text>
+            <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">mmHg</Text>
           </View>
         </View>
       </TouchableOpacity>

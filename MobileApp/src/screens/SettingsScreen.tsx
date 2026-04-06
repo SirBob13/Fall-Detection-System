@@ -12,6 +12,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { useLanguage } from '../components/LanguageProvider';
+import { useSettings } from '../components/SettingsProvider';
 import { storageService } from '../services/storage';
 import { notificationService } from '../services/notifications';
 import { authService } from '../services/auth.service';
@@ -23,22 +24,9 @@ type SettingsScreenNavigationProp = StackNavigationProp<any>;
 export const SettingsScreen: React.FC = () => {
   const navigation = useNavigation<SettingsScreenNavigationProp>();
   const { t, language } = useLanguage();
+  const { settings, updateSetting, refreshSettings } = useSettings();
   const [user, setUser] = useState<User | null>(null);
   const [device, setDevice] = useState<Device | null>(null);
-  const [settings, setSettings] = useState({
-    notifications: true,
-    vibration: true,
-    sound: true,
-    autoConnect: true,
-    fallDetection: true,
-    vitalMonitoring: true,
-    seniorMode: false,
-    offlineMode: true,
-    voiceCommands: false,
-    automaticSOS: true,
-    familyPortal: false,
-    healthInsights: true,
-  });
 
   useEffect(() => {
     loadData();
@@ -62,22 +50,16 @@ export const SettingsScreen: React.FC = () => {
       : null;
     const storedUser = normalizedSessionUser || (await storageService.getUser());
     const storedDevice = await storageService.getDevice();
-    const storedSettings = await storageService.getSettings();
-
     setUser(storedUser);
     if (normalizedSessionUser) {
       await storageService.saveUser(normalizedSessionUser);
     }
     setDevice(storedDevice);
-    if (storedSettings) {
-      setSettings(storedSettings);
-    }
+    await refreshSettings();
   };
 
-  const handleSettingChange = async (key: keyof typeof settings, value: boolean) => {
-    const newSettings = { ...settings, [key]: value };
-    setSettings(newSettings);
-    await storageService.saveSettings(newSettings);
+  const handleSettingChange = async (key: keyof typeof settings, value: any) => {
+    await updateSetting(key, value);
 
     if (key === 'notifications' && !value) {
       notificationService.cancelAllNotifications();
@@ -136,24 +118,6 @@ export const SettingsScreen: React.FC = () => {
     );
   };
 
-  const testNotification = () => {
-    if (!user) {
-      Alert.alert(t('common.error'), t('errors.loginRequired'));
-      return;
-    }
-
-    notificationService.sendFallAlert({
-      id: Date.now(),
-      user_id: user.id,
-      timestamp: new Date().toISOString(),
-      alert_type: 'fall',
-      severity: 'critical',
-      message: t('alerts.fallDetected'),
-      status: 'pending',
-    });
-    Alert.alert(t('success.sent'), t('notifications.testSent'));
-  };
-
   const handleEmergencyContacts = () => {
     navigation.navigate('EmergencyContacts');
   };
@@ -196,7 +160,7 @@ export const SettingsScreen: React.FC = () => {
   };
 
   return (
-    <ScrollView className="flex-1 bg-light" showsVerticalScrollIndicator={false}>
+    <ScrollView className="flex-1 bg-light dark:bg-darkTheme-background" showsVerticalScrollIndicator={false}>
       <ScreenHeader title={t('settings.title')} subtitle={t('settings.subtitle')} />
       {/* Personal Info Section */}
       <View className="my-2">
@@ -205,7 +169,7 @@ export const SettingsScreen: React.FC = () => {
         </Text>
         
         <TouchableOpacity
-          className="flex-row items-center justify-between bg-white mx-4 p-5 rounded-2xl shadow-lg active:opacity-80"
+          className="flex-row items-center justify-between bg-white dark:bg-darkTheme-surface mx-4 p-5 rounded-2xl shadow-lg active:opacity-80"
           onPress={handlePersonalInfo}
           activeOpacity={0.7}
         >
@@ -214,8 +178,8 @@ export const SettingsScreen: React.FC = () => {
               <MaterialCommunityIcons name="account-circle" size={24} color="#7E57C2" />
             </View>
             <View className="ml-3 flex-1">
-              <Text className="text-base font-semibold text-dark">{t('settings.personalInfo')}</Text>
-              <Text className="text-xs text-gray mt-1">
+              <Text className="text-base font-semibold text-dark dark:text-darkTheme-text">{t('settings.personalInfo')}</Text>
+              <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">
                 {user ? `${user.name} • ${user.age} ${t('common.years')}` : t('settings.personalInfoDesc')}
               </Text>
             </View>
@@ -231,7 +195,7 @@ export const SettingsScreen: React.FC = () => {
         </Text>
 
         <TouchableOpacity
-          className="flex-row items-center justify-between bg-white mx-4 p-5 rounded-2xl shadow-lg active:opacity-80"
+          className="flex-row items-center justify-between bg-white dark:bg-darkTheme-surface mx-4 p-5 rounded-2xl shadow-lg active:opacity-80"
           onPress={handleCareManagement}
           activeOpacity={0.7}
         >
@@ -240,8 +204,8 @@ export const SettingsScreen: React.FC = () => {
               <MaterialCommunityIcons name="account-multiple" size={24} color="#4CAF50" />
             </View>
             <View className="ml-3 flex-1">
-              <Text className="text-base font-semibold text-dark">{t('settings.careManagement')}</Text>
-              <Text className="text-xs text-gray mt-1">
+              <Text className="text-base font-semibold text-dark dark:text-darkTheme-text">{t('settings.careManagement')}</Text>
+              <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">
                 {t('settings.careManagementDesc')}
               </Text>
             </View>
@@ -250,7 +214,7 @@ export const SettingsScreen: React.FC = () => {
         </TouchableOpacity>
 
         <TouchableOpacity
-          className="flex-row items-center justify-between bg-white mx-4 mt-3 p-5 rounded-2xl shadow-lg active:opacity-80"
+          className="flex-row items-center justify-between bg-white dark:bg-darkTheme-surface mx-4 mt-3 p-5 rounded-2xl shadow-lg active:opacity-80"
           onPress={handleCareDashboard}
           activeOpacity={0.7}
         >
@@ -259,8 +223,8 @@ export const SettingsScreen: React.FC = () => {
               <MaterialCommunityIcons name="view-dashboard" size={24} color="#2196F3" />
             </View>
             <View className="ml-3 flex-1">
-              <Text className="text-base font-semibold text-dark">{t('dashboard.title')}</Text>
-              <Text className="text-xs text-gray mt-1">
+              <Text className="text-base font-semibold text-dark dark:text-darkTheme-text">{t('dashboard.title')}</Text>
+              <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">
                 {t('dashboard.shortDesc')}
               </Text>
             </View>
@@ -270,7 +234,7 @@ export const SettingsScreen: React.FC = () => {
 
         {settings.familyPortal && (
           <TouchableOpacity
-            className="flex-row items-center justify-between bg-white mx-4 mt-3 p-5 rounded-2xl shadow-lg active:opacity-80"
+            className="flex-row items-center justify-between bg-white dark:bg-darkTheme-surface mx-4 mt-3 p-5 rounded-2xl shadow-lg active:opacity-80"
             onPress={handleFamilyPortal}
             activeOpacity={0.7}
           >
@@ -279,8 +243,8 @@ export const SettingsScreen: React.FC = () => {
                 <MaterialCommunityIcons name="web" size={24} color="#7E57C2" />
               </View>
               <View className="ml-3 flex-1">
-                <Text className="text-base font-semibold text-dark">{t('settings.familyPortal')}</Text>
-                <Text className="text-xs text-gray mt-1">
+                <Text className="text-base font-semibold text-dark dark:text-darkTheme-text">{t('settings.familyPortal')}</Text>
+                <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">
                   {t('settings.familyPortalDesc')}
                 </Text>
               </View>
@@ -297,7 +261,7 @@ export const SettingsScreen: React.FC = () => {
         </Text>
 
         <TouchableOpacity
-          className="flex-row items-center justify-between bg-white mx-4 p-5 rounded-2xl shadow-lg active:opacity-80"
+          className="flex-row items-center justify-between bg-white dark:bg-darkTheme-surface mx-4 p-5 rounded-2xl shadow-lg active:opacity-80"
           onPress={handleReports}
           activeOpacity={0.7}
         >
@@ -306,8 +270,8 @@ export const SettingsScreen: React.FC = () => {
               <MaterialCommunityIcons name="file-chart" size={24} color="#FF9800" />
             </View>
             <View className="ml-3 flex-1">
-              <Text className="text-base font-semibold text-dark">{t('reports.title')}</Text>
-              <Text className="text-xs text-gray mt-1">
+              <Text className="text-base font-semibold text-dark dark:text-darkTheme-text">{t('reports.title')}</Text>
+              <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">
                 {t('reports.shortDesc')}
               </Text>
             </View>
@@ -323,7 +287,7 @@ export const SettingsScreen: React.FC = () => {
         </Text>
         
         <TouchableOpacity
-          className="flex-row items-center justify-between bg-white mx-4 p-5 rounded-2xl shadow-lg active:opacity-80"
+          className="flex-row items-center justify-between bg-white dark:bg-darkTheme-surface mx-4 p-5 rounded-2xl shadow-lg active:opacity-80"
           onPress={handleLanguageSettings}
           activeOpacity={0.7}
         >
@@ -332,8 +296,8 @@ export const SettingsScreen: React.FC = () => {
               <MaterialCommunityIcons name="translate" size={24} color="#2196F3" />
             </View>
             <View className="ml-3 flex-1">
-              <Text className="text-base font-semibold text-dark">{t('language.title')}</Text>
-              <Text className="text-xs text-gray mt-1">
+              <Text className="text-base font-semibold text-dark dark:text-darkTheme-text">{t('language.title')}</Text>
+              <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">
                 {language === 'ar' ? t('language.arabic') : t('language.english')}
               </Text>
             </View>
@@ -342,31 +306,42 @@ export const SettingsScreen: React.FC = () => {
         </TouchableOpacity>
       </View>
 
-      {/* Accessibility / Senior Mode */}
+      {/* Appearance / Theme */}
       <View className="my-2">
-        <Text className="section-title">{t('settings.accessibility')}</Text>
+        <Text className="section-title">{t('settings.appearance')}</Text>
 
-        <View className="bg-white mx-4 p-5 rounded-2xl shadow-lg">
-          <View className="flex-row items-center justify-between">
-            <View className="flex-row items-center flex-1">
-              <View className="w-12 h-12 rounded-full bg-orange-50 justify-center items-center">
-                <MaterialCommunityIcons name="account-heart" size={24} color="#FF9800" />
-              </View>
-              <View className="ml-3 flex-1">
-                <Text className="text-base font-semibold text-dark">
-                  {t('settings.seniorMode')}
-                </Text>
-                <Text className="text-xs text-gray mt-1">
-                  {t('settings.seniorModeDesc')}
-                </Text>
-              </View>
-            </View>
-            <Switch
-              value={settings.seniorMode}
-              onValueChange={(value) => handleSettingChange('seniorMode', value)}
-              trackColor={{ false: '#E0E0E0', true: '#2196F3' }}
-              thumbColor={settings.seniorMode ? '#FFFFFF' : '#F4F3F4'}
-            />
+        <View className="card">
+          <Text className="text-xs text-gray dark:text-darkTheme-muted">
+            {t('settings.themeDesc')}
+          </Text>
+          <View className="flex-row mt-4">
+            {([
+              { value: 'system', label: t('settings.themeSystem') },
+              { value: 'light', label: t('settings.themeLight') },
+              { value: 'dark', label: t('settings.themeDark') },
+            ] as const).map((option, index) => {
+              const isActive = settings.theme === option.value;
+              return (
+                <TouchableOpacity
+                  key={option.value}
+                  className={`flex-1 py-3 rounded-xl border ${
+                    isActive
+                      ? 'bg-primary border-primary'
+                      : 'bg-white dark:bg-darkTheme-surface border-lightGray dark:border-darkTheme-border'
+                  } ${index < 2 ? 'mr-2' : ''}`}
+                  onPress={() => handleSettingChange('theme', option.value)}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    className={`text-center font-semibold ${
+                      isActive ? 'text-white' : 'text-dark dark:text-darkTheme-text'
+                    }`}
+                  >
+                    {option.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
         </View>
       </View>
@@ -387,10 +362,10 @@ export const SettingsScreen: React.FC = () => {
               <MaterialCommunityIcons name="account-group" size={24} color="#F44336" />
             </View>
             <View className="flex-1">
-              <Text className="text-base font-semibold text-dark mb-1">
+              <Text className="text-base font-semibold text-dark dark:text-darkTheme-text mb-1">
                 {t('emergency.contacts.title')}
               </Text>
-              <Text className="text-xs text-gray leading-4">
+              <Text className="text-xs text-gray dark:text-darkTheme-muted leading-4">
                 {t('emergency.contacts.description')}
               </Text>
             </View>
@@ -408,10 +383,10 @@ export const SettingsScreen: React.FC = () => {
               <MaterialCommunityIcons name="cog" size={24} color="#FF9800" />
             </View>
             <View className="flex-1">
-              <Text className="text-base font-semibold text-dark mb-1">
+              <Text className="text-base font-semibold text-dark dark:text-darkTheme-text mb-1">
                 {t('emergency.settings.title')}
               </Text>
-              <Text className="text-xs text-gray leading-4">
+              <Text className="text-xs text-gray dark:text-darkTheme-muted leading-4">
                 {t('emergency.settings.description')}
               </Text>
             </View>
@@ -426,7 +401,7 @@ export const SettingsScreen: React.FC = () => {
           {t('settings.deviceInfo')}
         </Text>
         <TouchableOpacity
-          className="flex-row items-center justify-between bg-white mx-4 p-5 rounded-2xl shadow-lg active:opacity-80"
+          className="flex-row items-center justify-between bg-white dark:bg-darkTheme-surface mx-4 p-5 rounded-2xl shadow-lg active:opacity-80"
           onPress={handleDeviceManagement}
           activeOpacity={0.7}
         >
@@ -435,8 +410,8 @@ export const SettingsScreen: React.FC = () => {
               <MaterialCommunityIcons name="devices" size={24} color="#4CAF50" />
             </View>
             <View className="ml-3 flex-1">
-              <Text className="text-base font-semibold text-dark">{t('settings.deviceManagement')}</Text>
-              <Text className="text-xs text-gray mt-1">
+              <Text className="text-base font-semibold text-dark dark:text-darkTheme-text">{t('settings.deviceManagement')}</Text>
+              <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">
                 {t('settings.deviceManagementDesc')}
               </Text>
             </View>
@@ -451,38 +426,38 @@ export const SettingsScreen: React.FC = () => {
                 <MaterialCommunityIcons name="devices" size={24} color="#4CAF50" />
               </View>
               <View className="ml-3 flex-1">
-                <Text className="text-base font-semibold text-dark">
+                <Text className="text-base font-semibold text-dark dark:text-darkTheme-text">
                   {device.device_id}
                 </Text>
-                <Text className="text-sm text-gray mt-1">{device.device_id}</Text>
+                <Text className="text-sm text-gray dark:text-darkTheme-muted mt-1">{device.device_id}</Text>
               </View>
               <View className="flex-row items-center">
                 <View 
                   className={`w-3 h-3 rounded-full mr-2 ${device.is_connected ? 'bg-success' : 'bg-danger'}`}
                 />
-                <Text className="text-xs text-gray">
+                <Text className="text-xs text-gray dark:text-darkTheme-muted">
                   {device.is_connected ? t('common.connected') : t('common.disconnected')}
                 </Text>
               </View>
             </View>
             
-            <View className="flex-row justify-between border-t border-lightGray pt-4">
+            <View className="flex-row justify-between border-t border-lightGray dark:border-darkTheme-border pt-4">
               <View className="items-center flex-1">
                 <View className="flex-row items-center mb-1">
                   <MaterialCommunityIcons name="battery" size={16} color="#757575" />
-                  <Text className="text-xs text-gray ml-1">{t('home.battery')}</Text>
+                  <Text className="text-xs text-gray dark:text-darkTheme-muted ml-1">{t('home.battery')}</Text>
                 </View>
-                <Text className="text-base font-semibold text-dark">
+                <Text className="text-base font-semibold text-dark dark:text-darkTheme-text">
                   {device.battery_level?.toFixed(0) || '--'}%
                 </Text>
               </View>
               
-              <View className="items-center flex-1 border-x border-lightGray">
+              <View className="items-center flex-1 border-x border-lightGray dark:border-darkTheme-border">
                 <View className="flex-row items-center mb-1">
                   <MaterialCommunityIcons name="clock" size={16} color="#757575" />
-                  <Text className="text-xs text-gray ml-1">{t('system.lastSeen')}</Text>
+                  <Text className="text-xs text-gray dark:text-darkTheme-muted ml-1">{t('system.lastSeen')}</Text>
                 </View>
-                <Text className="text-base font-semibold text-dark">
+                <Text className="text-base font-semibold text-dark dark:text-darkTheme-text">
                   {device.last_seen
                     ? new Date(device.last_seen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                     : '--'}
@@ -492,9 +467,9 @@ export const SettingsScreen: React.FC = () => {
               <View className="items-center flex-1">
                 <View className="flex-row items-center mb-1">
                   <MaterialCommunityIcons name="tag" size={16} color="#757575" />
-                  <Text className="text-xs text-gray ml-1">{t('system.version')}</Text>
+                  <Text className="text-xs text-gray dark:text-darkTheme-muted ml-1">{t('system.version')}</Text>
                 </View>
-                <Text className="text-base font-semibold text-dark">
+                <Text className="text-base font-semibold text-dark dark:text-darkTheme-text">
                   {device.firmware_version || '--'}
                 </Text>
               </View>
@@ -512,29 +487,21 @@ export const SettingsScreen: React.FC = () => {
         <View className="card">
           {Object.entries({
             notifications: t('settings.notifications'),
-            vibration: t('settings.vibration'),
-            sound: t('settings.sound'),
             autoConnect: t('settings.autoConnect'),
             fallDetection: t('settings.fallDetection'),
             vitalMonitoring: t('settings.vitalMonitoring'),
-            seniorMode: t('settings.seniorMode'),
           }).map(([key, label]) => (
             <View key={key} className="setting-row">
               <View className="flex-1">
-                <Text className="text-base text-dark font-medium">{label}</Text>
+                <Text className="text-base text-dark dark:text-darkTheme-text font-medium">{label}</Text>
                 {key === 'fallDetection' && (
-                  <Text className="text-xs text-gray mt-1">
+                  <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">
                     {t('settings.fallDetectionDesc')}
                   </Text>
                 )}
                 {key === 'vitalMonitoring' && (
-                  <Text className="text-xs text-gray mt-1">
+                  <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">
                     {t('settings.vitalMonitoringDesc')}
-                  </Text>
-                )}
-                {key === 'seniorMode' && (
-                  <Text className="text-xs text-gray mt-1">
-                    {t('settings.seniorModeDesc')}
                   </Text>
                 )}
               </View>
@@ -561,8 +528,8 @@ export const SettingsScreen: React.FC = () => {
           {(['offlineMode', 'voiceCommands', 'automaticSOS', 'familyPortal', 'healthInsights'] as const).map((key) => (
             <View key={key} className="setting-row">
               <View className="flex-1">
-                <Text className="text-base text-dark font-medium">{t(`settings.${key}`)}</Text>
-                <Text className="text-xs text-gray mt-1">{t(`settings.${key}Desc`)}</Text>
+                <Text className="text-base text-dark dark:text-darkTheme-text font-medium">{t(`settings.${key}`)}</Text>
+                <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">{t(`settings.${key}Desc`)}</Text>
               </View>
               <Switch
                 value={settings[key]}
@@ -576,32 +543,13 @@ export const SettingsScreen: React.FC = () => {
         </View>
       </View>
 
-      {/* System Test Section */}
+      {/* Sync Section */}
       <View className="my-2">
         <Text className="section-title">
-          {t('settings.testSystem')}
+          {t('settings.sync')}
         </Text>
         
         <View className="card">
-          <TouchableOpacity 
-            className="flex-row items-center py-4 border-b border-lightGray active:opacity-70"
-            onPress={testNotification}
-            disabled={!user}
-            activeOpacity={0.7}
-          >
-            <View className="w-10 h-10 rounded-full bg-orange-50 justify-center items-center">
-              <MaterialCommunityIcons name="bell-ring" size={20} color="#FF9800" />
-            </View>
-            <View className="ml-3 flex-1">
-              <Text className="text-base font-medium text-dark">
-                {t('settings.testNotifications')}
-              </Text>
-              <Text className="text-xs text-gray mt-1">
-                {t('settings.testNotificationsDesc')}
-              </Text>
-            </View>
-          </TouchableOpacity>
-          
           <TouchableOpacity 
             className="flex-row items-center py-4 active:opacity-70"
             onPress={handleSyncData}
@@ -611,10 +559,10 @@ export const SettingsScreen: React.FC = () => {
               <MaterialCommunityIcons name="refresh" size={20} color="#2196F3" />
             </View>
             <View className="ml-3 flex-1">
-              <Text className="text-base font-medium text-dark">
+              <Text className="text-base font-medium text-dark dark:text-darkTheme-text">
                 {t('settings.refreshData')}
               </Text>
-              <Text className="text-xs text-gray mt-1">
+              <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">
                 {t('settings.refreshDataDesc')}
               </Text>
             </View>
@@ -630,38 +578,38 @@ export const SettingsScreen: React.FC = () => {
         
         <View className="emergency-card">
           <TouchableOpacity 
-            className="flex-row items-center p-5 border-b border-lightGray active:bg-lightGray/10"
+            className="flex-row items-center p-5 border-b border-lightGray dark:border-darkTheme-border active:bg-lightGray/10"
             onPress={handleLogout}
             activeOpacity={0.7}
           >
             <View className="w-10 h-10 rounded-full bg-gray-100 justify-center items-center">
               <MaterialCommunityIcons name="logout" size={20} color="#757575" />
             </View>
-            <Text className="text-base text-dark ml-3 flex-1">{t('settings.logout')}</Text>
+            <Text className="text-base text-dark dark:text-darkTheme-text ml-3 flex-1">{t('settings.logout')}</Text>
             <MaterialCommunityIcons name="chevron-right" size={20} color="#757575" />
           </TouchableOpacity>
           
           <TouchableOpacity 
-            className="flex-row items-center p-5 border-b border-lightGray active:bg-lightGray/10"
+            className="flex-row items-center p-5 border-b border-lightGray dark:border-darkTheme-border active:bg-lightGray/10"
             onPress={handleHelp}
             activeOpacity={0.7}
           >
             <View className="w-10 h-10 rounded-full bg-blue-50 justify-center items-center">
               <MaterialCommunityIcons name="help-circle" size={20} color="#00BCD4" />
             </View>
-            <Text className="text-base text-dark ml-3 flex-1">{t('settings.help')}</Text>
+            <Text className="text-base text-dark dark:text-darkTheme-text ml-3 flex-1">{t('settings.help')}</Text>
             <MaterialCommunityIcons name="chevron-right" size={20} color="#757575" />
           </TouchableOpacity>
           
           <TouchableOpacity 
-            className="flex-row items-center p-5 border-b border-lightGray active:bg-lightGray/10"
+            className="flex-row items-center p-5 border-b border-lightGray dark:border-darkTheme-border active:bg-lightGray/10"
             onPress={handlePrivacy}
             activeOpacity={0.7}
           >
             <View className="w-10 h-10 rounded-full bg-green-50 justify-center items-center">
               <MaterialCommunityIcons name="shield-check" size={20} color="#4CAF50" />
             </View>
-            <Text className="text-base text-dark ml-3 flex-1">{t('settings.privacy')}</Text>
+            <Text className="text-base text-dark dark:text-darkTheme-text ml-3 flex-1">{t('settings.privacy')}</Text>
             <MaterialCommunityIcons name="chevron-right" size={20} color="#757575" />
           </TouchableOpacity>
           
@@ -673,7 +621,7 @@ export const SettingsScreen: React.FC = () => {
             <View className="w-10 h-10 rounded-full bg-purple-50 justify-center items-center">
               <MaterialCommunityIcons name="information" size={20} color="#2196F3" />
             </View>
-            <Text className="text-base text-dark ml-3 flex-1">{t('settings.about')}</Text>
+            <Text className="text-base text-dark dark:text-darkTheme-text ml-3 flex-1">{t('settings.about')}</Text>
             <MaterialCommunityIcons name="chevron-right" size={20} color="#757575" />
           </TouchableOpacity>
         </View>
@@ -682,9 +630,9 @@ export const SettingsScreen: React.FC = () => {
       {/* App Info */}
       <View className="items-center py-8 mb-4">
         <MaterialCommunityIcons name="heart-pulse" size={40} color="#2196F3" />
-        <Text className="text-base text-gray mt-3 mb-1">{t('app.name')}</Text>
-        <Text className="text-sm text-lightGray">v1.0.0 • {t('app.description')}</Text>
-        <Text className="text-xs text-lightGray mt-2">© 2024 {t('app.company')}</Text>
+        <Text className="text-base text-gray dark:text-darkTheme-muted mt-3 mb-1">{t('app.name')}</Text>
+        <Text className="text-sm text-lightGray dark:text-darkTheme-muted">v1.0.0 • {t('app.description')}</Text>
+        <Text className="text-xs text-lightGray dark:text-darkTheme-muted mt-2">© 2024 {t('app.company')}</Text>
       </View>
     </ScrollView>
   );

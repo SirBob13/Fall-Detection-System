@@ -37,7 +37,7 @@ export const PasswordStrengthMeter: React.FC<PasswordStrengthMeterProps> = ({ pa
   return (
     <View className="mt-4">
       <View className="flex-row items-center justify-between mb-3">
-        <Text className="text-sm font-medium text-dark">Password Strength:</Text>
+        <Text className="text-sm font-medium text-dark dark:text-darkTheme-text">Password Strength:</Text>
         <View className="flex-row items-center">
           <MaterialIcons name={config.icon as any} size={18} color={config.color} />
           <Text className="text-sm font-bold ml-2" style={{ color: config.color }}>
@@ -72,7 +72,7 @@ export const PasswordStrengthMeter: React.FC<PasswordStrengthMeterProps> = ({ pa
               size={16}
               color={req.met ? '#4CAF50' : '#9E9E9E'}
             />
-            <Text className={`text-xs ml-2 ${req.met ? 'text-success' : 'text-gray'}`}>
+            <Text className={`text-xs ml-2 ${req.met ? 'text-success' : 'text-gray dark:text-darkTheme-muted'}`}>
               {req.label}
             </Text>
           </View>

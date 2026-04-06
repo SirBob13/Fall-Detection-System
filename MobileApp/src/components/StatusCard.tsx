@@ -36,10 +36,10 @@ export const StatusCard: React.FC<StatusCardProps> = ({
   };
 
   return (
-    <View className="bg-white rounded-2xl shadow-lg p-5 border border-lightGray">
+    <View className="bg-white dark:bg-darkTheme-surface rounded-2xl shadow-lg p-5 border border-lightGray dark:border-darkTheme-border">
       {/* Header */}
       <View className="flex-row justify-between items-center mb-4">
-        <Text className="text-xl font-bold text-dark">{t('home.systemStatus')}</Text>
+        <Text className="text-xl font-bold text-dark dark:text-darkTheme-text">{t('home.systemStatus')}</Text>
         <TouchableOpacity 
           onPress={onRefresh}
           className="p-2 rounded-full bg-blue-50 active:opacity-70"
@@ -51,8 +51,8 @@ export const StatusCard: React.FC<StatusCardProps> = ({
       {/* Status Indicator */}
       <View className="flex-row items-center mb-6">
         <View className={`w-4 h-4 rounded-full mr-3 ${getStatusColor()}`} />
-        <Text className="text-base font-semibold text-dark">{getStatusText()}</Text>
-        <Text className="text-sm text-gray ml-2">
+        <Text className="text-base font-semibold text-dark dark:text-darkTheme-text">{getStatusText()}</Text>
+        <Text className="text-sm text-gray dark:text-darkTheme-muted ml-2">
           • {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </Text>
       </View>
@@ -62,29 +62,29 @@ export const StatusCard: React.FC<StatusCardProps> = ({
         <View className="mb-6">
           <View className="flex-row items-center mb-3">
             <MaterialCommunityIcons name="watch" size={20} color="#757575" />
-            <Text className="text-base text-dark ml-2">{device.device_id || 'Smart Device'}</Text>
+            <Text className="text-base text-dark dark:text-darkTheme-text ml-2">{device.device_id || 'Smart Device'}</Text>
             <View className="flex-1 items-end">
-              <Text className="text-xs text-gray">{device.device_id}</Text>
+              <Text className="text-xs text-gray dark:text-darkTheme-muted">{device.device_id}</Text>
             </View>
           </View>
 
-          <View className="flex-row justify-between bg-light rounded-xl p-3">
+          <View className="flex-row justify-between bg-light dark:bg-darkTheme-background rounded-xl p-3">
             <View className="items-center flex-1">
               <View className="flex-row items-center mb-1">
                 <MaterialCommunityIcons name="battery" size={16} color="#757575" />
-                <Text className="text-xs text-gray ml-1">{t('home.battery')}</Text>
+                <Text className="text-xs text-gray dark:text-darkTheme-muted ml-1">{t('home.battery')}</Text>
               </View>
-              <Text className="text-lg font-bold text-dark">
+              <Text className="text-lg font-bold text-dark dark:text-darkTheme-text">
                 {device.battery_level?.toFixed(0) || '--'}%
               </Text>
             </View>
 
-            <View className="items-center flex-1 border-x border-lightGray">
+            <View className="items-center flex-1 border-x border-lightGray dark:border-darkTheme-border">
               <View className="flex-row items-center mb-1">
                 <MaterialCommunityIcons name="chip" size={16} color="#757575" />
-                <Text className="text-xs text-gray ml-1">{t('system.firmware')}</Text>
+                <Text className="text-xs text-gray dark:text-darkTheme-muted ml-1">{t('system.firmware')}</Text>
               </View>
-              <Text className="text-lg font-bold text-dark">
+              <Text className="text-lg font-bold text-dark dark:text-darkTheme-text">
                 {device.firmware_version || '--'}
               </Text>
             </View>
@@ -92,9 +92,9 @@ export const StatusCard: React.FC<StatusCardProps> = ({
             <View className="items-center flex-1">
               <View className="flex-row items-center mb-1">
                 <MaterialCommunityIcons name="update" size={16} color="#757575" />
-                <Text className="text-xs text-gray ml-1">{t('system.lastSeen')}</Text>
+                <Text className="text-xs text-gray dark:text-darkTheme-muted ml-1">{t('system.lastSeen')}</Text>
               </View>
-              <Text className="text-lg font-bold text-dark">
+              <Text className="text-lg font-bold text-dark dark:text-darkTheme-text">
                 {device.last_seen
                   ? new Date(device.last_seen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                   : '--'}
@@ -109,25 +109,25 @@ export const StatusCard: React.FC<StatusCardProps> = ({
         <View className="bg-blue-50 rounded-xl p-3">
           <View className="flex-row items-center mb-2">
             <MaterialCommunityIcons name="chart-line" size={20} color="#2196F3" />
-            <Text className="text-base font-semibold text-dark ml-2">
+            <Text className="text-base font-semibold text-dark dark:text-darkTheme-text ml-2">
               {t('home.lastPrediction')}
             </Text>
           </View>
           <View className="flex-row justify-between">
-            <Text className="text-sm text-gray">{t('home.fallNow')}</Text>
-            <Text className="text-sm font-semibold text-dark">
+            <Text className="text-sm text-gray dark:text-darkTheme-muted">{t('home.fallNow')}</Text>
+            <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text">
               {((lastPrediction.fall_now_probability || 0) * 100).toFixed(1)}%
             </Text>
           </View>
           <View className="flex-row justify-between">
-            <Text className="text-sm text-gray">{t('home.fallSoon')}</Text>
-            <Text className="text-sm font-semibold text-dark">
+            <Text className="text-sm text-gray dark:text-darkTheme-muted">{t('home.fallSoon')}</Text>
+            <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text">
               {((lastPrediction.fall_soon_probability || 0) * 100).toFixed(1)}%
             </Text>
           </View>
           <View className="flex-row justify-between">
-            <Text className="text-sm text-gray">{t('system.confidence')}</Text>
-            <Text className="text-sm font-semibold text-dark">
+            <Text className="text-sm text-gray dark:text-darkTheme-muted">{t('system.confidence')}</Text>
+            <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text">
               {((lastPrediction.confidence_score || 0) * 100).toFixed(1)}%
             </Text>
           </View>
@@ -138,8 +138,8 @@ export const StatusCard: React.FC<StatusCardProps> = ({
       {!device && (
         <View className="items-center py-4">
           <MaterialCommunityIcons name="devices" size={40} color="#BDBDBD" />
-          <Text className="text-base text-gray mt-2">{t('system.noDevice')}</Text>
-          <Text className="text-sm text-lightGray mt-1">{t('system.connectDevice')}</Text>
+          <Text className="text-base text-gray dark:text-darkTheme-muted mt-2">{t('system.noDevice')}</Text>
+          <Text className="text-sm text-lightGray dark:text-darkTheme-muted mt-1">{t('system.connectDevice')}</Text>
           {onConnect && (
             <TouchableOpacity
               onPress={onConnect}

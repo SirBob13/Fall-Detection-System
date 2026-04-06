@@ -53,11 +53,11 @@ export const EmergencyButton: React.FC<EmergencyButtonProps> = ({
         <View className="absolute inset-0 border-4 border-red-300 rounded-full animate-pulse" />
       </TouchableOpacity>
 
-      <Text className={`mt-4 ${large ? 'text-xl' : 'text-lg'} font-bold ${disabled ? 'text-gray' : 'text-danger'}`}>
+      <Text className={`mt-4 ${large ? 'text-xl' : 'text-lg'} font-bold ${disabled ? 'text-gray dark:text-darkTheme-muted' : 'text-danger'}`}>
         {t('emergency.sosButton')}
       </Text>
       
-      <Text className={`${large ? 'text-base' : 'text-sm'} text-gray mt-2 text-center max-w-xs`}>
+      <Text className={`${large ? 'text-base' : 'text-sm'} text-gray dark:text-darkTheme-muted mt-2 text-center max-w-xs`}>
         {disabled ? t('emergency.loginRequired') : t('emergency.sosDescription')}
       </Text>
       
@@ -68,14 +68,14 @@ export const EmergencyButton: React.FC<EmergencyButtonProps> = ({
             <View className={`${large ? 'w-12 h-12' : 'w-10 h-10'} rounded-full bg-blue-50 justify-center items-center mb-1`}>
               <Text className={`text-primary font-bold ${large ? 'text-base' : 'text-sm'}`}>{t('emergency.tapLabel')}</Text>
             </View>
-            <Text className={`${large ? 'text-sm' : 'text-xs'} text-gray`}>{t('emergency.tapForHelp')}</Text>
+            <Text className={`${large ? 'text-sm' : 'text-xs'} text-gray dark:text-darkTheme-muted`}>{t('emergency.tapForHelp')}</Text>
           </View>
           
           <View className="items-center">
             <View className={`${large ? 'w-12 h-12' : 'w-10 h-10'} rounded-full bg-red-50 justify-center items-center mb-1`}>
               <Text className={`text-danger font-bold ${large ? 'text-base' : 'text-sm'}`}>{t('emergency.holdLabel')}</Text>
             </View>
-            <Text className={`${large ? 'text-sm' : 'text-xs'} text-gray`}>{t('emergency.holdForEmergency')}</Text>
+            <Text className={`${large ? 'text-sm' : 'text-xs'} text-gray dark:text-darkTheme-muted`}>{t('emergency.holdForEmergency')}</Text>
           </View>
         </View>
       )}

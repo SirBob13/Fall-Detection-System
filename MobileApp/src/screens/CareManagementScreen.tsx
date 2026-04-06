@@ -15,6 +15,7 @@ import { authService } from '../services/auth.service';
 import { apiService } from '../services/api';
 import { storageService } from '../services/storage';
 import { CareLink, CareLinkRequest, User } from '../types';
+import { realtimeService } from '../services/realtime.service';
 
 const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 const phoneDigitsRegex = /^\+?[0-9]{6,15}$/;
@@ -71,6 +72,58 @@ export const CareManagementScreen: React.FC = () => {
     }
   };
 
+  useEffect(() => {
+    const unsubscribe = realtimeService.subscribe('care', (event) => {
+      if (!user?.id) return;
+      if (!event.payload) return;
+
+      const payload = event.payload as any;
+      const isRequest = typeof payload.status === 'string';
+      const isCaregiver = payload.caregiver_id === user.id;
+      const isPatient = payload.patient_id === user.id;
+
+      if (isRequest) {
+        if (isPatient) {
+          setIncomingRequests((prev) => {
+            const exists = prev.find((item) => item.id === payload.id);
+            if (payload.status !== 'pending') {
+              return prev.filter((item) => item.id !== payload.id);
+            }
+            const next = exists
+              ? prev.map((item) => (item.id === payload.id ? { ...item, ...payload } : item))
+              : [payload, ...prev];
+            return next;
+          });
+        }
+
+        if (isCaregiver) {
+          setOutgoingRequests((prev) => {
+            const exists = prev.find((item) => item.id === payload.id);
+            if (payload.status !== 'pending') {
+              return prev.filter((item) => item.id !== payload.id);
+            }
+            const next = exists
+              ? prev.map((item) => (item.id === payload.id ? { ...item, ...payload } : item))
+              : [payload, ...prev];
+            return next;
+          });
+        }
+      } else {
+        if (isCaregiver) {
+          setLinks((prev) => {
+            const exists = prev.find((item) => item.id === payload.id);
+            const next = exists
+              ? prev.map((item) => (item.id === payload.id ? { ...item, ...payload } : item))
+              : [payload, ...prev];
+            return next;
+          });
+        }
+      }
+    });
+
+    return unsubscribe;
+  }, [user?.id]);
+
   const fetchLinks = async (caregiverId: number) => {
     setLoading(true);
     try {
@@ -115,6 +168,22 @@ export const CareManagementScreen: React.FC = () => {
     if (!isEmail && !isPhone) {
       Alert.alert(t('common.error'), t('care.invalidIdentifier'));
       return;
+    }
+
+    if (isEmail) {
+      const emailCheck = await apiService.checkEmailExists(trimmedIdentifier.toLowerCase());
+      if (!emailCheck.success || !emailCheck.data?.exists) {
+        Alert.alert(t('common.error'), t('care.notRegistered'));
+        return;
+      }
+    }
+
+    if (isPhone) {
+      const phoneCheck = await apiService.checkPhoneExists(normalized);
+      if (!phoneCheck.success || !phoneCheck.data?.exists) {
+        Alert.alert(t('common.error'), t('care.notRegistered'));
+        return;
+      }
     }
 
     if (isEmail && user.email && trimmedIdentifier.toLowerCase() === user.email.toLowerCase()) {
@@ -228,37 +297,37 @@ export const CareManagementScreen: React.FC = () => {
   };
 
   return (
-    <ScrollView className="flex-1 bg-light" showsVerticalScrollIndicator={false}>
+    <ScrollView className="flex-1 bg-light dark:bg-darkTheme-background" showsVerticalScrollIndicator={false}>
       <View className="mx-4 mt-4">
-        <Text className="text-lg font-bold text-dark">{t('care.title')}</Text>
-        <Text className="text-xs text-gray mt-1">{t('settings.careManagementDesc')}</Text>
+        <Text className="text-lg font-bold text-dark dark:text-darkTheme-text">{t('care.title')}</Text>
+        <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">{t('settings.careManagementDesc')}</Text>
       </View>
 
-      <View className="mx-4 mt-4 bg-white rounded-2xl shadow-lg border border-lightGray p-4">
-        <Text className="text-base font-semibold text-dark mb-3">{t('care.selected')}</Text>
+      <View className="mx-4 mt-4 bg-white dark:bg-darkTheme-surface rounded-2xl shadow-lg border border-lightGray dark:border-darkTheme-border p-4">
+        <Text className="text-base font-semibold text-dark dark:text-darkTheme-text mb-3">{t('care.selected')}</Text>
         {monitoredUser ? (
           <View className="flex-row items-center justify-between">
             <View>
-              <Text className="text-sm font-semibold text-dark">{monitoredUser.name}</Text>
+              <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text">{monitoredUser.name}</Text>
               {monitoredUser.email ? (
-                <Text className="text-xs text-gray mt-1">{monitoredUser.email}</Text>
+                <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">{monitoredUser.email}</Text>
               ) : null}
-              <Text className="text-xs text-gray mt-1">{t('care.monitoring')}</Text>
+              <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">{t('care.monitoring')}</Text>
             </View>
             <TouchableOpacity
               className="px-3 py-2 rounded-lg bg-lightGray"
               onPress={handleSwitchBack}
             >
-              <Text className="text-xs text-dark">{t('care.switchBack')}</Text>
+              <Text className="text-xs text-dark dark:text-darkTheme-text">{t('care.switchBack')}</Text>
             </TouchableOpacity>
           </View>
         ) : (
-          <Text className="text-xs text-gray">{t('care.selfMonitoring')}</Text>
+          <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('care.selfMonitoring')}</Text>
         )}
       </View>
 
-      <View className="mx-4 mt-4 bg-white rounded-2xl shadow-lg border border-lightGray p-4">
-        <Text className="text-base font-semibold text-dark mb-3">{t('care.addTitle')}</Text>
+      <View className="mx-4 mt-4 bg-white dark:bg-darkTheme-surface rounded-2xl shadow-lg border border-lightGray dark:border-darkTheme-border p-4">
+        <Text className="text-base font-semibold text-dark dark:text-darkTheme-text mb-3">{t('care.addTitle')}</Text>
 
         <Text className="input-label">{t('care.identifierLabel')}</Text>
         <TextInput
@@ -294,26 +363,26 @@ export const CareManagementScreen: React.FC = () => {
       </View>
 
       <View className="mx-4 mt-4">
-        <Text className="text-base font-semibold text-dark mb-3">{t('care.requestsIncoming')}</Text>
+        <Text className="text-base font-semibold text-dark dark:text-darkTheme-text mb-3">{t('care.requestsIncoming')}</Text>
 
         {incomingRequests.length === 0 ? (
-          <Text className="text-xs text-gray">{t('care.noIncoming')}</Text>
+          <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('care.noIncoming')}</Text>
         ) : (
           incomingRequests.map((req) => (
             <View
               key={req.id}
-              className="bg-white rounded-2xl shadow-lg border border-lightGray p-4 mb-3"
+              className="bg-white dark:bg-darkTheme-surface rounded-2xl shadow-lg border border-lightGray dark:border-darkTheme-border p-4 mb-3"
             >
               <View className="flex-row items-center justify-between">
                 <View className="flex-1">
-                  <Text className="text-sm font-semibold text-dark">
+                  <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text">
                     {req.caregiver?.name || t('common.unknown')}
                   </Text>
                   {req.caregiver?.email ? (
-                    <Text className="text-xs text-gray mt-1">{req.caregiver.email}</Text>
+                    <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">{req.caregiver.email}</Text>
                   ) : null}
                   {req.relationship ? (
-                    <Text className="text-xs text-gray mt-1">{req.relationship}</Text>
+                    <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">{req.relationship}</Text>
                   ) : null}
                 </View>
                 <View className="flex-row items-center">
@@ -337,25 +406,25 @@ export const CareManagementScreen: React.FC = () => {
       </View>
 
       <View className="mx-4 mt-4">
-        <Text className="text-base font-semibold text-dark mb-3">{t('care.requestsOutgoing')}</Text>
+        <Text className="text-base font-semibold text-dark dark:text-darkTheme-text mb-3">{t('care.requestsOutgoing')}</Text>
 
         {outgoingRequests.length === 0 ? (
-          <Text className="text-xs text-gray">{t('care.noOutgoing')}</Text>
+          <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('care.noOutgoing')}</Text>
         ) : (
           outgoingRequests.map((req) => (
             <View
               key={req.id}
-              className="bg-white rounded-2xl shadow-lg border border-lightGray p-4 mb-3"
+              className="bg-white dark:bg-darkTheme-surface rounded-2xl shadow-lg border border-lightGray dark:border-darkTheme-border p-4 mb-3"
             >
               <View className="flex-row items-center justify-between">
                 <View className="flex-1">
-                  <Text className="text-sm font-semibold text-dark">
+                  <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text">
                     {req.patient?.name || t('common.unknown')}
                   </Text>
                   {req.patient?.email ? (
-                    <Text className="text-xs text-gray mt-1">{req.patient.email}</Text>
+                    <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">{req.patient.email}</Text>
                   ) : null}
-                  <Text className="text-xs text-gray mt-1">
+                  <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">
                     {t(`care.requestStatus.${req.status}`)}
                   </Text>
                 </View>
@@ -374,28 +443,28 @@ export const CareManagementScreen: React.FC = () => {
       </View>
 
       <View className="mx-4 mt-4 mb-6">
-        <Text className="text-base font-semibold text-dark mb-3">{t('care.listTitle')}</Text>
+        <Text className="text-base font-semibold text-dark dark:text-darkTheme-text mb-3">{t('care.listTitle')}</Text>
 
         {loading ? (
           <ActivityIndicator color="#2196F3" />
         ) : links.length === 0 ? (
-          <Text className="text-xs text-gray">{t('care.noLinked')}</Text>
+          <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('care.noLinked')}</Text>
         ) : (
           links.map((link) => (
             <View
               key={link.id}
-              className="bg-white rounded-2xl shadow-lg border border-lightGray p-4 mb-3"
+              className="bg-white dark:bg-darkTheme-surface rounded-2xl shadow-lg border border-lightGray dark:border-darkTheme-border p-4 mb-3"
             >
               <View className="flex-row items-center justify-between">
                 <View className="flex-1">
-                  <Text className="text-sm font-semibold text-dark">
+                  <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text">
                     {link.patient?.name || t('common.unknown')}
                   </Text>
                   {link.patient?.email ? (
-                    <Text className="text-xs text-gray mt-1">{link.patient.email}</Text>
+                    <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">{link.patient.email}</Text>
                   ) : null}
                   {link.relationship ? (
-                    <Text className="text-xs text-gray mt-1">{link.relationship}</Text>
+                    <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">{link.relationship}</Text>
                   ) : null}
                 </View>
                 <View className="flex-row items-center">

@@ -82,10 +82,16 @@ def get_user_by_phone(db: Session, phone: str) -> Optional[models.User]:
         normalized = re.sub(r'[\s\-\(\)]', '', phone).strip()
         if not normalized:
             return None
+        user = db.query(models.User).filter(models.User.phone == normalized).first()
+        if user:
+            return user
         user = db.query(models.User).filter(models.User.emergency_contact == normalized).first()
         if user:
             return user
         if normalized != phone:
+            user = db.query(models.User).filter(models.User.phone == phone).first()
+            if user:
+                return user
             return db.query(models.User).filter(models.User.emergency_contact == phone).first()
         return None
     except SQLAlchemyError as e:
@@ -334,10 +340,51 @@ def get_device_by_id(db: Session, device_id: str) -> Optional[models.Device]:
 def get_device_by_user(db: Session, user_id: int) -> Optional[models.Device]:
     """Get device by user ID."""
     try:
-        return db.query(models.Device).filter(models.Device.user_id == user_id).first()
+        return (
+            db.query(models.Device)
+            .filter(models.Device.user_id == user_id, models.Device.is_archived == False)  # noqa: E712
+            .order_by(models.Device.last_seen.desc(), models.Device.created_at.desc())
+            .first()
+        )
     except SQLAlchemyError as e:
         logger.error(f"Database error getting device for user {user_id}: {e}")
         return None
+
+def get_devices_by_user(db: Session, user_id: int) -> List[models.Device]:
+    """Get all devices for a user (ordered by last seen)."""
+    try:
+        return (
+            db.query(models.Device)
+            .filter(models.Device.user_id == user_id, models.Device.is_archived == False)  # noqa: E712
+            .order_by(models.Device.last_seen.desc(), models.Device.created_at.desc())
+            .all()
+        )
+    except SQLAlchemyError as e:
+        logger.error(f"Database error getting devices for user {user_id}: {e}")
+        return []
+
+def get_archived_devices_by_user(db: Session, user_id: int) -> List[models.Device]:
+    """Get archived devices for a user (ordered by last seen)."""
+    try:
+        return (
+            db.query(models.Device)
+            .filter(models.Device.user_id == user_id, models.Device.is_archived == True)  # noqa: E712
+            .order_by(models.Device.last_seen.desc(), models.Device.created_at.desc())
+            .all()
+        )
+    except SQLAlchemyError as e:
+        logger.error(f"Database error getting archived devices for user {user_id}: {e}")
+        return []
+
+def delete_device(db: Session, device: models.Device) -> None:
+    """Delete a device."""
+    try:
+        db.delete(device)
+        db.commit()
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"Database error deleting device {device.device_id}: {e}")
+        raise RuntimeError(f"Database error: {str(e)}")
 
 def update_device_status(db: Session, device_id: str, battery_level: float, is_connected: bool) -> Optional[models.Device]:
     """Update device status."""

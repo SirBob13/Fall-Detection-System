@@ -250,7 +250,7 @@ export const RegisterScreen: React.FC = () => {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-white">
+    <SafeAreaView className="flex-1 bg-white dark:bg-darkTheme-surface">
       <KeyboardAvoidingView
         className="flex-1"
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -271,30 +271,30 @@ export const RegisterScreen: React.FC = () => {
             
             <View className="items-center px-5">
               <View className="flex-row items-center mb-4">
-                <View className="w-14 h-14 rounded-full bg-white shadow-md justify-center items-center mr-3">
+                <View className="w-14 h-14 rounded-full bg-white dark:bg-darkTheme-surface shadow-md justify-center items-center mr-3">
                   <MaterialIcons name="shield" size={30} color="#2196F3" />
                 </View>
                 <Text className="text-3xl font-bold text-primary">SafeGuard</Text>
               </View>
               
-              <Text className="text-2xl font-bold text-dark mb-3">Join Our Community</Text>
-              <Text className="text-base text-gray text-center leading-6 max-w-md mb-6">
+              <Text className="text-2xl font-bold text-dark dark:text-darkTheme-text mb-3">Join Our Community</Text>
+              <Text className="text-base text-gray dark:text-darkTheme-muted text-center leading-6 max-w-md mb-6">
                 Create an account to access smart fall detection and emergency response features
               </Text>
               
               {/* Benefits Badges */}
               <View className="flex-row flex-wrap justify-center gap-2">
-                <View className="flex-row items-center bg-white px-4 py-2 rounded-full shadow-sm">
+                <View className="flex-row items-center bg-white dark:bg-darkTheme-surface px-4 py-2 rounded-full shadow-sm">
                   <MaterialIcons name="security" size={16} color="#4CAF50" />
-                  <Text className="text-sm text-dark ml-2 font-medium">24/7 Protection</Text>
+                  <Text className="text-sm text-dark dark:text-darkTheme-text ml-2 font-medium">24/7 Protection</Text>
                 </View>
-                <View className="flex-row items-center bg-white px-4 py-2 rounded-full shadow-sm">
+                <View className="flex-row items-center bg-white dark:bg-darkTheme-surface px-4 py-2 rounded-full shadow-sm">
                   <MaterialIcons name="notifications-active" size={16} color="#2196F3" />
-                  <Text className="text-sm text-dark ml-2 font-medium">Instant Alerts</Text>
+                  <Text className="text-sm text-dark dark:text-darkTheme-text ml-2 font-medium">Instant Alerts</Text>
                 </View>
-                <View className="flex-row items-center bg-white px-4 py-2 rounded-full shadow-sm">
+                <View className="flex-row items-center bg-white dark:bg-darkTheme-surface px-4 py-2 rounded-full shadow-sm">
                   <MaterialIcons name="support-agent" size={16} color="#00BCD4" />
-                  <Text className="text-sm text-dark ml-2 font-medium">Continuous Support</Text>
+                  <Text className="text-sm text-dark dark:text-darkTheme-text ml-2 font-medium">Continuous Support</Text>
                 </View>
               </View>
             </View>
@@ -388,7 +388,7 @@ export const RegisterScreen: React.FC = () => {
                     {errors.phone && touched.phone && (
                       <Text className="error-text">{errors.phone}</Text>
                     )}
-                    <Text className="text-xs text-gray mt-2">
+                    <Text className="text-xs text-gray dark:text-darkTheme-muted mt-2">
                       📱 Egyptian number (starts with 010, 011, 012, or 015)
                     </Text>
                   </View>
@@ -422,7 +422,7 @@ export const RegisterScreen: React.FC = () => {
                           className={`flex-1 flex-row items-center justify-center py-3 mx-1 rounded-lg border ${
                             values.gender === gender.value
                               ? 'bg-primary border-primary'
-                              : 'bg-light border-lightGray'
+                              : 'bg-light dark:bg-darkTheme-background border-lightGray dark:border-darkTheme-border'
                           }`}
                           onPress={() => setFieldValue('gender', gender.value)}
                           disabled={loading}
@@ -434,7 +434,7 @@ export const RegisterScreen: React.FC = () => {
                             color={values.gender === gender.value ? '#FFFFFF' : '#757575'} 
                           />
                           <Text className={`ml-2 text-sm font-medium ${
-                            values.gender === gender.value ? 'text-white' : 'text-dark'
+                            values.gender === gender.value ? 'text-white' : 'text-dark dark:text-darkTheme-text'
                           }`}>
                             {gender.label}
                           </Text>
@@ -482,7 +482,7 @@ export const RegisterScreen: React.FC = () => {
                     {errors.password && touched.password && (
                       <Text className="error-text">{errors.password}</Text>
                     )}
-                    <Text className="text-xs text-gray mt-2">
+                    <Text className="text-xs text-gray dark:text-darkTheme-muted mt-2">
                       🔒 Must contain 8+ characters, uppercase, lowercase and number
                     </Text>
                   </View>
@@ -544,11 +544,11 @@ export const RegisterScreen: React.FC = () => {
                   <View className="flex-row items-center justify-between mb-4">
                     <Text className="section-title">Additional Information</Text>
                     <View className="px-3 py-1 bg-lightGray/30 rounded-full">
-                      <Text className="text-xs text-gray">Optional</Text>
+                      <Text className="text-xs text-gray dark:text-darkTheme-muted">Optional</Text>
                     </View>
                   </View>
                   
-                  <Text className="text-sm text-gray mb-6 leading-5">
+                  <Text className="text-sm text-gray dark:text-darkTheme-muted mb-6 leading-5">
                     This information helps us provide better personalized service for you
                   </Text>
                   
@@ -596,7 +596,7 @@ export const RegisterScreen: React.FC = () => {
                       keyboardType="phone-pad"
                       editable={!loading}
                     />
-                    <Text className="text-xs text-gray mt-2">
+                    <Text className="text-xs text-gray dark:text-darkTheme-muted mt-2">
                       👨‍👩‍👧‍👦 This number will be contacted in case of emergency
                     </Text>
                   </View>
@@ -620,7 +620,7 @@ export const RegisterScreen: React.FC = () => {
                 </View>
 
                 {/* Terms and Conditions */}
-                <View className="bg-light p-4 rounded-2xl mb-6">
+                <View className="bg-light dark:bg-darkTheme-background p-4 rounded-2xl mb-6">
                   <TouchableOpacity
                     className="flex-row"
                     onPress={() => setFieldValue('accept_terms', !values.accept_terms)}
@@ -631,7 +631,7 @@ export const RegisterScreen: React.FC = () => {
                       w-6 h-6 rounded-md border-2 flex items-center justify-center mr-3 mt-1
                       ${values.accept_terms 
                         ? 'bg-primary border-primary' 
-                        : 'border-gray bg-white'
+                        : 'border-gray bg-white dark:bg-darkTheme-surface'
                       }
                     `}>
                       {values.accept_terms && (
@@ -639,7 +639,7 @@ export const RegisterScreen: React.FC = () => {
                       )}
                     </View>
                     <View className="flex-1">
-                      <Text className="text-sm text-gray leading-5">
+                      <Text className="text-sm text-gray dark:text-darkTheme-muted leading-5">
                         I agree to the{' '}
                         <Text 
                           className="text-primary font-semibold" 
@@ -688,10 +688,10 @@ export const RegisterScreen: React.FC = () => {
                 <View className="flex-row items-center p-4 bg-green-50 rounded-xl border border-green-200 mb-6">
                   <MaterialIcons name="verified-user" size={24} color="#4CAF50" />
                   <View className="ml-3 flex-1">
-                    <Text className="text-sm font-medium text-dark mb-1">
+                    <Text className="text-sm font-medium text-dark dark:text-darkTheme-text mb-1">
                       Your Data is Protected
                     </Text>
-                    <Text className="text-xs text-gray">
+                    <Text className="text-xs text-gray dark:text-darkTheme-muted">
                       All your information is encrypted and secured with the highest security standards
                     </Text>
                   </View>
@@ -701,8 +701,8 @@ export const RegisterScreen: React.FC = () => {
           </Formik>
 
           {/* Login Link */}
-          <View className="flex-row justify-center items-center py-6 border-t border-lightGray mx-5">
-            <Text className="text-base text-gray mr-2">Already have an account?</Text>
+          <View className="flex-row justify-center items-center py-6 border-t border-lightGray dark:border-darkTheme-border mx-5">
+            <Text className="text-base text-gray dark:text-darkTheme-muted mr-2">Already have an account?</Text>
             <TouchableOpacity 
               onPress={() => navigation.navigate('Login')}
               activeOpacity={0.7}

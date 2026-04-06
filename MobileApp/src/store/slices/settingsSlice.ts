@@ -3,8 +3,6 @@ import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 
 interface SettingsState {
   notifications: boolean;
-  vibration: boolean;
-  sound: boolean;
   autoConnect: boolean;
   fallDetection: boolean;
   vitalMonitoring: boolean;
@@ -22,8 +20,6 @@ interface SettingsState {
 
 const initialState: SettingsState = {
   notifications: true,
-  vibration: true,
-  sound: true,
   autoConnect: true,
   fallDetection: true,
   vitalMonitoring: true,

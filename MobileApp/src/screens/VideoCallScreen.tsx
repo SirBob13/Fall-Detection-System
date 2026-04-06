@@ -89,8 +89,8 @@ export const VideoCallScreen: React.FC = () => {
 
   if (!isConfigured) {
     return (
-      <View className="flex-1 justify-center items-center bg-light px-6">
-        <Text className="text-base text-dark text-center">
+      <View className="flex-1 justify-center items-center bg-light dark:bg-darkTheme-background px-6">
+        <Text className="text-base text-dark dark:text-darkTheme-text text-center">
           {t('video.missingConfig')}
         </Text>
       </View>

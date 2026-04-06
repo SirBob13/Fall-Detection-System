@@ -8,6 +8,7 @@ import { apiService } from '../services/api';
 import { storageService } from '../services/storage';
 import { User } from '../types';
 import { transliterateArabic } from '../utils/transliteration';
+import { realtimeService } from '../services/realtime.service';
 
 const ARABIC_DIGITS_MAP: Record<string, string> = {
   '٠': '0',
@@ -131,6 +132,31 @@ export const PersonalInfoScreen: React.FC = () => {
     }
   };
 
+  useEffect(() => {
+    if (isOnboarding) return;
+    const unsubscribe = realtimeService.subscribe('profile', (event) => {
+      if (!event.payload) return;
+      setUser((prev) => {
+        if (!prev) return prev;
+        if (event.payload?.id !== prev.id) return prev;
+        const next = { ...prev, ...event.payload };
+        setForm({
+          name: next.name || '',
+          phone: next.phone || '',
+          age: next.age ? String(next.age) : '',
+          gender: next.gender || '',
+          weight: next.weight ? String(next.weight) : '',
+          height: next.height ? String(next.height) : '',
+          emergency_contact: next.emergency_contact || '',
+          medical_conditions: next.medical_conditions || '',
+        });
+        return next;
+      });
+    });
+
+    return unsubscribe;
+  }, [isOnboarding]);
+
   const handleSave = async () => {
     if (!user) return;
 
@@ -196,13 +222,13 @@ export const PersonalInfoScreen: React.FC = () => {
   };
 
   return (
-    <ScrollView className="flex-1 bg-light" contentContainerStyle={{ padding: 16 }}>
+    <ScrollView className="flex-1 bg-light dark:bg-darkTheme-background" contentContainerStyle={{ padding: 16 }}>
       <View className="card mb-4">
         <Text className="section-title mb-1">
           {isOnboarding ? t('auth.completeProfile.title') : t('settings.personalInfo')}
         </Text>
         {isOnboarding ? (
-          <Text className="text-sm text-gray-500 mb-4">{t('auth.completeProfile.subtitle')}</Text>
+          <Text className="text-sm text-gray dark:text-darkTheme-muted-500 mb-4">{t('auth.completeProfile.subtitle')}</Text>
         ) : (
           <View className="mb-4" />
         )}
@@ -250,7 +276,7 @@ export const PersonalInfoScreen: React.FC = () => {
               <TouchableOpacity
                 key={gender}
                 className={`flex-1 flex-row items-center justify-center py-3 mx-1 rounded-lg border ${
-                  form.gender === gender ? 'bg-primary border-primary' : 'bg-white border-lightGray'
+                  form.gender === gender ? 'bg-primary border-primary' : 'bg-white dark:bg-darkTheme-surface border-lightGray dark:border-darkTheme-border'
                 }`}
                 onPress={() => setForm({ ...form, gender })}
                 activeOpacity={0.7}
@@ -261,7 +287,7 @@ export const PersonalInfoScreen: React.FC = () => {
                   color={form.gender === gender ? '#FFFFFF' : '#757575'}
                 />
                 <Text className={`ml-2 text-sm font-medium ${
-                  form.gender === gender ? 'text-white' : 'text-dark'
+                  form.gender === gender ? 'text-white' : 'text-dark dark:text-darkTheme-text'
                 }`}>
                   {gender === 'male' ? t('common.male') : t('common.female')}
                 </Text>

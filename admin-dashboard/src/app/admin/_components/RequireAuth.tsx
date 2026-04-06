@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getToken } from "../_lib/api";
+import { adminRealtime } from "../_lib/realtime";
 
 export default function RequireAuth({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -14,7 +15,11 @@ export default function RequireAuth({ children }: { children: React.ReactNode })
       router.replace("/admin/login");
       return;
     }
+    adminRealtime.connect();
     setReady(true);
+    return () => {
+      adminRealtime.disconnect();
+    };
   }, [router]);
 
   if (!ready) {
