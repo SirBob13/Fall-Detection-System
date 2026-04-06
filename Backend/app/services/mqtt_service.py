@@ -52,7 +52,10 @@ def _on_message(client: mqtt.Client, userdata, msg: mqtt.MQTTMessage) -> None:  
         db = SessionLocal()
         try:
             payload = schemas.DeviceIngestPayload(**data)
-            _handle_device_payload(payload, db)
+            result = _handle_device_payload(payload, db)
+            logger.info("✅ MQTT processed: %s", result.get("device_id"))
+        except Exception as exc:
+            logger.error("❌ Payload validation/processing error: %s", exc)
         finally:
             db.close()
     except Exception as exc:
