@@ -32,6 +32,24 @@ notification_service = NotificationService()
 # Helper functions
 # ======================
 
+def _json_safe_optional(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, (dict, list)):
+        return value
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return None
+
+def _get_column_value(model: Any, attr: str) -> Any:
+    if not hasattr(model, "__table__"):
+        return None
+    if attr not in model.__table__.columns:
+        return None
+    return _json_safe_optional(getattr(model, attr, None))
+
 def _serialize_alert(alert: Alert) -> Dict[str, Any]:
     return {
         "id": alert.id,
@@ -44,9 +62,9 @@ def _serialize_alert(alert: Alert) -> Dict[str, Any]:
         "status": alert.status,
         "timestamp": alert.timestamp.isoformat() if alert.timestamp else None,
         "resolved_at": alert.resolved_at.isoformat() if getattr(alert, "resolved_at", None) else None,
-        "location": getattr(alert, "location", None),
-        "response_notes": getattr(alert, "response_notes", None),
-        "metadata": getattr(alert, "metadata", None),
+        "location": _get_column_value(alert, "location"),
+        "response_notes": _get_column_value(alert, "response_notes"),
+        "metadata": _get_column_value(alert, "metadata"),
         "acknowledged_by": getattr(alert, "acknowledged_by", None),
         "acknowledged_at": alert.acknowledged_at.isoformat() if getattr(alert, "acknowledged_at", None) else None,
     }
@@ -1667,21 +1685,7 @@ async def get_user_alerts(
         # Format alerts
         formatted_alerts = []
         for alert in alerts:
-            formatted_alerts.append({
-                "id": alert.id,
-                "user_id": alert.user_id,
-                "prediction_id": alert.prediction_id,
-                "type": alert.alert_type,
-                "alert_type": alert.alert_type,
-                "severity": alert.severity,
-                "message": alert.message,
-                "status": alert.status,
-                "timestamp": alert.timestamp.isoformat() if alert.timestamp else None,
-                "resolved_at": alert.resolved_at.isoformat() if getattr(alert, "resolved_at", None) else None,
-                "location": getattr(alert, "location", None),
-                "response_notes": getattr(alert, "response_notes", None),
-                "metadata": getattr(alert, "metadata", None)
-            })
+            formatted_alerts.append(_serialize_alert(alert))
         
         return JSONResponse(
             status_code=status.HTTP_200_OK,
