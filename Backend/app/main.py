@@ -41,6 +41,7 @@ init_db()
 try:
     from .routes import auth, main as api_routes, admin
     from .realtime import router as realtime_router
+    from .services.mqtt_service import start_mqtt_service
     
     app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
     app.include_router(api_routes.router, prefix="/api/v1", tags=["api"])
@@ -51,6 +52,14 @@ try:
     
 except ImportError as e:
     logger.error(f"❌ Failed to load routes: {e}")
+
+# Start MQTT listener (optional)
+@app.on_event("startup")
+async def _startup_mqtt() -> None:
+    try:
+        start_mqtt_service()
+    except Exception as exc:
+        logger.error("MQTT startup failed: %s", exc)
 
 # Health check endpoint
 @app.get("/health")
