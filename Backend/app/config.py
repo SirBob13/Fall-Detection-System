@@ -54,6 +54,21 @@ EMERGENCY_CONTACTS = ["+201234567890"]  # Example contacts
 ACCELERATION_THRESHOLD = 2.5  # g
 GYRO_THRESHOLD = 200  # degrees/second
 
+# Vital thresholds (can override via env)
+VITAL_HR_MIN = float(os.getenv("VITAL_HR_MIN", "50"))
+VITAL_HR_MAX = float(os.getenv("VITAL_HR_MAX", "120"))
+VITAL_SPO2_MIN = float(os.getenv("VITAL_SPO2_MIN", "90"))
+VITAL_TEMP_MIN = float(os.getenv("VITAL_TEMP_MIN", "35.0"))
+VITAL_TEMP_MAX = float(os.getenv("VITAL_TEMP_MAX", "38.5"))
+
+# Vital sanity ranges (filter obvious sensor noise)
+VITAL_HR_MIN_VALID = float(os.getenv("VITAL_HR_MIN_VALID", "30"))
+VITAL_HR_MAX_VALID = float(os.getenv("VITAL_HR_MAX_VALID", "220"))
+VITAL_SPO2_MIN_VALID = float(os.getenv("VITAL_SPO2_MIN_VALID", "70"))
+VITAL_SPO2_MAX_VALID = float(os.getenv("VITAL_SPO2_MAX_VALID", "100"))
+VITAL_TEMP_MIN_VALID = float(os.getenv("VITAL_TEMP_MIN_VALID", "30.0"))
+VITAL_TEMP_MAX_VALID = float(os.getenv("VITAL_TEMP_MAX_VALID", "42.0"))
+
 # API settings
 API_HOST = "0.0.0.0"
 API_PORT = 8000

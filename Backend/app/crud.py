@@ -10,9 +10,23 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc, and_
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError, OperationalError
 import numpy as np
+from statistics import median
 
 from . import models, schemas
-from .config import TIME_STEPS
+from .config import (
+    TIME_STEPS,
+    VITAL_HR_MIN,
+    VITAL_HR_MAX,
+    VITAL_SPO2_MIN,
+    VITAL_TEMP_MIN,
+    VITAL_TEMP_MAX,
+    VITAL_HR_MIN_VALID,
+    VITAL_HR_MAX_VALID,
+    VITAL_SPO2_MIN_VALID,
+    VITAL_SPO2_MAX_VALID,
+    VITAL_TEMP_MIN_VALID,
+    VITAL_TEMP_MAX_VALID,
+)
 from .services.ai_model import predict_fall
 from .double_verification import DoubleVerificationSystem
 
@@ -503,33 +517,69 @@ def get_motion_data_timeframe(
 # Vital Data Operations
 # ======================
 
+def _sanitize_vital_value(value: Optional[float], min_valid: float, max_valid: float) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return None
+    if value < min_valid or value > max_valid:
+        return None
+    return value
+
+def _smooth_vital_value(current: Optional[float], recent_values: List[Optional[float]]) -> Optional[float]:
+    values = [v for v in [current, *recent_values] if v is not None]
+    if not values:
+        return None
+    return float(median(values))
+
 def create_vital_data(db: Session, vital_data: schemas.VitalDataCreate) -> models.VitalSensorData:
     """Store vital signs data."""
     try:
+        heart_rate = _sanitize_vital_value(vital_data.heart_rate, VITAL_HR_MIN_VALID, VITAL_HR_MAX_VALID)
+        oxygen_saturation = _sanitize_vital_value(
+            vital_data.oxygen_saturation, VITAL_SPO2_MIN_VALID, VITAL_SPO2_MAX_VALID
+        )
+        body_temperature = _sanitize_vital_value(
+            vital_data.body_temperature, VITAL_TEMP_MIN_VALID, VITAL_TEMP_MAX_VALID
+        )
+
+        recent = db.query(models.VitalSensorData)\
+            .filter(models.VitalSensorData.user_id == vital_data.user_id)\
+            .order_by(desc(models.VitalSensorData.timestamp))\
+            .limit(2)\
+            .all()
+
+        heart_rate = _smooth_vital_value(heart_rate, [v.heart_rate for v in recent])
+        oxygen_saturation = _smooth_vital_value(oxygen_saturation, [v.oxygen_saturation for v in recent])
+        body_temperature = _smooth_vital_value(body_temperature, [v.body_temperature for v in recent])
+
         # Check for abnormalities (simplified)
-        is_abnormal = False
-        abnormality_type = None
-        
-        if vital_data.heart_rate:
-            if vital_data.heart_rate < 50 or vital_data.heart_rate > 120:
-                is_abnormal = True
-                abnormality_type = "heart_rate"
-        
-        if vital_data.oxygen_saturation and vital_data.oxygen_saturation < 90:
-            is_abnormal = True
-            abnormality_type = "oxygen_saturation"
-        
+        abnormalities: List[str] = []
+
+        if heart_rate is not None and (heart_rate < VITAL_HR_MIN or heart_rate > VITAL_HR_MAX):
+            abnormalities.append("heart_rate")
+
+        if oxygen_saturation is not None and oxygen_saturation < VITAL_SPO2_MIN:
+            abnormalities.append("oxygen_saturation")
+
+        if body_temperature is not None and (body_temperature < VITAL_TEMP_MIN or body_temperature > VITAL_TEMP_MAX):
+            abnormalities.append("temperature")
+
         if vital_data.blood_pressure_systolic and vital_data.blood_pressure_systolic > 180:
-            is_abnormal = True
-            abnormality_type = "blood_pressure"
+            abnormalities.append("blood_pressure")
+
+        is_abnormal = len(abnormalities) > 0
+        abnormality_type = ", ".join(abnormalities) if abnormalities else None
         
         db_vital = models.VitalSensorData(
             user_id=vital_data.user_id,
-            heart_rate=vital_data.heart_rate,
+            heart_rate=heart_rate,
             blood_pressure_systolic=vital_data.blood_pressure_systolic,
             blood_pressure_diastolic=vital_data.blood_pressure_diastolic,
-            oxygen_saturation=vital_data.oxygen_saturation,
-            body_temperature=vital_data.body_temperature,
+            oxygen_saturation=oxygen_saturation,
+            body_temperature=body_temperature,
             respiration_rate=vital_data.respiration_rate,
             is_abnormal=is_abnormal,
             abnormality_type=abnormality_type,
