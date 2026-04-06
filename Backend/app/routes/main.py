@@ -5,6 +5,7 @@ Main API routes for the Fall Detection system - FIXED WITH PROPER HTTP STATUS CO
 import logging
 import re
 import io
+import json
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional, Tuple
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Query, Header
@@ -1282,8 +1283,16 @@ async def ingest_device_data_batch(
                 vital_alert_id = (res.get("vitals") or {}).get("alert_id")
                 if motion_alert_id or vital_alert_id:
                     alerts_users.add(user_id)
+        except HTTPException as e:
+            detail = e.detail
+            if isinstance(detail, (dict, list)):
+                error_text = json.dumps(detail)
+            else:
+                error_text = str(detail)
+            errors.append({"index": idx, "error": error_text})
         except Exception as e:
-            errors.append({"index": idx, "error": str(e)})
+            error_text = str(e) or repr(e)
+            errors.append({"index": idx, "error": error_text})
 
     for uid in motion_users:
         latest_motion = db.query(models.MotionSensorData).filter(models.MotionSensorData.user_id == uid).order_by(models.MotionSensorData.timestamp.desc()).first()
