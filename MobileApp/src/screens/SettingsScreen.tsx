@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-import { StackNavigationProp } from '@react-navigation/stack';
+import { NativeStackNavigationProp as StackNavigationProp } from '@react-navigation/native-stack';
 import { useLanguage } from '../components/LanguageProvider';
 import { useSettings } from '../components/SettingsProvider';
 import { storageService } from '../services/storage';
@@ -506,7 +506,7 @@ export const SettingsScreen: React.FC = () => {
                 )}
               </View>
               <Switch
-                value={settings[key as keyof typeof settings]}
+                value={Boolean(settings[key as keyof typeof settings])}
                 onValueChange={(value) => 
                   handleSettingChange(key as keyof typeof settings, value)
                 }

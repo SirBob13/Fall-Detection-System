@@ -1,4 +1,6 @@
 // src/utils/errorHandler.ts
+import { authService } from '../services/auth.service';
+
 export class AppError extends Error {
   constructor(
     message: string,

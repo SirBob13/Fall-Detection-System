@@ -50,7 +50,6 @@ export class LocationService {
 
       const location = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High,
-        timeout: 15000,
       });
 
       this.lastLocation = {

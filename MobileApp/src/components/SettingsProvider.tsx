@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { useColorScheme } from 'nativewind';
+import { useColorScheme as useSystemColorScheme } from 'react-native';
 import { storageService } from '../services/storage';
 
 export type AppSettings = {
@@ -50,12 +50,9 @@ export const useSettings = () => useContext(SettingsContext);
 
 export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
-  const { colorScheme, setColorScheme } = useColorScheme();
-
-  const applyTheme = (nextTheme: AppSettings['theme']) => {
-    const resolved = nextTheme === 'system' ? 'system' : nextTheme;
-    setColorScheme(resolved);
-  };
+  const systemColorScheme = useSystemColorScheme();
+  const resolvedTheme =
+    settings.theme === 'system' ? (systemColorScheme ?? 'light') : settings.theme;
 
   const refreshSettings = async () => {
     const stored = await storageService.getSettings();
@@ -66,16 +63,12 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         }
       : DEFAULT_SETTINGS;
     setSettings(merged);
-    applyTheme(merged.theme);
   };
 
   const updateSettings = async (patch: Partial<AppSettings>) => {
     setSettings((prev) => {
       const updated = { ...prev, ...patch };
       storageService.saveSettings(updated);
-      if (patch.theme) {
-        applyTheme(updated.theme);
-      }
       return updated;
     });
   };
@@ -94,12 +87,12 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const contextValue = useMemo(
     () => ({
       settings,
-      isDark: colorScheme === 'dark',
+      isDark: resolvedTheme === 'dark',
       updateSetting,
       updateSettings,
       refreshSettings,
     }),
-    [settings, colorScheme]
+    [settings, resolvedTheme]
   );
 
   return <SettingsContext.Provider value={contextValue}>{children}</SettingsContext.Provider>;

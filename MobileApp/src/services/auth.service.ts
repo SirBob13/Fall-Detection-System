@@ -137,7 +137,7 @@ class AuthService {
   private lastConnectionCheck: number = 0;
   private readonly CONNECTION_CACHE_DURATION = 60000; // 1 minute
   private connectionCheckInProgress: boolean = false;
-  private sessionMonitorInterval: NodeJS.Timeout | null = null;
+  private sessionMonitorInterval: ReturnType<typeof setInterval> | null = null;
   private sessionTimeoutListeners: Set<() => void> = new Set();
   private authStateListeners: Set<(isAuthenticated: boolean) => void> = new Set();
 
@@ -587,7 +587,7 @@ class AuthService {
       });
 
       if (response.ok) {
-        const result = await response.json();
+        await response.json();
         // Update local session
         const updatedSession: SessionData = {
           ...session,
@@ -819,8 +819,20 @@ class AuthService {
       console.log('✅ [Register] Response:', result);
 
       if (result.success && result.access_token && result.user) {
-        // Save session for 30 days
-        const session: SessionData = {
+        // Registration should not auto-login the user. Keep the app on the login flow.
+        await this.clearSession();
+
+        // Invalidate cached email existence and auth/session checks
+        if (userData.email) {
+          this.invalidateCache(`user-exists-${userData.email}`);
+        }
+        this.invalidateCache('load-session');
+        this.invalidateCache('check-authentication');
+        
+        console.log('✅ [Register] Registration successful, login required');
+        
+        return {
+          success: true,
           user: {
             id: result.user.id?.toString() || '',
             email: result.user.email,
@@ -840,36 +852,8 @@ class AuthService {
             profile_complete: result.user.profile_complete,
             missing_fields: result.user.missing_fields
           },
-          token: result.access_token,
-          refresh_token: result.refresh_token || result.access_token,
-          expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-        };
-
-        await this.saveSession(session);
-        await this.updateLastActivity();
-
-        // Start session monitoring
-        this.startSessionMonitor();
-
-        // Invalidate cached email existence and auth/session checks
-        if (userData.email) {
-          this.invalidateCache(`user-exists-${userData.email}`);
-        }
-        this.invalidateCache('load-session');
-        this.invalidateCache('check-authentication');
-
-        // Notify listeners that auth state changed
-        this.emitAuthState(true);
-
-        await safeRegisterPushToken(result.access_token);
-
-        console.log('✅ [Register] Registration successful, session saved');
-        
-        return {
-          success: true,
-          user: session.user,
-          token: result.access_token,
-          message: 'Account created successfully in database',
+          message: 'Account created successfully. Please login with your email and password.',
+          shouldRedirectToLogin: true,
         };
       } else {
         return {
@@ -1312,10 +1296,12 @@ class AuthService {
 
   async clearSession(): Promise<void> {
     try {
+      this.stopSessionMonitor();
       this.currentSession = null;
       await AsyncStorage.removeItem(AUTH_CONFIG.STORAGE_KEYS.USER_SESSION);
       await AsyncStorage.removeItem(AUTH_CONFIG.STORAGE_KEYS.LOGIN_ATTEMPTS);
       await AsyncStorage.removeItem(AUTH_CONFIG.STORAGE_KEYS.LAST_ACTIVITY);
+      this.requestManager.clearCache();
       console.log('✅ [Session] Session cleared');
       this.emitAuthState(false);
     } catch (error) {
@@ -1477,18 +1463,22 @@ class AuthService {
         signal: controller.signal
       });
       
+      const payload = await response.json().catch(() => ({}));
       if (response.ok) {
-        const data = await response.json();
         return {
-          success: data.success || false,
-          message: data.message || 'Reset link sent successfully'
-        };
-      } else {
-        return {
-          success: false,
-          message: 'Failed to send reset link'
+          success: payload.success || false,
+          message: payload.message || 'Reset link sent successfully'
         };
       }
+
+      return {
+        success: false,
+        message:
+          payload?.detail?.error ||
+          payload?.detail?.message ||
+          payload?.message ||
+          'Failed to send reset link'
+      };
     } catch (error: any) {
       return {
         success: false,
@@ -1521,6 +1511,63 @@ class AuthService {
           message: 'Password reset failed'
         };
       }
+    } catch (error: any) {
+      return {
+        success: false,
+        message: `Connection error: ${error.message}`
+      };
+    }
+  }
+
+  async changePassword(data: {
+    current_password: string;
+    new_password: string;
+    confirm_password: string;
+  }): Promise<AuthResponse> {
+    try {
+      const session = await this.loadSession();
+      if (!session) {
+        return {
+          success: false,
+          message: 'No active session found',
+          shouldLogout: true,
+        };
+      }
+
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(), 5000);
+
+      const response = await fetch(`${this.baseURL}/change-password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.token}`,
+        },
+        body: JSON.stringify(data),
+        signal: controller.signal,
+      });
+
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        return {
+          success: false,
+          message:
+            payload?.detail?.error ||
+            payload?.detail?.message ||
+            payload?.detail ||
+            payload?.message ||
+            'Failed to change password',
+        };
+      }
+
+      await this.clearSession();
+
+      return {
+        success: payload.success || true,
+        message: payload.message || 'Password changed successfully. Please login again.',
+        shouldRedirectToLogin: true,
+      };
     } catch (error: any) {
       return {
         success: false,
@@ -1597,7 +1644,8 @@ class AuthService {
     }
   }
 
-  async refreshToken(oldToken: string): Promise<AuthResponse> {
+  async refreshToken(_oldToken: string): Promise<AuthResponse> {
+    void _oldToken;
     // Use the enhanced smart token refresh
     return await this.smartTokenRefresh();
   }

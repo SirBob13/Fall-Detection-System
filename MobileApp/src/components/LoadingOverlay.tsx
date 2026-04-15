@@ -30,8 +30,6 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({
   const rotateAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.8)).current;
 
-  const { width } = Dimensions.get('window');
-
   useEffect(() => {
     if (visible) {
       // Start animations
@@ -74,7 +72,11 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({
     }
   }, [visible]);
 
-  const getConfig = () => {
+  const getConfig = (): {
+    icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+    color: string;
+    bgColor: string;
+  } => {
     switch (type) {
       case 'success':
         return {

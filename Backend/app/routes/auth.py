@@ -14,7 +14,7 @@ import httpx
 from datetime import datetime, timedelta
 
 from ..database import get_db
-from ..models import User, UserAuth, SocialAccount
+from ..models import User, UserAuth, SocialAccount, UserSession
 from ..config import (
     SECRET_KEY,
     ALGORITHM,
@@ -59,6 +59,7 @@ def extract_bearer_token(authorization: Optional[str]) -> Optional[str]:
 def create_access_token(data: dict, expires_delta: timedelta = None):
     """Create JWT token"""
     to_encode = data.copy()
+    to_encode.setdefault("type", "access")
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:
@@ -176,6 +177,11 @@ class ForgotPasswordRequest(BaseModel):
 class ResetPasswordRequest(BaseModel):
     token: str
     password: str
+    confirm_password: str
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
     confirm_password: str
 
 class RegisterRequest(BaseModel):
@@ -1068,6 +1074,92 @@ async def reset_password(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"success": False, "error": f"Failed to reset password: {str(e)}"}
+        )
+
+@router.post("/change-password", response_model=Dict[str, Any])
+async def change_password(
+    data: ChangePasswordRequest,
+    db: Session = Depends(get_db),
+    authorization: Optional[str] = Header(default=None),
+):
+    """Change password for the currently authenticated user."""
+    try:
+        token = extract_bearer_token(authorization)
+        if not token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail={"success": False, "error": "Authorization token is required"}
+            )
+
+        try:
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        except jwt.ExpiredSignatureError:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail={"success": False, "error": "Token has expired"}
+            )
+        except jwt.InvalidTokenError:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail={"success": False, "error": "Invalid token"}
+            )
+
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail={"success": False, "error": "Invalid session"}
+            )
+
+        if data.new_password != data.confirm_password:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"success": False, "error": "Passwords do not match"}
+            )
+
+        if len(data.new_password) < 8:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"success": False, "error": "New password must be at least 8 characters"}
+            )
+
+        user_auth = db.query(UserAuth).filter(UserAuth.user_id == int(user_id)).first()
+        if not user_auth or not user_auth.password_hash:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"success": False, "error": "User authentication not found"}
+            )
+
+        if not verify_password(data.current_password, user_auth.password_hash):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail={"success": False, "error": "Current password is incorrect"}
+            )
+
+        user_auth.password_hash = hash_password(data.new_password)
+        user_auth.reset_token = None
+        user_auth.reset_token_expiry = None
+
+        db.query(UserSession).filter(UserSession.user_id == int(user_id)).delete(synchronize_session=False)
+        db.commit()
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "message": "Password changed successfully. Please login again.",
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Change password error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"success": False, "error": f"Failed to change password: {str(e)}"}
         )
 
 # ==================== User Logout ====================

@@ -10,6 +10,7 @@ interface StatusCardProps {
   onRefresh: () => void;
   onConnect?: () => void;
   isConnecting?: boolean;
+  compact?: boolean;
 }
 
 export const StatusCard: React.FC<StatusCardProps> = ({ 
@@ -17,7 +18,8 @@ export const StatusCard: React.FC<StatusCardProps> = ({
   lastPrediction, 
   onRefresh,
   onConnect,
-  isConnecting = false
+  isConnecting = false,
+  compact = false,
 }) => {
   const { t } = useLanguage();
 
@@ -35,21 +37,36 @@ export const StatusCard: React.FC<StatusCardProps> = ({
     return t('system.connected');
   };
 
+  const sectionSpacing = compact ? 18 : 24;
+  const cardPadding = compact ? 18 : 20;
+  const refreshSize = compact ? 18 : 20;
+  const deviceIconSize = compact ? 18 : 20;
+  const predictionPadding = compact ? 14 : 12;
+
   return (
-    <View className="bg-white dark:bg-darkTheme-surface rounded-2xl shadow-lg p-5 border border-lightGray dark:border-darkTheme-border">
+    <View
+      className="bg-white dark:bg-darkTheme-surface rounded-2xl shadow-lg border border-lightGray dark:border-darkTheme-border"
+      style={{ padding: cardPadding }}
+    >
       {/* Header */}
       <View className="flex-row justify-between items-center mb-4">
-        <Text className="text-xl font-bold text-dark dark:text-darkTheme-text">{t('home.systemStatus')}</Text>
+        <Text
+          className="font-bold text-dark dark:text-darkTheme-text"
+          style={{ fontSize: compact ? 18 : 20 }}
+        >
+          {t('home.systemStatus')}
+        </Text>
         <TouchableOpacity 
           onPress={onRefresh}
-          className="p-2 rounded-full bg-blue-50 active:opacity-70"
+          className="rounded-full bg-blue-50 active:opacity-70"
+          style={{ padding: compact ? 10 : 8 }}
         >
-          <MaterialCommunityIcons name="refresh" size={20} color="#2196F3" />
+          <MaterialCommunityIcons name="refresh" size={refreshSize} color="#2196F3" />
         </TouchableOpacity>
       </View>
 
       {/* Status Indicator */}
-      <View className="flex-row items-center mb-6">
+      <View className="flex-row items-center" style={{ marginBottom: sectionSpacing }}>
         <View className={`w-4 h-4 rounded-full mr-3 ${getStatusColor()}`} />
         <Text className="text-base font-semibold text-dark dark:text-darkTheme-text">{getStatusText()}</Text>
         <Text className="text-sm text-gray dark:text-darkTheme-muted ml-2">
@@ -59,16 +76,19 @@ export const StatusCard: React.FC<StatusCardProps> = ({
 
       {/* Device Info */}
       {device && (
-        <View className="mb-6">
+        <View style={{ marginBottom: sectionSpacing }}>
           <View className="flex-row items-center mb-3">
-            <MaterialCommunityIcons name="watch" size={20} color="#757575" />
+            <MaterialCommunityIcons name="watch" size={deviceIconSize} color="#757575" />
             <Text className="text-base text-dark dark:text-darkTheme-text ml-2">{device.device_id || 'Smart Device'}</Text>
             <View className="flex-1 items-end">
               <Text className="text-xs text-gray dark:text-darkTheme-muted">{device.device_id}</Text>
             </View>
           </View>
 
-          <View className="flex-row justify-between bg-light dark:bg-darkTheme-background rounded-xl p-3">
+          <View
+            className="flex-row justify-between bg-light dark:bg-darkTheme-background rounded-xl"
+            style={{ paddingHorizontal: compact ? 10 : 12, paddingVertical: compact ? 12 : 12 }}
+          >
             <View className="items-center flex-1">
               <View className="flex-row items-center mb-1">
                 <MaterialCommunityIcons name="battery" size={16} color="#757575" />
@@ -106,7 +126,7 @@ export const StatusCard: React.FC<StatusCardProps> = ({
 
       {/* Last Prediction */}
       {lastPrediction && (
-        <View className="bg-blue-50 rounded-xl p-3">
+        <View className="bg-blue-50 rounded-xl" style={{ padding: predictionPadding }}>
           <View className="flex-row items-center mb-2">
             <MaterialCommunityIcons name="chart-line" size={20} color="#2196F3" />
             <Text className="text-base font-semibold text-dark dark:text-darkTheme-text ml-2">
@@ -136,18 +156,19 @@ export const StatusCard: React.FC<StatusCardProps> = ({
 
       {/* No Device Message */}
       {!device && (
-        <View className="items-center py-4">
-          <MaterialCommunityIcons name="devices" size={40} color="#BDBDBD" />
-          <Text className="text-base text-gray dark:text-darkTheme-muted mt-2">{t('system.noDevice')}</Text>
+        <View className="items-center" style={{ paddingVertical: compact ? 14 : 16 }}>
+          <MaterialCommunityIcons name="devices" size={compact ? 34 : 40} color="#BDBDBD" />
+          <Text className="text-base text-gray dark:text-darkTheme-muted mt-3">{t('system.noDevice')}</Text>
           <Text className="text-sm text-lightGray dark:text-darkTheme-muted mt-1">{t('system.connectDevice')}</Text>
           {onConnect && (
             <TouchableOpacity
               onPress={onConnect}
-              className="mt-3 px-4 py-2 bg-primary rounded-full"
+              className="mt-4 px-4 bg-primary rounded-full"
+              style={{ minWidth: compact ? 146 : 156, paddingVertical: compact ? 10 : 8 }}
               activeOpacity={0.8}
               disabled={isConnecting}
             >
-              <Text className="text-white text-sm font-semibold">
+              <Text className="text-white text-sm font-semibold text-center">
                 {isConnecting ? t('system.connecting') : t('system.connectAction')}
               </Text>
             </TouchableOpacity>
@@ -160,11 +181,12 @@ export const StatusCard: React.FC<StatusCardProps> = ({
         <View className="mt-2 items-center">
           <TouchableOpacity
             onPress={onConnect}
-            className="px-4 py-2 bg-warning rounded-full"
+            className="px-4 bg-warning rounded-full"
+            style={{ minWidth: compact ? 146 : 156, paddingVertical: compact ? 10 : 8 }}
             activeOpacity={0.8}
             disabled={isConnecting}
           >
-            <Text className="text-white text-sm font-semibold">
+            <Text className="text-white text-sm font-semibold text-center">
               {isConnecting ? t('system.connecting') : t('system.reconnect')}
             </Text>
           </TouchableOpacity>

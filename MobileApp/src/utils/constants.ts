@@ -4,7 +4,7 @@ import Constants from 'expo-constants';
 const getDevHost = () => {
   const hostUri =
     Constants.expoConfig?.hostUri ||
-    Constants.manifest?.debuggerHost ||
+    (Constants as any).manifest?.debuggerHost ||
     Constants.manifest2?.extra?.expoClient?.hostUri;
 
   if (!hostUri) return null;
@@ -75,6 +75,22 @@ export const STORAGE_KEYS = {
 };
 
 export const BLE_CONFIG = {
-  SERVICE_UUID: process.env.EXPO_PUBLIC_BLE_SERVICE_UUID || '',
-  CHARACTERISTIC_UUID: process.env.EXPO_PUBLIC_BLE_CHARACTERISTIC_UUID || '',
+  SERVICE_UUID:
+    process.env.EXPO_PUBLIC_BLE_SERVICE_UUID ||
+    '7A100001-8C6A-4F6D-A55B-000000000001',
+  CHARACTERISTIC_UUID:
+    process.env.EXPO_PUBLIC_BLE_CHARACTERISTIC_UUID ||
+    '7A100005-8C6A-4F6D-A55B-000000000001',
+  PROVISIONING_SERVICE_UUID:
+    process.env.EXPO_PUBLIC_BLE_PROVISIONING_SERVICE_UUID ||
+    '7A100001-8C6A-4F6D-A55B-000000000001',
+  DEVICE_INFO_CHARACTERISTIC_UUID:
+    process.env.EXPO_PUBLIC_BLE_DEVICE_INFO_CHARACTERISTIC_UUID ||
+    '7A100002-8C6A-4F6D-A55B-000000000001',
+  PROVISIONING_CHARACTERISTIC_UUID:
+    process.env.EXPO_PUBLIC_BLE_PROVISIONING_CHARACTERISTIC_UUID ||
+    '7A100003-8C6A-4F6D-A55B-000000000001',
+  STATUS_CHARACTERISTIC_UUID:
+    process.env.EXPO_PUBLIC_BLE_STATUS_CHARACTERISTIC_UUID ||
+    '7A100004-8C6A-4F6D-A55B-000000000001',
 };

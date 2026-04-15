@@ -23,6 +23,7 @@ export interface Device {
   firmware_version?: string;
   battery_level?: number;
   is_connected?: boolean;
+  is_archived?: boolean;
   last_seen?: string;
   created_at?: string;
 }
@@ -141,6 +142,69 @@ export interface DeviceIngestPayload {
   };
   battery_level?: number;
   firmware_version?: string;
+}
+
+export interface DeviceProvisioningDeviceInfo {
+  device_id: string;
+  firmware_version?: string;
+  device_type?: string;
+  wifi_connected?: boolean;
+  backend_connected?: boolean;
+  battery_level?: number;
+  status?: string;
+}
+
+export interface DevicePairingTokenRequest {
+  device_id: string;
+  firmware_version?: string;
+  device_type?: string;
+}
+
+export interface DevicePairingTokenResponse {
+  success: boolean;
+  device_id: string;
+  user_id: number;
+  pairing_token: string;
+  expires_in: number;
+  mqtt: {
+    host: string;
+    port: number;
+    topic: string;
+  };
+  api: {
+    base_url: string;
+  };
+}
+
+export interface DeviceProvisioningPayload {
+  device_id: string;
+  pairing_token: string;
+  wifi: {
+    ssid: string;
+    password: string;
+  };
+  mqtt: {
+    host: string;
+    port: number;
+    topic: string;
+  };
+  api: {
+    base_url: string;
+  };
+}
+
+export interface DeviceProvisioningStatus {
+  device_id: string;
+  stage:
+    | 'ready_for_provisioning'
+    | 'provisioning_received'
+    | 'wifi_connected'
+    | 'wifi_failed'
+    | 'mqtt_connected'
+    | 'mqtt_failed'
+    | 'streaming';
+  success: boolean;
+  message?: string;
 }
 
 // Caregiver / Monitoring Types

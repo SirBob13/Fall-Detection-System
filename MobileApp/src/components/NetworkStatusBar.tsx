@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, Animated } from 'react-native';
+import { View, Text, TouchableOpacity, Animated, StyleSheet } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { networkService, NetworkStatus } from '../services/network.service';
 import { useLanguage } from './LanguageProvider';
@@ -158,9 +158,9 @@ export const NetworkStatusBar: React.FC = () => {
   );
 };
 
-const styles = {
+const styles = StyleSheet.create({
   container: {
-    position: 'absolute' as const,
+    position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
@@ -169,14 +169,14 @@ const styles = {
     borderBottomColor: 'rgba(255, 255, 255, 0.2)',
   },
   content: {
-    flexDirection: 'row' as const,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
   statusInfo: {
-    flexDirection: 'row' as const,
+    flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
   },
@@ -220,8 +220,8 @@ const styles = {
   lastConnectedText: {
     color: 'rgba(255, 255, 255, 0.7)',
     fontSize: 10,
-    textAlign: 'center' as const,
+    textAlign: 'center',
   },
-};
+});
 
 export default NetworkStatusBar;

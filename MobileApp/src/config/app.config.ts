@@ -3,7 +3,7 @@ import Constants from 'expo-constants';
 const extra =
   // SDK 49+ uses expoConfig; older uses manifest
   (Constants.expoConfig?.extra as Record<string, any> | undefined) ||
-  (Constants.manifest?.extra as Record<string, any> | undefined) ||
+  ((Constants as any).manifest?.extra as Record<string, any> | undefined) ||
   {};
 
 const rawApiUrl =
@@ -22,6 +22,7 @@ export const API_CONFIG = {
   TIMEOUT: parseInt(process.env.API_TIMEOUT || '15000'),
   RETRY_ATTEMPTS: 3,
   VERSION: '1.0.0',
+  BUILD_NUMBER: process.env.EXPO_PUBLIC_BUILD_NUMBER || null,
 
   ENDPOINTS: {
     AUTH: {

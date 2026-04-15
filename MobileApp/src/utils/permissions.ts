@@ -1,18 +1,18 @@
 // src/utils/permissions.ts
-import { Platform } from 'react-native';
-import * as Permissions from 'expo-permissions';
+import * as Contacts from 'expo-contacts';
+import * as Location from 'expo-location';
+import * as Notifications from 'expo-notifications';
+import { Camera } from 'expo-camera';
 
 export const checkPermissions = async () => {
-  const requiredPermissions = [
-    'CAMERA',
-    'LOCATION',
-    'CONTACTS',
-    'NOTIFICATIONS',
-  ];
+  const [camera, location, contacts, notifications] = await Promise.all([
+    Camera.requestCameraPermissionsAsync(),
+    Location.requestForegroundPermissionsAsync(),
+    Contacts.requestPermissionsAsync(),
+    Notifications.requestPermissionsAsync(),
+  ]);
 
-  const results = await Promise.all(
-    requiredPermissions.map(perm => Permissions.askAsync(perm as any))
+  return [camera, location, contacts, notifications].every(
+    (result) => result.status === 'granted'
   );
-
-  return results.every(result => result.status === 'granted');
 };

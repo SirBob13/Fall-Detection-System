@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Platform, Linking, Alert, AppState } from 'react-native';
+import { Linking, Alert } from 'react-native';
 import * as Location from 'expo-location';
 import * as SMS from 'expo-sms';
 import * as Contacts from 'expo-contacts';
@@ -26,6 +26,8 @@ const EMERGENCY_STORAGE_KEYS = {
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
     shouldPlaySound: true,
     shouldSetBadge: true,
   }),
@@ -34,7 +36,7 @@ Notifications.setNotificationHandler({
 export class EmergencyService {
   private static instance: EmergencyService;
   private isEmergencyActive = false;
-  private emergencyTimeout: NodeJS.Timeout | null = null;
+  private emergencyTimeout: ReturnType<typeof setTimeout> | null = null;
   private appStateSubscription: any = null;
   private emergencyInProgress = false;
   private readonly MAX_CONSECUTIVE_EMERGENCIES = 3;
@@ -47,7 +49,7 @@ export class EmergencyService {
     return EmergencyService.instance;
   }
 
-  private getDefaultSettings(): EmergencySettings {
+  getDefaultSettings(): EmergencySettings {
     return {
       auto_call_emergency: true,
       send_sms: true,
@@ -94,6 +96,21 @@ export class EmergencyService {
       console.error('❌ [Emergency] Error updating emergency settings:', error);
       return false;
     }
+  }
+
+  async getEmergencyStats(): Promise<{
+    total: number;
+    successful: number;
+    failed: number;
+    last: string;
+  }> {
+    const history = await this.getEmergencyHistory();
+    return {
+      total: history.length,
+      successful: history.filter((item) => item.status === 'sent').length,
+      failed: history.filter((item) => item.status === 'failed').length,
+      last: history[0]?.timestamp || 'Never',
+    };
   }
 
   // ==================== Contacts Management ====================
@@ -444,7 +461,7 @@ export class EmergencyService {
       location: location ? {
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
-        accuracy: location.coords.accuracy,
+        accuracy: location.coords.accuracy ?? undefined,
       } : null,
       message,
       severity,

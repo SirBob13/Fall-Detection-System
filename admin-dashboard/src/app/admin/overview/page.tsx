@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../_lib/api";
-import { useRealtimeEvents } from "../_lib/realtime";
+import { useRealtimeEvents, useRealtimeRefresh } from "../_lib/realtime";
 
 interface OverviewData {
   users: { total: number; active: number };
@@ -18,11 +18,17 @@ export default function OverviewPage() {
   const [data, setData] = useState<OverviewData | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const loadOverview = useCallback(() => {
     apiFetch<{ data: OverviewData }>("/admin/overview")
       .then((res) => setData(res.data))
       .catch((err) => setError(err.message));
   }, []);
+
+  useEffect(() => {
+    loadOverview();
+  }, [loadOverview]);
+
+  useRealtimeRefresh(["alerts", "vitals", "predictions", "devices", "motions", "users"], loadOverview, 800);
 
   useRealtimeEvents(["alerts", "vitals", "predictions", "devices", "motions"], (event) => {
     if (!event.payload) return;
@@ -65,9 +71,13 @@ export default function OverviewPage() {
         };
       }
       if (event.resource === "devices" && event.payload?.is_connected !== undefined) {
-        // best-effort: adjust connected count if device toggled
-        // without a full device list, we keep totals stable
         next.devices = { ...prev.devices };
+      }
+      if (event.resource === "users") {
+        next.users = {
+          total: prev.users.total,
+          active: prev.users.active,
+        };
       }
       return next;
     });

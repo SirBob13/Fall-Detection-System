@@ -24,7 +24,7 @@ export class CacheService {
     version: '1.0',
     cleanupInterval: 10 * 60 * 1000, // 10 minutes
   };
-  private cleanupInterval: NodeJS.Timeout | null = null;
+  private cleanupInterval: ReturnType<typeof setInterval> | null = null;
   private readonly STORAGE_KEY = '@app_cache';
 
   static getInstance(): CacheService {

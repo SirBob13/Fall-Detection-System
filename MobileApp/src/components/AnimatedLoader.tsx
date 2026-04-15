@@ -1,6 +1,6 @@
 // src/components/AnimatedLoader.tsx
 import React from 'react';
-import { View, Animated, Easing } from 'react-native';
+import { View } from 'react-native';
 import LottieView from 'lottie-react-native';
 
 export const AnimatedLoader: React.FC = () => (

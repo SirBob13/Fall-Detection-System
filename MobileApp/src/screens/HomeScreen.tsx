@@ -10,7 +10,10 @@ import {
   Modal,
   TextInput,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useLanguage } from '../components/LanguageProvider';
 import { useSettings } from '../components/SettingsProvider';
 import { ScreenWrapper } from '../components/ScreenWrapper';
@@ -37,6 +40,8 @@ export const HomeScreen: React.FC = () => {
   const { t } = useLanguage();
   const { settings, refreshSettings } = useSettings();
   const navigation = useNavigation<any>();
+  const insets = useSafeAreaInsets();
+  const isAndroid = Platform.OS === 'android';
   const [refreshing, setRefreshing] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [device, setDevice] = useState<Device | null>(null);
@@ -49,6 +54,9 @@ export const HomeScreen: React.FC = () => {
   const [scanLoading, setScanLoading] = useState(false);
   const [scanResults, setScanResults] = useState<ScannedDevice[]>([]);
   const [manualDeviceId, setManualDeviceId] = useState('');
+  const [wifiSsid, setWifiSsid] = useState('');
+  const [wifiPassword, setWifiPassword] = useState('');
+  const [provisioningMessage, setProvisioningMessage] = useState<string | null>(null);
   const [isConnectingDevice, setIsConnectingDevice] = useState(false);
   const [queueSize, setQueueSize] = useState(0);
   const [networkStatus, setNetworkStatus] = useState<NetworkStatus | null>(null);
@@ -422,11 +430,17 @@ export const HomeScreen: React.FC = () => {
     }
 
     setIsConnectingDevice(true);
+    setProvisioningMessage(null);
     try {
       const connected = await deviceService.connectDeviceToUser({
         userId: user.id,
         deviceId,
         connectBle: true,
+        wifiSsid: wifiSsid.trim() || undefined,
+        wifiPassword: wifiPassword.trim() || undefined,
+        onProvisioningStatus: (status) => {
+          setProvisioningMessage(status.message || status.stage);
+        },
       });
 
       if (connected) {
@@ -434,6 +448,7 @@ export const HomeScreen: React.FC = () => {
         setPairModalVisible(false);
         setManualDeviceId('');
         setScanResults([]);
+        setWifiPassword('');
         RNAlert.alert(t('success.connected'), t('system.deviceConnected'));
       } else {
         RNAlert.alert(t('common.error'), t('errors.unknown'));
@@ -449,7 +464,11 @@ export const HomeScreen: React.FC = () => {
     <ScreenWrapper>
       <ScrollView
         className="flex-1"
-        contentContainerStyle={{ paddingHorizontal: 8 }}
+        contentContainerStyle={{
+          paddingHorizontal: 8,
+          paddingTop: isAndroid ? 6 : 0,
+          paddingBottom: Math.max(insets.bottom + (isAndroid ? 96 : 72), 88),
+        }}
         refreshControl={
           <RefreshControl 
             refreshing={refreshing} 
@@ -460,7 +479,7 @@ export const HomeScreen: React.FC = () => {
         }
         showsVerticalScrollIndicator={false}
       >
-        <ScreenHeader title={t('home.title')} subtitle={t('app.tagline')} />
+        <ScreenHeader title={t('home.title')} subtitle={t('app.tagline')} compact={isAndroid} />
         {/* Connection Error Banner */}
         {connectionError && (
           <View className="mx-4 my-3 bg-red-50 border border-danger rounded-xl p-3">
@@ -517,15 +536,26 @@ export const HomeScreen: React.FC = () => {
             onRefresh={loadData}
             onConnect={openPairModal}
             isConnecting={isConnectingDevice}
+            compact={isAndroid}
           />
           <TouchableOpacity
             onPress={handleOpenDeviceManagement}
-            className="mt-3 bg-blue-50 border border-blue-100 rounded-xl py-3 items-center"
+            className="mt-3 rounded-2xl flex-row items-center justify-center"
+            style={{
+              backgroundColor: 'rgba(33,150,243,0.10)',
+              borderColor: 'rgba(33,150,243,0.18)',
+              borderWidth: 1,
+              paddingVertical: isAndroid ? 14 : 12,
+              paddingHorizontal: 16,
+            }}
             activeOpacity={0.8}
           >
+            <MaterialCommunityIcons name="watch-variant" size={18} color="#2196F3" />
             <Text className="text-primary font-semibold text-sm">
+              {'  '}
               {t('settings.deviceManagement')}
             </Text>
+            <MaterialCommunityIcons name="chevron-right" size={18} color="#2196F3" style={{ marginLeft: 6 }} />
           </TouchableOpacity>
         </View>
 
@@ -567,18 +597,27 @@ export const HomeScreen: React.FC = () => {
                 </View>
               </>
             ) : (
-              <Text className="text-sm text-gray dark:text-darkTheme-muted">{t('vitals.noData')}</Text>
+              <View className="items-center py-3">
+                <View className="w-12 h-12 rounded-full bg-blue-50 items-center justify-center mb-3">
+                  <MaterialCommunityIcons name="heart-pulse" size={24} color="#2196F3" />
+                </View>
+                <Text className="text-sm text-gray dark:text-darkTheme-muted text-center">{t('vitals.noData')}</Text>
+              </View>
             )}
           </View>
         </View>
 
         {/* Emergency Button */}
-        <View className="my-6 items-center">
+        <View
+          className="mx-4 my-6 bg-white dark:bg-darkTheme-surface rounded-3xl border border-lightGray dark:border-darkTheme-border items-center"
+          style={{ paddingVertical: isAndroid ? 22 : 24, paddingHorizontal: 16 }}
+        >
           <EmergencyButton
             onPress={handleEmergencyPress}
             onLongPress={handleEmergencyLongPress}
             disabled={!user}
             large={false}
+            compact={isAndroid}
           />
           {!user && (
             <Text className="text-xs text-gray dark:text-darkTheme-muted mt-2">
@@ -762,7 +801,7 @@ export const HomeScreen: React.FC = () => {
         )}
 
         {/* Bottom Spacing */}
-        <View className="h-20" />
+        <View className="h-4" />
       </ScrollView>
 
       {/* Pair Device Modal */}
@@ -817,6 +856,30 @@ export const HomeScreen: React.FC = () => {
             )}
 
             <View className="border-t border-lightGray dark:border-darkTheme-border pt-3">
+              <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text mb-2">{t('system.wifiSetupTitle')}</Text>
+              <Text className="text-xs text-gray dark:text-darkTheme-muted mb-3">{t('system.provisioningHint')}</Text>
+              <TextInput
+                className="input-field mb-3"
+                value={wifiSsid}
+                onChangeText={setWifiSsid}
+                placeholder={t('system.wifiName')}
+                placeholderTextColor="#BDBDBD"
+                autoCapitalize="none"
+              />
+              <TextInput
+                className="input-field mb-3"
+                value={wifiPassword}
+                onChangeText={setWifiPassword}
+                placeholder={t('system.wifiPassword')}
+                placeholderTextColor="#BDBDBD"
+                secureTextEntry
+                autoCapitalize="none"
+              />
+              {provisioningMessage ? (
+                <Text className="text-xs text-primary mb-3">{provisioningMessage}</Text>
+              ) : null}
+
+              <View className="border-t border-lightGray dark:border-darkTheme-border pt-3">
               <Text className="text-sm text-dark dark:text-darkTheme-text mb-2">{t('system.enterDeviceId')}</Text>
               <TextInput
                 className="input-field"
@@ -830,11 +893,12 @@ export const HomeScreen: React.FC = () => {
                 className="mt-3 bg-primary rounded-xl py-3 items-center"
                 onPress={() => linkDeviceToUser(manualDeviceId.trim())}
                 disabled={isConnectingDevice}
-              >
-                <Text className="text-white font-semibold">
-                  {isConnectingDevice ? t('system.connecting') : t('system.connectAction')}
-                </Text>
-              </TouchableOpacity>
+                >
+                  <Text className="text-white font-semibold">
+                    {isConnectingDevice ? t('system.connecting') : t('system.connectAction')}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         </View>

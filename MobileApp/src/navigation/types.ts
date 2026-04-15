@@ -1,6 +1,6 @@
 // MobileApp/src/navigation/types.ts
 
-import { StackNavigationProp } from '@react-navigation/stack';
+import { NativeStackNavigationProp as StackNavigationProp } from '@react-navigation/native-stack';
 
 // تعريف أنواع التنقل الرئيسية
 export type RootStackParamList = {

@@ -1,6 +1,5 @@
 import * as LocalAuthentication from 'expo-local-authentication';
 import * as SecureStore from 'expo-secure-store';
-import { Alert, Platform } from 'react-native';
 
 export interface BiometricConfig {
   enabled: boolean;

@@ -14,8 +14,8 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { Formik } from 'formik';
 import * as Yup from 'yup';
-import { useNavigation } from '@react-navigation/native';
-import { StackNavigationProp } from '@react-navigation/stack';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { NativeStackNavigationProp as StackNavigationProp } from '@react-navigation/native-stack';
 
 import { authService } from '../../services/auth.service';
 import { ForgotPasswordData } from '../../types/auth';
@@ -23,13 +23,14 @@ import { ForgotPasswordData } from '../../types/auth';
 type AuthStackParamList = {
   Login: undefined;
   Register: undefined;
-  ForgotPassword: undefined;
+  ForgotPassword: { prefilledEmail?: string } | undefined;
 };
 
 type ForgotPasswordScreenNavigationProp = StackNavigationProp<
   AuthStackParamList,
   'ForgotPassword'
 >;
+type ForgotPasswordScreenRouteProp = RouteProp<AuthStackParamList, 'ForgotPassword'>;
 
 // Data validation schema
 const ForgotPasswordSchema = Yup.object().shape({
@@ -40,15 +41,17 @@ const ForgotPasswordSchema = Yup.object().shape({
 
 export const ForgotPasswordScreen: React.FC = () => {
   const navigation = useNavigation<ForgotPasswordScreenNavigationProp>();
+  const route = useRoute<ForgotPasswordScreenRouteProp>();
   const [loading, setLoading] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
   const [countdown, setCountdown] = useState(0);
+  const prefilledEmail = route.params?.prefilledEmail || '';
 
   const handleForgotPassword = async (values: ForgotPasswordData) => {
     try {
       setLoading(true);
       
-      const response = await authService.forgotPassword(values);
+      const response = await authService.forgotPassword(values.email);
       
       if (response.success) {
         setEmailSent(true);
@@ -120,7 +123,7 @@ export const ForgotPasswordScreen: React.FC = () => {
               Reset Your Password
             </Text>
             <Text className="text-base text-gray dark:text-darkTheme-muted text-center leading-6 max-w-xs">
-              Enter your email and we'll send you a link to reset your password
+              Enter your email and we will send you a link to reset your password
             </Text>
           </View>
 
@@ -137,7 +140,7 @@ export const ForgotPasswordScreen: React.FC = () => {
                 Check Your Email!
               </Text>
               <Text className="text-base text-gray dark:text-darkTheme-muted text-center leading-6 mb-8">
-                We've sent password reset instructions to your email address.
+                We have sent password reset instructions to your email address.
               </Text>
               
               {/* Tips Box */}
@@ -148,7 +151,7 @@ export const ForgotPasswordScreen: React.FC = () => {
                   <View className="flex-row items-start">
                     <MaterialIcons name="search" size={18} color="#2196F3" className="mt-0.5" />
                     <Text className="text-sm text-gray dark:text-darkTheme-muted ml-3 flex-1">
-                      Check your spam or junk folder if you don't see the email
+                      Check your spam or junk folder if you do not see the email
                     </Text>
                   </View>
                   
@@ -199,7 +202,7 @@ export const ForgotPasswordScreen: React.FC = () => {
           ) : (
             // Email input form
             <Formik
-              initialValues={{ email: '' }}
+              initialValues={{ email: prefilledEmail }}
               validationSchema={ForgotPasswordSchema}
               onSubmit={handleForgotPassword}
             >
@@ -265,7 +268,7 @@ export const ForgotPasswordScreen: React.FC = () => {
                         What happens next?
                       </Text>
                       <Text className="text-xs text-gray dark:text-darkTheme-muted">
-                        You'll receive an email with a secure link to reset your password. Click the link and create a new password.
+                        You will receive an email with a secure link to reset your password. Click the link and create a new password.
                       </Text>
                     </View>
                   </View>
@@ -280,7 +283,7 @@ export const ForgotPasswordScreen: React.FC = () => {
                       • Only enter your registered email address
                     </Text>
                     <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">
-                      • We'll never ask for your password via email
+                      • We will never ask for your password via email
                     </Text>
                     <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">
                       • Links expire automatically for your protection

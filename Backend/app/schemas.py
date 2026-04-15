@@ -347,6 +347,25 @@ class DeviceUpdate(BaseModel):
 class DeviceConnect(DeviceBase):
     user_id: int
 
+class DevicePairingTokenRequest(BaseModel):
+    device_id: str
+    firmware_version: Optional[str] = None
+    device_type: Optional[str] = None
+
+    @validator("device_id")
+    def validate_device_id(cls, value: str) -> str:
+        return _validate_device_id(value)
+
+class DevicePairingTokenResponse(BaseModel):
+    success: bool = True
+    device_id: str
+    user_id: int
+    pairing_token: str
+    expires_in: int
+    mqtt: Dict[str, Any]
+    api: Dict[str, Any]
+    message: Optional[str] = None
+
 class DeviceDisconnect(BaseModel):
     device_id: str
 

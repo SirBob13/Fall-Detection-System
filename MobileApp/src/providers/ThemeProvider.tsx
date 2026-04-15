@@ -10,7 +10,7 @@ interface ThemeContextType {
 
 const ThemeContext = createContext<ThemeContextType>({
   isDark: false,
-  colors: THEME_CONFIG.colors.light,
+  colors: THEME_CONFIG.colors,
   toggleTheme: () => {},
 });
 
@@ -20,7 +20,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
 
-  const colors = isDark ? THEME_CONFIG.colors.dark : THEME_CONFIG.colors.light;
+  const colors = THEME_CONFIG.colors;
 
   return (
     <ThemeContext.Provider value={{ isDark, colors, toggleTheme: () => {} }}>

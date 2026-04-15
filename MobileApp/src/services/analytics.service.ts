@@ -40,8 +40,9 @@ export class AnalyticsService {
     serverUrl: 'https://analytics.example.com/api/events',
     debug: __DEV__,
   };
-  private flushInterval: NodeJS.Timeout | null = null;
+  private flushInterval: ReturnType<typeof setInterval> | null = null;
   private readonly STORAGE_KEY = '@analytics_queue';
+  private deviceId: string = `device_${Platform.OS}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
   static getInstance(): AnalyticsService {
     if (!AnalyticsService.instance) {
@@ -56,7 +57,7 @@ export class AnalyticsService {
     this.initialize();
   }
 
-  private async initialize(): Promise<void> {
+  public async initialize(): Promise<void> {
     // Load queued events from storage
     await this.loadQueueFromStorage();
     
@@ -78,21 +79,14 @@ export class AnalyticsService {
     return {
       platform: Platform.OS,
       version: Platform.Version.toString(),
-      deviceModel: Platform.constants?.Model || 'Unknown',
+      deviceModel: (Platform.constants as any)?.Model || (Platform.constants as any)?.model || 'Unknown',
       deviceId: this.getDeviceId(),
       appVersion: '1.0.0', // Should be from app config
     };
   }
 
   private getDeviceId(): string {
-    // In production, use a proper device ID
-    const storedId = AsyncStorage.getItem('@device_id');
-    if (!storedId) {
-      const newId = `device_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      AsyncStorage.setItem('@device_id', newId);
-      return newId;
-    }
-    return storedId;
+    return this.deviceId;
   }
 
   track(eventName: string, properties?: Record<string, any>, userId?: string): void {

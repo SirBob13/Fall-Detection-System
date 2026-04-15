@@ -9,6 +9,8 @@ import os
 import threading
 import time
 from typing import Iterable, Optional
+from urllib import error as urllib_error
+from urllib import request as urllib_request
 
 import paho.mqtt.client as mqtt
 
@@ -21,7 +23,8 @@ MQTT_USERNAME = os.getenv("MQTT_USERNAME", "")
 MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", "")
 MQTT_TOPICS_RAW = os.getenv("MQTT_TOPICS", "fall-detection/device-data")
 MQTT_QOS = int(os.getenv("MQTT_QOS", "0"))
-MQTT_CLIENT_ID = os.getenv("MQTT_CLIENT_ID", "fall-detection-api")
+MQTT_CLIENT_ID = os.getenv("MQTT_CLIENT_ID", "fall-detection-mqtt-worker")
+MQTT_INGEST_URL = os.getenv("MQTT_INGEST_URL", "http://127.0.0.1:8000/api/v1/device-data")
 _client: Optional[mqtt.Client] = None
 _thread: Optional[threading.Thread] = None
 
@@ -39,25 +42,36 @@ def _on_connect(client: mqtt.Client, userdata, flags, rc) -> None:  # type: igno
     logger.info("✅ MQTT connected and subscribed to %s", ", ".join(_topics()))
 
 
+def _forward_payload(payload: dict) -> dict:
+    body = json.dumps(payload).encode("utf-8")
+    req = urllib_request.Request(
+        MQTT_INGEST_URL,
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    with urllib_request.urlopen(req, timeout=15) as response:
+        raw = response.read().decode("utf-8")
+        return json.loads(raw) if raw else {}
+
+
 def _on_message(client: mqtt.Client, userdata, msg: mqtt.MQTTMessage) -> None:  # type: ignore[override]
     try:
         raw = msg.payload.decode("utf-8")
         data = json.loads(raw)
         if not isinstance(data, dict):
             return
-        from app.database import SessionLocal
-        from app import schemas
-        from app.routes.main import _handle_device_payload
-
-        db = SessionLocal()
         try:
-            payload = schemas.DeviceIngestPayload(**data)
-            result = _handle_device_payload(payload, db)
-            logger.info("✅ MQTT processed: %s", result.get("device_id"))
+            result = _forward_payload(data)
+            logger.info("✅ MQTT processed via API: %s", result.get("device_id", data.get("device_id")))
+        except urllib_error.HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="ignore")
+            logger.error("❌ MQTT ingest HTTP error %s: %s", exc.code, body or exc.reason)
+        except urllib_error.URLError as exc:
+            logger.error("❌ MQTT ingest connection error: %s", exc.reason)
         except Exception as exc:
             logger.error("❌ Payload validation/processing error: %s", exc)
-        finally:
-            db.close()
     except Exception as exc:
         logger.error("MQTT message error: %s", exc)
 

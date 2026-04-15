@@ -14,7 +14,8 @@ type Listener = (event: RealtimeEvent) => void;
 class RealtimeService {
   private socket: WebSocket | null = null;
   private listeners: Map<string, Set<Listener>> = new Map();
-  private reconnectTimer: NodeJS.Timeout | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectAttempts = 0;
   private shouldReconnect = true;
   private token: string | null = null;
@@ -41,6 +42,7 @@ class RealtimeService {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+    this.stopHeartbeat();
     if (this.socket) {
       try {
         this.socket.close();
@@ -53,10 +55,33 @@ class RealtimeService {
 
   private scheduleReconnect(): void {
     if (!this.shouldReconnect || !this.token) return;
+    this.stopHeartbeat();
     const delay = Math.min(30000, 1000 * Math.pow(2, this.reconnectAttempts));
     this.reconnectAttempts += 1;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = setTimeout(() => this.openSocket(), delay);
+  }
+
+  private startHeartbeat(): void {
+    this.stopHeartbeat();
+    this.heartbeatTimer = setInterval(() => {
+      if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+
+      try {
+        this.socket.send('ping');
+      } catch {
+        // Let onclose handle reconnect if the socket is gone.
+      }
+    }, 20000);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
   }
 
   private openSocket(): void {
@@ -67,6 +92,7 @@ class RealtimeService {
 
       this.socket.onopen = () => {
         this.reconnectAttempts = 0;
+        this.startHeartbeat();
       };
 
       this.socket.onmessage = (event) => {
@@ -85,6 +111,7 @@ class RealtimeService {
       };
 
       this.socket.onclose = () => {
+        this.stopHeartbeat();
         this.socket = null;
         this.scheduleReconnect();
       };

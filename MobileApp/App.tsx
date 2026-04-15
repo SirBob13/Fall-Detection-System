@@ -58,7 +58,6 @@ SplashScreen.preventAutoHideAsync();
 
 export default function App() {
   const [appIsReady, setAppIsReady] = useState(false);
-  const [fontsLoaded, setFontsLoaded] = useState(false);
   const [initializing, setInitializing] = useState(true);
   const [initializationError, setInitializationError] = useState<string | null>(null);
   const [networkStatus, setNetworkStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
@@ -83,11 +82,9 @@ export default function App() {
         // 'MaterialIcons': require('@expo/vector-icons/fonts/MaterialIcons.ttf'),
       });
       
-      setFontsLoaded(true);
       console.log('✅ [App] Fonts loaded successfully');
     } catch (error) {
       console.warn('⚠️ [App] Error loading fonts:', error);
-      setFontsLoaded(true); // نستمر حتى لو فشل تحميل الخطوط
     }
   }, []);
 
@@ -104,8 +101,8 @@ export default function App() {
       authService.updateLastActivity();
       
       // تحديث حالة الشبكة
-      networkService.checkConnectivity().then(status => {
-        setNetworkStatus(status.isConnected ? 'connected' : 'disconnected');
+      networkService.checkConnectivity().then((isConnected) => {
+        setNetworkStatus(isConnected ? 'connected' : 'disconnected');
       });
     } else if (appStateRef.current === 'active' && nextAppState.match(/inactive|background/)) {
       // التطبيق يذهب للخلفية
@@ -193,8 +190,6 @@ export default function App() {
 
       // 4. تهيئة التحليلات
       console.log('📊 [App] Initializing analytics...');
-      await analyticsService.initialize();
-
       // 4.1 تهيئة طابور الإرسال بدون إنترنت
       await offlineQueueService.initialize();
 
@@ -233,8 +228,8 @@ export default function App() {
       // 8. تتبع تهيئة التطبيق
       analyticsService.track('app_initialized', {
         platform: Platform.OS,
-        version: API_CONFIG.version,
-        buildNumber: API_CONFIG.buildNumber,
+        version: API_CONFIG.VERSION,
+        buildNumber: API_CONFIG.BUILD_NUMBER,
         language: lang,
         rtl: isRTL,
         networkStatus: networkStatus,
@@ -379,27 +374,17 @@ export default function App() {
                 />
                 
                 {/* شريط حالة الشبكة */}
-                <NetworkStatusBar 
-                  status={networkStatus}
-                  onRetry={() => networkService.checkConnectivity()}
-                />
+                <NetworkStatusBar />
                 
                 {/* مؤشر عدم الاتصال */}
                 {networkStatus === 'disconnected' && (
-                  <OfflineIndicator 
-                    onRetry={() => networkService.checkConnectivity()}
-                  />
+                  <OfflineIndicator />
                 )}
                 
                 {/* معالج انتهاء الجلسة */}
                 <SessionTimeout 
                   timeoutMinutes={30}
                   onTimeout={handleSessionTimeout}
-                  warningMinutes={5}
-                  onWarning={() => {
-                    console.log('⚠️ [App] Session timeout warning');
-                    analyticsService.track('session_timeout_warning');
-                  }}
                 />
                 
                 {/* التنقل الرئيسي للتطبيق */}

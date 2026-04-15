@@ -26,9 +26,9 @@ const deviceSlice = createSlice({
   reducers: {
     setDevice: (state, action: PayloadAction<Device>) => {
       state.currentDevice = action.payload;
-      state.isConnected = action.payload.is_connected;
-      state.batteryLevel = action.payload.battery_level;
-      state.lastSeen = action.payload.last_seen;
+      state.isConnected = action.payload.is_connected ?? false;
+      state.batteryLevel = action.payload.battery_level ?? 0;
+      state.lastSeen = action.payload.last_seen ?? null;
     },
     updateConnectionStatus: (state, action: PayloadAction<boolean>) => {
       state.isConnected = action.payload;

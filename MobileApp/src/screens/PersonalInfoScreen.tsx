@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, ScrollView, TextInput, TouchableOpacity, Alert } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useLanguage } from '../components/LanguageProvider';
 import { authService } from '../services/auth.service';
 import { apiService } from '../services/api';
@@ -9,6 +10,7 @@ import { storageService } from '../services/storage';
 import { User } from '../types';
 import { transliterateArabic } from '../utils/transliteration';
 import { realtimeService } from '../services/realtime.service';
+import type { SettingsStackParamList } from '../navigation/AppNavigator';
 
 const ARABIC_DIGITS_MAP: Record<string, string> = {
   '٠': '0',
@@ -64,7 +66,7 @@ const validateEgyptianPhone = (phone: string): boolean => {
 
 export const PersonalInfoScreen: React.FC = () => {
   const { t } = useLanguage();
-  const navigation = useNavigation();
+  const navigation = useNavigation<NativeStackNavigationProp<SettingsStackParamList>>();
   const route = useRoute<any>();
   const isOnboarding = route?.params?.mode === 'onboarding';
   const [user, setUser] = useState<User | null>(null);
@@ -356,6 +358,18 @@ export const PersonalInfoScreen: React.FC = () => {
       >
         <Text className="text-white font-bold text-lg">{t('common.save')}</Text>
       </TouchableOpacity>
+
+      {!isOnboarding && user?.email ? (
+        <TouchableOpacity
+          className="mt-3 border border-primary rounded-xl py-4 items-center bg-white dark:bg-darkTheme-surface"
+          onPress={() => navigation.navigate('ChangePassword')}
+          activeOpacity={0.7}
+        >
+          <Text className="text-primary font-semibold text-base">
+            {t('settings.changePassword')}
+          </Text>
+        </TouchableOpacity>
+      ) : null}
     </ScrollView>
   );
 };

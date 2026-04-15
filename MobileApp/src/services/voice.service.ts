@@ -14,6 +14,9 @@ type VoiceHandlers = {
   onStateChange?: (listening: boolean) => void;
 };
 
+type VoiceResultEvent = { value?: string[] };
+type VoiceErrorEvent = { error?: { message?: string } };
+
 class VoiceService {
   private handlers: VoiceHandlers | null = null;
   private listening = false;
@@ -29,14 +32,14 @@ class VoiceService {
       this.listening = false;
       this.handlers?.onStateChange?.(false);
     };
-    Voice.onSpeechResults = (event) => {
+    Voice.onSpeechResults = (event: VoiceResultEvent) => {
       const results = event.value || [];
       const top = results[0];
       if (top) {
         this.handlers?.onResult(top);
       }
     };
-    Voice.onSpeechError = (event) => {
+    Voice.onSpeechError = (event: VoiceErrorEvent) => {
       const message = event.error?.message || 'Voice error';
       this.handlers?.onError?.(message);
       this.handlers?.onStateChange?.(false);

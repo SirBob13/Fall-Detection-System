@@ -6,7 +6,7 @@ export type RealtimeEvent = {
   action?: string;
   user_id?: number;
   timestamp?: number;
-  payload?: any;
+  payload?: unknown;
 };
 
 type Listener = (event: RealtimeEvent) => void;
@@ -15,6 +15,7 @@ class AdminRealtimeService {
   private socket: WebSocket | null = null;
   private listeners: Map<string, Set<Listener>> = new Map();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectAttempts = 0;
   private shouldReconnect = true;
 
@@ -39,6 +40,7 @@ class AdminRealtimeService {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+    this.stopHeartbeat();
     if (this.socket) {
       try {
         this.socket.close();
@@ -53,10 +55,30 @@ class AdminRealtimeService {
     if (!this.shouldReconnect) return;
     const token = getToken();
     if (!token) return;
+    this.stopHeartbeat();
     const delay = Math.min(30000, 1000 * Math.pow(2, this.reconnectAttempts));
     this.reconnectAttempts += 1;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = setTimeout(() => this.openSocket(token), delay);
+  }
+
+  private startHeartbeat() {
+    this.stopHeartbeat();
+    this.heartbeatTimer = setInterval(() => {
+      if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
+      try {
+        this.socket.send("ping");
+      } catch {
+        // Let onclose handle reconnect.
+      }
+    }, 20000);
+  }
+
+  private stopHeartbeat() {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
   }
 
   private openSocket(token: string) {
@@ -66,6 +88,7 @@ class AdminRealtimeService {
 
       this.socket.onopen = () => {
         this.reconnectAttempts = 0;
+        this.startHeartbeat();
       };
 
       this.socket.onmessage = (event) => {
@@ -80,6 +103,7 @@ class AdminRealtimeService {
       };
 
       this.socket.onclose = () => {
+        this.stopHeartbeat();
         this.socket = null;
         this.scheduleReconnect();
       };
@@ -118,13 +142,16 @@ class AdminRealtimeService {
 
 export const adminRealtime = new AdminRealtimeService();
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 export function useRealtimeRefresh(resources: string[], onRefresh: () => void, delayMs = 600) {
   const refreshRef = useRef(onRefresh);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resourceKey = useMemo(() => resources.join("|"), [resources]);
 
-  refreshRef.current = onRefresh;
+  useEffect(() => {
+    refreshRef.current = onRefresh;
+  }, [onRefresh]);
 
   useEffect(() => {
     const schedule = () => {
@@ -143,7 +170,7 @@ export function useRealtimeRefresh(resources: string[], onRefresh: () => void, d
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = null;
     };
-  }, [delayMs, resources.join("|")]);
+  }, [delayMs, resourceKey, resources]);
 }
 
 export function useRealtimeEvents(
@@ -151,7 +178,11 @@ export function useRealtimeEvents(
   handler: (event: RealtimeEvent) => void
 ) {
   const handlerRef = useRef(handler);
-  handlerRef.current = handler;
+  const resourceKey = useMemo(() => resources.join("|"), [resources]);
+
+  useEffect(() => {
+    handlerRef.current = handler;
+  }, [handler]);
 
   useEffect(() => {
     const listener = (event: RealtimeEvent) => handlerRef.current(event);
@@ -161,5 +192,5 @@ export function useRealtimeEvents(
     return () => {
       unsubs.forEach((unsub) => unsub());
     };
-  }, [resources.join("|")]);
+  }, [resourceKey, resources]);
 }

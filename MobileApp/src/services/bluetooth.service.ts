@@ -1,6 +1,6 @@
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { PermissionsAndroid, Platform } from 'react-native';
-import type { Device as BleDevice } from 'react-native-ble-plx';
+import type { BleError, Device as BleDevice, State } from 'react-native-ble-plx';
 
 export interface ScannedDevice {
   id: string;
@@ -59,7 +59,7 @@ class BluetoothService {
     if (state === this.State.PoweredOn) return true;
 
     return new Promise(resolve => {
-      const subscription = this.manager.onStateChange((nextState) => {
+      const subscription = this.manager.onStateChange((nextState: State) => {
         if (nextState === this.State.PoweredOn) {
           subscription.remove();
           resolve(true);
@@ -95,7 +95,7 @@ class BluetoothService {
     const results: Record<string, ScannedDevice> = {};
 
     return new Promise((resolve) => {
-      this.manager.startDeviceScan(null, { allowDuplicates: false }, (error, device) => {
+      this.manager.startDeviceScan(null, { allowDuplicates: false }, (error: BleError | null, device: BleDevice | null) => {
         if (error) {
           console.warn('BLE scan error:', error.message);
           return;

@@ -130,7 +130,7 @@ export const EmergencySettingsScreen: React.FC = () => {
     title: string,
     description: string,
     key: keyof EmergencySettings,
-    icon: string
+    icon: React.ComponentProps<typeof MaterialCommunityIcons>['name']
   ) => {
     if (!settings) return null;
 
@@ -159,7 +159,7 @@ export const EmergencySettingsScreen: React.FC = () => {
     title: string,
     description: string,
     key: keyof EmergencySettings,
-    icon: string,
+    icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'],
     min: number,
     max: number,
     step: number,

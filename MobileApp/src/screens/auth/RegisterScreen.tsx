@@ -15,7 +15,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { Formik } from 'formik';
 import * as Yup from 'yup';
 import { useNavigation } from '@react-navigation/native';
-import { StackNavigationProp } from '@react-navigation/stack';
+import { NativeStackNavigationProp as StackNavigationProp } from '@react-navigation/native-stack';
 
 import { authService } from '../../services/auth.service';
 import { RegisterData } from '../../types/auth';
@@ -28,6 +28,21 @@ type AuthStackParamList = {
 };
 
 type RegisterScreenNavigationProp = StackNavigationProp<AuthStackParamList, 'Register'>;
+
+type RegisterFormValues = {
+  name: string;
+  email: string;
+  phone: string;
+  age: string;
+  gender: '' | 'male' | 'female';
+  password: string;
+  confirm_password: string;
+  weight: string;
+  height: string;
+  medical_conditions: string;
+  emergency_contact: string;
+  accept_terms: boolean;
+};
 
 const ARABIC_DIGITS_MAP: Record<string, string> = {
   '٠': '0',
@@ -148,7 +163,7 @@ export const RegisterScreen: React.FC = () => {
     { value: 'female', label: 'Female', icon: 'female' }
   ];
 
-  const handleRegister = async (values: RegisterData) => {
+  const handleRegister = async (values: RegisterFormValues) => {
     try {
       setLoading(true);
 
@@ -158,7 +173,7 @@ export const RegisterScreen: React.FC = () => {
         email: normalizeToEnglishDigits(values.email || '').trim().toLowerCase(),
         phone: normalizePhoneInput(values.phone || ''),
         age: values.age ? Number(normalizeNumericInput(String(values.age))) : undefined,
-        gender: values.gender,
+        gender: values.gender || undefined,
         weight: values.weight ? Number(normalizeNumericInput(String(values.weight))) : undefined,
         height: values.height ? Number(normalizeNumericInput(String(values.height))) : undefined,
         medical_conditions: normalizeTextInput(values.medical_conditions || '').trim(),
@@ -171,14 +186,10 @@ export const RegisterScreen: React.FC = () => {
       if (response.success) {
         Alert.alert(
           '🎉 Registration Successful!',
-          'Your account has been created successfully. You can now login and use all app features.',
+          'Your account has been created successfully. Please login using your email and password.',
           [{ 
             text: 'Login', 
-          onPress: () =>
-            navigation.navigate(
-              'Login' as never,
-              { prefilledEmail: normalizedValues.email } as never
-            )
+            onPress: () => navigation.replace('Login', { prefilledEmail: normalizedValues.email })
         }]
       );
       } else {
@@ -203,11 +214,7 @@ export const RegisterScreen: React.FC = () => {
             {
               text: 'OK',
               onPress: shouldRedirectToLogin
-                ? () =>
-                    navigation.navigate(
-                      'Login' as never,
-                      { prefilledEmail: normalizedValues.email } as never
-                    )
+                ? () => navigation.navigate('Login', { prefilledEmail: normalizedValues.email })
                 : undefined,
             },
           ]
@@ -301,7 +308,7 @@ export const RegisterScreen: React.FC = () => {
           </View>
 
           {/* Registration Form */}
-          <Formik
+          <Formik<RegisterFormValues>
             initialValues={{
               name: '',
               email: '',
@@ -320,7 +327,6 @@ export const RegisterScreen: React.FC = () => {
             onSubmit={handleRegister}
           >
             {({
-              handleChange,
               handleBlur,
               handleSubmit,
               values,
@@ -704,7 +710,7 @@ export const RegisterScreen: React.FC = () => {
           <View className="flex-row justify-center items-center py-6 border-t border-lightGray dark:border-darkTheme-border mx-5">
             <Text className="text-base text-gray dark:text-darkTheme-muted mr-2">Already have an account?</Text>
             <TouchableOpacity 
-              onPress={() => navigation.navigate('Login')}
+              onPress={() => navigation.navigate('Login', {})}
               activeOpacity={0.7}
             >
               <Text className="text-primary font-bold text-base">Login Here</Text>

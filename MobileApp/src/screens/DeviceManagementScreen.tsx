@@ -24,6 +24,9 @@ export const DeviceManagementScreen: React.FC = () => {
   const [devices, setDevices] = useState<Device[]>([]);
   const [scanResults, setScanResults] = useState<ScannedDevice[]>([]);
   const [manualDeviceId, setManualDeviceId] = useState('');
+  const [wifiSsid, setWifiSsid] = useState('');
+  const [wifiPassword, setWifiPassword] = useState('');
+  const [provisioningMessage, setProvisioningMessage] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isLoadingDevices, setIsLoadingDevices] = useState(false);
@@ -199,11 +202,17 @@ export const DeviceManagementScreen: React.FC = () => {
     }
 
     setIsConnecting(true);
+    setProvisioningMessage(null);
     try {
       const connected = await deviceService.connectDeviceToUser({
         userId: user.id,
         deviceId,
         connectBle: true,
+        wifiSsid: wifiSsid.trim() || undefined,
+        wifiPassword: wifiPassword.trim() || undefined,
+        onProvisioningStatus: (status) => {
+          setProvisioningMessage(status.message || status.stage);
+        },
       });
 
       if (connected) {
@@ -213,6 +222,7 @@ export const DeviceManagementScreen: React.FC = () => {
         }
         setManualDeviceId('');
         setScanResults([]);
+        setWifiPassword('');
         Alert.alert(t('success.connected'), t('system.deviceConnected'));
       } else {
         Alert.alert(t('common.error'), t('errors.unknown'));
@@ -477,6 +487,31 @@ export const DeviceManagementScreen: React.FC = () => {
             ))}
           </View>
         )}
+
+        <View className="mt-4 border-t border-lightGray dark:border-darkTheme-border pt-3">
+          <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text mb-2">{t('system.wifiSetupTitle')}</Text>
+          <Text className="text-xs text-gray dark:text-darkTheme-muted mb-3">{t('system.provisioningHint')}</Text>
+          <TextInput
+            className="input-field mb-3"
+            value={wifiSsid}
+            onChangeText={setWifiSsid}
+            placeholder={t('system.wifiName')}
+            placeholderTextColor="#BDBDBD"
+            autoCapitalize="none"
+          />
+          <TextInput
+            className="input-field"
+            value={wifiPassword}
+            onChangeText={setWifiPassword}
+            placeholder={t('system.wifiPassword')}
+            placeholderTextColor="#BDBDBD"
+            secureTextEntry
+            autoCapitalize="none"
+          />
+          {provisioningMessage ? (
+            <Text className="text-xs text-primary mt-3">{provisioningMessage}</Text>
+          ) : null}
+        </View>
       </View>
 
       <View className="mx-4 mt-4 bg-white dark:bg-darkTheme-surface rounded-2xl shadow-lg border border-lightGray dark:border-darkTheme-border p-4">

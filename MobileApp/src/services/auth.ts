@@ -1,9 +1,9 @@
 export class AuthService {
-  async login(email: string, password: string) {}
-  async register(userData: any) {}
+  async login(_email: string, _password: string) {}
+  async register(_userData: any) {}
   async loginWithGoogle() {}
   async loginWithApple() {}
-  async forgotPassword(email: string) {}
+  async forgotPassword(_email: string) {}
   async logout() {}
   async refreshToken() {}
 }

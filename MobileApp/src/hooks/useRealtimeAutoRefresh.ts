@@ -13,7 +13,7 @@ export const useRealtimeAutoRefresh = (
 ) => {
   const { delayMs = 600, enabled = true } = options;
   const refreshRef = useRef(refresh);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   refreshRef.current = refresh;
 

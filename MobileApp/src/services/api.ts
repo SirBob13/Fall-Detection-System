@@ -1,8 +1,9 @@
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
 import { API_CONFIG } from '../utils/constants';
 import { 
-  User, Device, MotionData, VitalData, 
-  Prediction, Alert, ApiResponse, CareLink, CareLinkRequest, DeviceIngestPayload, LastKnownLocation, CareDashboardItem, ReportSummary 
+  User, Device, VitalData, 
+  Prediction, Alert, ApiResponse, CareLink, CareLinkRequest, DeviceIngestPayload, LastKnownLocation, CareDashboardItem, ReportSummary,
+  DevicePairingTokenRequest, DevicePairingTokenResponse
 } from '../types';
 
 class ApiService {
@@ -229,7 +230,16 @@ class ApiService {
       const device = payload?.data ?? payload?.device ?? payload;
       return { success: payload?.success ?? true, data: device };
     } catch (error: any) {
-      console.error('❌ Error getting user device:', error.message);
+      if (error?.response?.status === 404) {
+        console.log(`ℹ️ No active device assigned for user ${userId}`);
+        return {
+          success: true,
+          data: undefined,
+          message: 'لا يوجد جهاز مرتبط بهذا المستخدم'
+        };
+      }
+
+      console.warn('⚠️ Error getting user device:', error.message);
       return {
         success: false,
         error: error.message,
@@ -296,6 +306,27 @@ class ApiService {
         success: false,
         error: error.message,
         message: 'فشل ربط الجهاز'
+      };
+    }
+  }
+
+  async requestDevicePairingToken(
+    payload: DevicePairingTokenRequest
+  ): Promise<ApiResponse<DevicePairingTokenResponse>> {
+    try {
+      const response = await this.client.post('/devices/request-pairing-token', payload);
+      const data = response.data;
+      return {
+        success: data?.success ?? true,
+        data,
+        message: data?.message,
+      };
+    } catch (error: any) {
+      console.error('❌ Error requesting pairing token:', error.message);
+      return {
+        success: false,
+        error: error.message,
+        message: 'فشل إنشاء رمز ربط الجهاز'
       };
     }
   }

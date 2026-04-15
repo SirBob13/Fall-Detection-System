@@ -7,9 +7,13 @@ import logging
 import time
 from typing import Dict, Optional, Set, Iterable
 
+import jwt
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
+from sqlalchemy.orm import Session
 
+from .config import SECRET_KEY, ALGORITHM, ADMIN_EMAILS
 from .database import SessionLocal
+from .models import User, UserAuth
 from .services.auth_service import AuthService
 
 logger = logging.getLogger(__name__)
@@ -30,6 +34,9 @@ class RealtimeManager:
             auth_service = AuthService(db)
             session = auth_service.load_session(token)
             if not session:
+                session = self._load_user_from_access_token(db, token)
+            if not session:
+                logger.warning("Realtime auth failed for websocket connection")
                 await websocket.close(code=4401)
                 return None
             user_id = int(session["user"]["id"])
@@ -49,6 +56,58 @@ class RealtimeManager:
             return user_id
         finally:
             db.close()
+
+    def _load_user_from_access_token(self, db: Session, token: str) -> Optional[Dict]:
+        """Fallback for websocket auth when the API uses raw access JWTs instead of session rows."""
+        try:
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            token_type = payload.get("type")
+            if token_type and token_type != "access":
+                return None
+
+            raw_user_id = payload.get("sub") or payload.get("user_id")
+            if raw_user_id is None:
+                return None
+
+            try:
+                user_id = int(raw_user_id)
+            except (TypeError, ValueError):
+                return None
+
+            user = db.query(User).filter(User.id == user_id, User.is_active == True).first()  # noqa: E712
+            email = (payload.get("email") or "").strip().lower()
+            user_auth = db.query(UserAuth).filter(UserAuth.user_id == user_id).first()
+            if not user_auth and email:
+                user_auth = db.query(UserAuth).filter(UserAuth.email == email).first()
+            if not user or not user_auth:
+                return None
+
+            is_admin = user_auth.email.lower() in ADMIN_EMAILS if ADMIN_EMAILS else False
+            logger.info(
+                "Realtime websocket authenticated via JWT fallback for user_id=%s token_type=%s",
+                user_id,
+                token_type or "missing",
+            )
+            return {
+                "user": {
+                    "id": user.id,
+                    "name": user.name,
+                    "email": user_auth.email,
+                    "age": user.age,
+                    "gender": user.gender,
+                    "emergency_contact": user.emergency_contact,
+                    "medical_conditions": user.medical_conditions,
+                    "email_verified": user_auth.email_verified,
+                    "phone_verified": user_auth.phone_verified,
+                    "created_at": user.created_at.isoformat() if user.created_at else None,
+                    "is_active": user.is_active,
+                    "is_admin": is_admin,
+                },
+                "token": token,
+            }
+        except Exception as exc:
+            logger.warning(f"Realtime JWT fallback auth failed: {exc}")
+            return None
 
     def disconnect(self, websocket: WebSocket, user_id: Optional[int]) -> None:
         self.admin_connections.discard(websocket)

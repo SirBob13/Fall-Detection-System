@@ -15,7 +15,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { Formik } from 'formik';
 import * as Yup from 'yup';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
-import { StackNavigationProp } from '@react-navigation/stack';
+import { NativeStackNavigationProp as StackNavigationProp } from '@react-navigation/native-stack';
 
 import { authService } from '../../services/auth.service';
 import { ResetPasswordData } from '../../types/auth';
@@ -27,6 +27,7 @@ type AuthStackParamList = {
 
 type ResetPasswordScreenRouteProp = RouteProp<AuthStackParamList, 'ResetPassword'>;
 type ResetPasswordScreenNavigationProp = StackNavigationProp<AuthStackParamList, 'ResetPassword'>;
+type ResetPasswordFormValues = Pick<ResetPasswordData, 'password' | 'confirm_password'>;
 
 // Data validation schema
 const ResetPasswordSchema = Yup.object().shape({
@@ -67,7 +68,7 @@ export const ResetPasswordScreen: React.FC = () => {
     }
   }, [route.params]);
 
-  const handleResetPassword = async (values: ResetPasswordData) => {
+  const handleResetPassword = async (values: ResetPasswordFormValues) => {
     try {
       setLoading(true);
       
@@ -165,7 +166,7 @@ export const ResetPasswordScreen: React.FC = () => {
           </View>
 
           {/* Reset Form */}
-          <Formik
+          <Formik<ResetPasswordFormValues>
             initialValues={{
               password: '',
               confirm_password: '',
@@ -182,7 +183,6 @@ export const ResetPasswordScreen: React.FC = () => {
               touched,
               isValid,
               dirty,
-              setFieldValue,
             }) => (
               <View className="mb-8">
                 {/* New Password Field */}
@@ -404,7 +404,7 @@ export const ResetPasswordScreen: React.FC = () => {
               </Text>
             </View>
             <Text className="text-sm text-gray dark:text-darkTheme-muted mb-1">
-              • Don't reuse passwords from other sites
+              • Do not reuse passwords from other sites
             </Text>
             <Text className="text-sm text-gray dark:text-darkTheme-muted mb-1">
               • Use a password manager for strong, unique passwords

@@ -30,6 +30,9 @@ export interface AuthResponse {
   refresh_token?: string;
   message?: string;
   error?: string;
+  warning?: string;
+  shouldLogout?: boolean;
+  shouldRedirectToLogin?: boolean;
 }
 
 export interface RegisterData {
@@ -57,6 +60,12 @@ export interface ResetPasswordData {
   confirm_password: string;
 }
 
+export interface ChangePasswordData {
+  current_password: string;
+  new_password: string;
+  confirm_password: string;
+}
+
 export interface SocialLoginData {
   provider: 'google' | 'apple' | 'facebook';
   token: string;
@@ -73,6 +82,7 @@ export interface SessionData {
   token: string;
   refresh_token: string;
   expires_at: string;
+  last_refresh?: string;
 }
 
 export interface BiometricData {

@@ -6,9 +6,10 @@ import logging
 import re
 import io
 import json
+import os
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional, Tuple
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Query, Header
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Query, Header, Request
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import text, func
@@ -3156,6 +3157,77 @@ async def connect_device(
                 "error": f"Failed to connect device: {str(e)}"
             }
         )
+
+@router.post("/devices/request-pairing-token", response_model=schemas.DevicePairingTokenResponse)
+async def request_device_pairing_token(
+    payload: schemas.DevicePairingTokenRequest,
+    request: Request,
+    session: Dict[str, Any] = Depends(_require_user),
+    db: Session = Depends(get_db),
+):
+    """Issue a pairing token and provisioning config for BLE onboarding."""
+    try:
+        user = session.get("user") or {}
+        user_id = int(user.get("id"))
+    except Exception as e:
+        logger.error(f"Invalid session user for pairing token: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"success": False, "error": "Invalid session user"},
+        )
+
+    device = crud.get_device_by_id(db, payload.device_id)
+    if device and device.user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "success": False,
+                "error": "Device ID already registered to another user",
+            },
+        )
+
+    if device:
+        device.firmware_version = payload.firmware_version or device.firmware_version
+        device.is_archived = False
+        db.commit()
+        db.refresh(device)
+    else:
+        device = Device(
+            user_id=user_id,
+            device_id=payload.device_id,
+            firmware_version=payload.firmware_version,
+            is_connected=False,
+            is_archived=False,
+            last_seen=datetime.utcnow(),
+        )
+        db.add(device)
+        db.commit()
+        db.refresh(device)
+
+    pairing_token = device_auth.generate_device_token(device.device_id, user_id)
+    mqtt_topics = os.getenv("MQTT_TOPICS", "fall-detection/device-data")
+    mqtt_topic = mqtt_topics.split(",")[0].strip() if mqtt_topics else "fall-detection/device-data"
+    api_base_url = f"{str(request.base_url).rstrip('/')}/api/v1"
+
+    serialized = _serialize_device(device)
+    await notify_user(user_id, "devices", action="updated", payload=serialized)
+
+    return schemas.DevicePairingTokenResponse(
+        success=True,
+        device_id=device.device_id,
+        user_id=user_id,
+        pairing_token=pairing_token,
+        expires_in=2592000,
+        mqtt={
+            "host": os.getenv("MQTT_BROKER", "broker.hivemq.com"),
+            "port": int(os.getenv("MQTT_PORT", "1883")),
+            "topic": mqtt_topic,
+        },
+        api={
+            "base_url": api_base_url,
+        },
+        message="Pairing token generated successfully",
+    )
 
 @router.post("/devices/disconnect", response_model=Dict[str, Any])
 async def disconnect_device(

@@ -40,13 +40,13 @@ const settingsSlice = createSlice({
   initialState,
   reducers: {
     updateSetting: (state, action: PayloadAction<{ key: keyof SettingsState; value: any }>) => {
-      state[action.payload.key] = action.payload.value;
+      (state as any)[action.payload.key] = action.payload.value;
     },
     updateEmergencySetting: (
       state,
       action: PayloadAction<{ key: keyof SettingsState['emergencySettings']; value: any }>
     ) => {
-      state.emergencySettings[action.payload.key] = action.payload.value;
+      (state.emergencySettings as any)[action.payload.key] = action.payload.value;
     },
     changeLanguage: (state, action: PayloadAction<'ar' | 'en'>) => {
       state.language = action.payload;
@@ -54,9 +54,7 @@ const settingsSlice = createSlice({
     toggleTheme: (state) => {
       state.theme = state.theme === 'light' ? 'dark' : 'light';
     },
-    resetSettings: (state) => {
-      return initialState;
-    },
+    resetSettings: () => initialState,
   },
 });
 

@@ -1,16 +1,17 @@
 // src/hooks/useBiometricAuth.ts
-import { useBiometricAuth } from 'react-native-biometric-authentication';
+import * as LocalAuthentication from 'expo-local-authentication';
 
 export const useAppBiometricAuth = () => {
-  const { authenticate, isAvailable } = useBiometricAuth();
-  
   return {
     loginWithBiometrics: async () => {
-      const result = await authenticate('Authenticate to continue');
+      const result = await LocalAuthentication.authenticateAsync({
+        promptMessage: 'Authenticate to continue',
+      });
       if (result.success) {
         // Auto-login logic
       }
+      return result.success;
     },
-    isBiometricAvailable: isAvailable,
+    isBiometricAvailable: async () => LocalAuthentication.hasHardwareAsync(),
   };
 };

@@ -12,7 +12,7 @@ export class SocketService {
       transports: ['websocket'],
     });
     
-    this.socket.on('new-alert', (alert) => {
+    this.socket.on('new-alert', (_alert: unknown) => {
       // Handle real-time alert
     });
   }

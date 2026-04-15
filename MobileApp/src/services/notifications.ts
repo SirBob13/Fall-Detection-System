@@ -1,5 +1,5 @@
 import Constants, { ExecutionEnvironment } from 'expo-constants';
-import { Platform, Vibration, Alert as RNAlert } from 'react-native';
+import { Platform, Vibration } from 'react-native';
 import { Alert } from '../types';
 import { API_CONFIG } from '../utils/constants';
 
@@ -20,6 +20,8 @@ const getNotificationsModule = async () => {
     notificationsModule.setNotificationHandler({
       handleNotification: async () => ({
         shouldShowAlert: true,
+        shouldShowBanner: true,
+        shouldShowList: true,
         shouldPlaySound: true,
         shouldSetBadge: true,
       }),

@@ -2,11 +2,14 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import { View } from 'react-native';
 import i18n, { getCurrentLanguage, changeLanguage as i18nChangeLanguage } from '../i18n';
 
+type AppLanguage = 'ar' | 'en';
+
 interface LanguageContextType {
-  language: string;
+  language: AppLanguage;
   isRTL: boolean;
+  isChanging: boolean;
   t: (key: string, options?: any) => string;
-  changeLanguage: (lang: string) => void;
+  changeLanguage: (lang: AppLanguage) => Promise<boolean>;
 }
 
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
@@ -24,17 +27,23 @@ interface LanguageProviderProps {
 }
 
 export const LanguageProvider: React.FC<LanguageProviderProps> = ({ children }) => {
-  const [language, setLanguage] = useState(getCurrentLanguage());
+  const [language, setLanguage] = useState<AppLanguage>((getCurrentLanguage() as AppLanguage) || 'en');
   const [isRTL, setIsRTL] = useState(getCurrentLanguage() === 'ar');
+  const [isChanging, setIsChanging] = useState(false);
 
-  const changeLanguage = useCallback((lang: string) => {
+  const changeLanguage = useCallback(async (lang: AppLanguage) => {
     console.log(`🌐 Changing language to: ${lang}`);
-    i18nChangeLanguage(lang);
+    setIsChanging(true);
+    try {
+      return await i18nChangeLanguage(lang);
+    } finally {
+      setIsChanging(false);
+    }
   }, []);
 
   useEffect(() => {
     const handleLanguageChange = () => {
-      const currentLang = getCurrentLanguage();
+      const currentLang = (getCurrentLanguage() as AppLanguage) || 'en';
       
       setLanguage(currentLang);
       setIsRTL(currentLang === 'ar');
@@ -54,12 +63,13 @@ export const LanguageProvider: React.FC<LanguageProviderProps> = ({ children }) 
   }, []);
 
   const t = useCallback((key: string, options?: any): string => {
-    return i18n.t(key, options);
+    return String(i18n.t(key, options));
   }, []);
 
   const contextValue: LanguageContextType = {
     language,
     isRTL,
+    isChanging,
     t,
     changeLanguage,
   };

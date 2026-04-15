@@ -11,6 +11,18 @@ import enTranslations from './locales/en';
 // مفتاح التخزين المحلي للغة
 const LANGUAGE_STORAGE_KEY = '@FallDetection:language';
 
+const getDeviceLocalization = () => {
+  const primaryLocale = Localization.getLocales?.()[0];
+  const languageCode =
+    primaryLocale?.languageCode || primaryLocale?.languageTag?.split('-')[0] || 'en';
+  const isRTL = primaryLocale?.textDirection === 'rtl';
+
+  return {
+    languageCode: languageCode === 'ar' ? 'ar' : 'en',
+    isRTL,
+  };
+};
+
 // دالة للحصول على اللغة المحفوظة
 export const getSavedLanguage = async (): Promise<string> => {
   try {
@@ -19,16 +31,8 @@ export const getSavedLanguage = async (): Promise<string> => {
     
     // إذا لم تكن هناك لغة محفوظة، استخدم لغة الجهاز
     try {
-      // التحقق من وجود Localization.locale
-      if (!Localization.locale) {
-        console.warn('Localization.locale is undefined, using default language');
-        return 'ar';
-      }
-      
-      const deviceLanguage = Localization.locale.split('-')[0];
-      const isRTL = Localization.isRTL;
-      
-      return isRTL ? 'ar' : 'en';
+      const { languageCode, isRTL } = getDeviceLocalization();
+      return isRTL ? 'ar' : languageCode;
     } catch (localeError) {
       console.warn('Error getting device locale, using default:', localeError);
       return 'ar';

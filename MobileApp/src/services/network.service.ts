@@ -1,5 +1,4 @@
 import NetInfo, { NetInfoState } from '@react-native-community/netinfo';
-import { Alert } from 'react-native';
 
 export interface NetworkStatus {
   isConnected: boolean;
@@ -31,7 +30,7 @@ export class NetworkService {
     checkInterval: 30000,
   };
   private retryCount = 0;
-  private checkInterval: NodeJS.Timeout | null = null;
+  private checkInterval: ReturnType<typeof setInterval> | null = null;
 
   static getInstance(): NetworkService {
     if (!NetworkService.instance) {

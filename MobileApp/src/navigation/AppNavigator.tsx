@@ -4,7 +4,7 @@ import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import { ActivityIndicator, View, Text, AppState, Alert } from 'react-native';
+import { ActivityIndicator, View, Text, AppState, Alert, Platform } from 'react-native';
 
 import { AUTH_CONFIG } from '../constants/auth';
 import { authService } from '../services/auth.service';
@@ -19,6 +19,7 @@ import { LoginScreen } from '../screens/auth/LoginScreen';
 import { RegisterScreen } from '../screens/auth/RegisterScreen';
 import { ForgotPasswordScreen } from '../screens/auth/ForgotPasswordScreen';
 import { ResetPasswordScreen } from '../screens/auth/ResetPasswordScreen';
+import { ChangePasswordScreen } from '../screens/auth/ChangePasswordScreen';
 
 // Import main screens
 import { HomeScreen } from '../screens/HomeScreen';
@@ -37,29 +38,30 @@ import { ReportsScreen } from '../screens/ReportsScreen';
 import { PrivacyPolicyScreen } from '../screens/PrivacyPolicyScreen';
 
 // Define navigation types
-type RootStackParamList = {
+export type RootStackParamList = {
   Auth: undefined;
   MainTabs: undefined;
   CompleteProfile: { mode?: 'onboarding' } | undefined;
 };
 
-type AuthStackParamList = {
-  Login: undefined;
+export type AuthStackParamList = {
+  Login: { prefilledEmail?: string } | undefined;
   Register: undefined;
-  ForgotPassword: undefined;
+  ForgotPassword: { prefilledEmail?: string } | undefined;
   ResetPassword: { token: string };
 };
 
-type MainTabParamList = {
+export type MainTabParamList = {
   Home: undefined;
   Alerts: undefined;
   Emergency: undefined;
   Settings: undefined;
 };
 
-type SettingsStackParamList = {
+export type SettingsStackParamList = {
   SettingsMain: undefined;
   PersonalInfo: undefined;
+  ChangePassword: undefined;
   CareManagement: undefined;
   CareDashboard: undefined;
   Reports: undefined;
@@ -70,9 +72,10 @@ type SettingsStackParamList = {
   LanguageSettings: undefined;
   DeviceManagement: undefined;
   PrivacyPolicy: undefined;
+  ResetPassword: { token: string };
 };
 
-type EmergencyStackParamList = {
+export type EmergencyStackParamList = {
   EmergencyContacts: undefined;
   EmergencySettings: undefined;
   LanguageSettings: undefined;
@@ -224,10 +227,20 @@ const SettingsNavigator = () => {
         component={DeviceManagementScreen}
         options={{ title: t('settings.deviceManagement') }}
       />
-      <SettingsStack.Screen 
-        name="PrivacyPolicy" 
+      <SettingsStack.Screen
+        name="ChangePassword"
+        component={ChangePasswordScreen}
+        options={{ title: t('settings.changePassword') }}
+      />
+      <SettingsStack.Screen
+        name="PrivacyPolicy"
         component={PrivacyPolicyScreen}
         options={{ title: t('settings.privacy') }}
+      />
+      <SettingsStack.Screen
+        name="ResetPassword"
+        component={ResetPasswordScreen}
+        options={{ title: t('auth.resetPassword.title') }}
       />
     </SettingsStack.Navigator>
   );
@@ -277,27 +290,36 @@ const EmergencyNavigator = () => {
 // Main screens with bottom tabs
 const MainNavigator = () => {
   const { t } = useLanguage();
+  const { isDark } = useSettings();
   
   return (
     <MainTab.Navigator
       initialRouteName="Home"
       screenOptions={({ route }) => ({
         tabBarActiveTintColor: AUTH_CONFIG.COLORS.primary,
-        tabBarInactiveTintColor: '#666',
+        tabBarInactiveTintColor: isDark ? '#8EA7BC' : '#66788A',
         tabBarStyle: {
-          backgroundColor: '#FFF',
-          borderTopWidth: 1,
-          borderTopColor: '#E0E0E0',
-          height: 60,
-          paddingBottom: 8,
+          backgroundColor: isDark ? '#0D1B2A' : '#F8FBFF',
+          borderTopWidth: 0,
+          height: Platform.OS === 'android' ? 68 : 60,
+          paddingBottom: Platform.OS === 'android' ? 10 : 8,
           paddingTop: 8,
+          elevation: Platform.OS === 'android' ? 14 : 0,
+          shadowColor: '#0A2A43',
+          shadowOffset: { width: 0, height: -4 },
+          shadowOpacity: 0.08,
+          shadowRadius: 10,
+        },
+        tabBarItemStyle: {
+          paddingVertical: Platform.OS === 'android' ? 4 : 0,
         },
         tabBarLabelStyle: {
-          fontSize: 12,
-          fontWeight: '500',
+          fontSize: Platform.OS === 'android' ? 11 : 12,
+          fontWeight: '600',
         },
         headerShown: false,
-        tabBarIcon: ({ color, size, focused }) => {
+        tabBarHideOnKeyboard: true,
+        tabBarIcon: ({ color, size }) => {
           let iconName = 'home';
           
           switch (route.name) {
@@ -633,6 +655,33 @@ export const AppNavigator: React.FC = () => {
     [isDark]
   );
 
+  useEffect(() => {
+    if (isLoading || !navigationRef.current) {
+      return;
+    }
+
+    const targetRoute = !isAuthenticated
+      ? 'Auth'
+      : needsProfileCompletion
+      ? 'CompleteProfile'
+      : 'MainTabs';
+
+    const currentRoute = navigationRef.current.getCurrentRoute?.()?.name;
+    if (currentRoute === targetRoute) {
+      return;
+    }
+
+    const nextRoute =
+      targetRoute === 'CompleteProfile'
+        ? { name: 'CompleteProfile', params: { mode: 'onboarding' } }
+        : { name: targetRoute };
+
+    navigationRef.current.reset({
+      index: 0,
+      routes: [nextRoute],
+    });
+  }, [isAuthenticated, isLoading, needsProfileCompletion]);
+
   if (isLoading) {
     return <LoadingScreen />;
   }
@@ -653,9 +702,7 @@ export const AppNavigator: React.FC = () => {
       }}
     >
       <RootStack.Navigator
-        initialRouteName={
-          !isAuthenticated ? "Auth" : needsProfileCompletion ? "CompleteProfile" : "MainTabs"
-        }
+        initialRouteName="Auth"
         screenOptions={{
           headerShown: false,
           gestureEnabled: true,
@@ -663,38 +710,32 @@ export const AppNavigator: React.FC = () => {
           animationTypeForReplace: isAuthenticated ? 'push' : 'pop',
         }}
       >
-        {!isAuthenticated ? (
-          <RootStack.Screen 
-            name="Auth" 
-            component={AuthNavigator}
-            listeners={{
-              focus: () => {
-                // Check authentication when auth screens get focus
-                if (!isLoading) {
-                  checkAuthentication(true);
-                }
+        <RootStack.Screen 
+          name="Auth" 
+          component={AuthNavigator}
+          listeners={{
+            focus: () => {
+              if (!isLoading) {
+                checkAuthentication(true);
               }
-            }}
-          />
-        ) : needsProfileCompletion ? (
-          <RootStack.Screen
-            name="CompleteProfile"
-            component={PersonalInfoScreen}
-            initialParams={{ mode: 'onboarding' }}
-            options={{ gestureEnabled: false }}
-          />
-        ) : (
-          <RootStack.Screen 
-            name="MainTabs" 
-            component={MainNavigator}
-            listeners={{
-              focus: () => {
-                // Update last activity when main tabs get focus
-                authService.updateLastActivity();
-              }
-            }}
-          />
-        )}
+            }
+          }}
+        />
+        <RootStack.Screen
+          name="CompleteProfile"
+          component={PersonalInfoScreen}
+          initialParams={{ mode: 'onboarding' }}
+          options={{ gestureEnabled: false }}
+        />
+        <RootStack.Screen 
+          name="MainTabs" 
+          component={MainNavigator}
+          listeners={{
+            focus: () => {
+              authService.updateLastActivity();
+            }
+          }}
+        />
       </RootStack.Navigator>
     </NavigationContainer>
   );

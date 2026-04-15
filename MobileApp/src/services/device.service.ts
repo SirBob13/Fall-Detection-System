@@ -3,7 +3,8 @@ import { storageService } from './storage';
 import { authService } from './auth.service';
 import { bluetoothService } from './bluetooth.service';
 import { bleGatewayService } from './bleGateway.service';
-import { Device } from '../types';
+import { deviceProvisioningService } from './deviceProvisioning.service';
+import { Device, DeviceProvisioningStatus } from '../types';
 
 class DeviceService {
   private isMacAddress(deviceId: string): boolean {
@@ -15,17 +16,61 @@ class DeviceService {
     deviceId: string;
     connectBle?: boolean;
     startGateway?: boolean;
+    wifiSsid?: string;
+    wifiPassword?: string;
+    onProvisioningStatus?: (status: DeviceProvisioningStatus) => void;
   }): Promise<Device | null> {
-    const { userId, deviceId, connectBle = true, startGateway = true } = params;
+    const {
+      userId,
+      deviceId,
+      connectBle = true,
+      startGateway = true,
+      wifiSsid,
+      wifiPassword,
+      onProvisioningStatus,
+    } = params;
 
     if (!userId || !deviceId) return null;
 
-    if (connectBle) {
+    let targetDeviceId = deviceId;
+    let firmwareVersion: string | undefined;
+
+    const shouldProvision =
+      connectBle &&
+      typeof wifiSsid === 'string' &&
+      wifiSsid.trim().length > 0 &&
+      typeof wifiPassword === 'string' &&
+      wifiPassword.trim().length > 0;
+
+    if (shouldProvision) {
       try {
         await bluetoothService.requestPermissions();
-        if (startGateway) {
+        await deviceProvisioningService.monitorProvisioningStatus(deviceId, (status) => {
+          onProvisioningStatus?.(status);
+        });
+
+        const { deviceInfo, pairing } = await deviceProvisioningService.provisionDevice({
+          deviceId,
+          ssid: wifiSsid!.trim(),
+          password: wifiPassword!.trim(),
+        });
+
+        targetDeviceId = pairing.device_id || deviceInfo?.device_id || deviceId;
+        firmwareVersion = deviceInfo?.firmware_version;
+      } catch (error) {
+        console.warn('Provisioning failed, continuing with standard connect fallback:', error);
+      }
+    }
+
+    if (connectBle) {
+      try {
+        if (shouldProvision) {
+          // Provisioning flow uses MQTT/Wi-Fi, so we do not start the BLE telemetry gateway here.
+        } else if (startGateway) {
+          await bluetoothService.requestPermissions();
           await bleGatewayService.start(deviceId, userId);
         } else {
+          await bluetoothService.requestPermissions();
           await bluetoothService.connect(deviceId);
         }
       } catch (error) {
@@ -35,8 +80,9 @@ class DeviceService {
 
     const response = await apiService.connectDevice({
       user_id: userId,
-      device_id: deviceId,
+      device_id: targetDeviceId,
       mac_address: this.isMacAddress(deviceId) ? deviceId : undefined,
+      firmware_version: firmwareVersion,
     });
 
     if (response.success && response.data) {

@@ -612,7 +612,7 @@ export const EmergencyContactsScreen: React.FC = () => {
                     activeOpacity={0.7}
                   >
                     <MaterialCommunityIcons 
-                      name={rel.icon} 
+                      name={rel.icon as React.ComponentProps<typeof MaterialCommunityIcons>['name']} 
                       size={20} 
                       color={formData.relationship === rel.value ? "#2196F3" : "#757575"} 
                     />

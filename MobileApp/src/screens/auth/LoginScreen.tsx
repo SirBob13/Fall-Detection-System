@@ -14,29 +14,37 @@ import { useRoute, RouteProp, useNavigation } from '@react-navigation/native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Formik } from 'formik';
 import * as Yup from 'yup';
-import { StackNavigationProp } from '@react-navigation/stack';
+import { NativeStackNavigationProp as StackNavigationProp } from '@react-navigation/native-stack';
 import Constants from 'expo-constants';
-import * as WebBrowser from 'expo-web-browser';
-import * as AuthSession from 'expo-auth-session';
-import { makeRedirectUri, ResponseType } from 'expo-auth-session';
 import * as AppleAuthentication from 'expo-apple-authentication';
-import * as Google from 'expo-auth-session/providers/google';
 import { jwtDecode } from 'jwt-decode';
 
 import { authService } from '../../services/auth.service';
 import { UserCredentials } from '../../types/auth';
 
-WebBrowser.maybeCompleteAuthSession();
-
-type RootStackParamList = {
-  Auth: undefined;
-  MainTabs: undefined;
+type AuthStackParamList = {
   Register: undefined;
-  Login: { prefilledEmail?: string };
+  Login: { prefilledEmail?: string } | undefined;
+  ForgotPassword: { prefilledEmail?: string } | undefined;
+  ResetPassword: { token: string };
 };
 
-type LoginScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Login'>;
-type LoginScreenRouteProp = RouteProp<RootStackParamList, 'Login'>;
+type LoginScreenNavigationProp = StackNavigationProp<AuthStackParamList, 'Login'>;
+type LoginScreenRouteProp = RouteProp<AuthStackParamList, 'Login'>;
+type GoogleSigninModule = {
+  GoogleSignin: {
+    configure: (options: Record<string, unknown>) => void;
+    hasPlayServices: (options?: Record<string, unknown>) => Promise<void>;
+    signIn: () => Promise<any>;
+  };
+  isErrorWithCode: (error: unknown) => error is { code?: string; message?: string };
+  isSuccessResponse: (result: any) => result is { data: { user: { id: string; email: string; name?: string | null; photo?: string | null }; idToken?: string | null } };
+  statusCodes: {
+    SIGN_IN_CANCELLED: string;
+    IN_PROGRESS: string;
+    PLAY_SERVICES_NOT_AVAILABLE: string;
+  };
+};
 
 const LoginSchema = Yup.object().shape({
   email: Yup.string()
@@ -46,6 +54,24 @@ const LoginSchema = Yup.object().shape({
     .min(6, 'Password must be at least 6 characters')
     .required('Password is required'),
 });
+
+const getGoogleSigninModule = (): GoogleSigninModule | null => {
+  const isExpoGo =
+    Constants.executionEnvironment === 'storeClient' ||
+    Constants.appOwnership === 'expo';
+
+  if (isExpoGo) {
+    return null;
+  }
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    return require('@react-native-google-signin/google-signin') as GoogleSigninModule;
+  } catch (error) {
+    console.warn('⚠️ [Google Login] Native Google Sign-In module is unavailable:', error);
+    return null;
+  }
+};
 
 export const LoginScreen: React.FC = () => {
   const route = useRoute<LoginScreenRouteProp>();
@@ -62,28 +88,30 @@ export const LoginScreen: React.FC = () => {
   const [isCheckingConnection, setIsCheckingConnection] = useState(false);
 
   const googleAuthConfig = Constants.expoConfig?.extra?.googleAuth || {};
-  const isExpoGo = Constants.appOwnership === 'expo';
-  const googleRedirectUri = makeRedirectUri({
-    scheme: Constants.expoConfig?.scheme || 'fall-detection',
-    useProxy: isExpoGo,
-  });
-  const [googleRequest, googleResponse, googlePromptAsync] = Google.useAuthRequest({
-    expoClientId: googleAuthConfig.expoClientId,
-    iosClientId: googleAuthConfig.iosClientId,
-    androidClientId: googleAuthConfig.androidClientId,
-    webClientId: googleAuthConfig.webClientId || googleAuthConfig.expoClientId,
-    redirectUri: googleRedirectUri,
-    selectAccount: true,
-    responseType: ResponseType.Code,
-    usePKCE: true,
-    scopes: ['openid', 'profile', 'email'],
-  });
   
   // Prevent duplicate actions
   const connectionCheckedRef = useRef(false);
   const loginAttemptRef = useRef(false);
 
   useEffect(() => {
+    const resetStaleLoginState = async () => {
+      await authService.clearSession();
+      authService.invalidateCache('load-session');
+      authService.invalidateCache('check-authentication');
+    };
+
+    resetStaleLoginState().catch((error) => {
+      console.warn('⚠️ [Login] Failed to clear stale session state:', error);
+    });
+
+    const googleModule = getGoogleSigninModule();
+    googleModule?.GoogleSignin.configure({
+      iosClientId: googleAuthConfig.iosClientId || undefined,
+      webClientId: googleAuthConfig.webClientId || googleAuthConfig.expoClientId || undefined,
+      offlineAccess: false,
+      scopes: ['openid', 'profile', 'email'],
+    });
+
     if (!connectionCheckedRef.current) {
       checkDatabaseStatus();
       connectionCheckedRef.current = true;
@@ -92,59 +120,6 @@ export const LoginScreen: React.FC = () => {
     checkBiometricSupport();
     checkAppleAvailability();
   }, []);
-
-  useEffect(() => {
-    const runGoogleExchange = async () => {
-      if (googleResponse?.type !== 'success') return;
-      const code = googleResponse.params?.code;
-      if (!code) {
-        Alert.alert('Google Login Error', 'Missing authorization code from Google');
-        return;
-      }
-
-      const clientId = Platform.select({
-        ios: googleAuthConfig.iosClientId,
-        android: googleAuthConfig.androidClientId,
-        default: googleAuthConfig.webClientId || googleAuthConfig.expoClientId,
-      });
-
-      if (!clientId) {
-        Alert.alert('Google Login Error', 'Missing Google client ID for this platform');
-        return;
-      }
-
-      const tokenResult = await AuthSession.exchangeCodeAsync(
-        {
-          clientId,
-          code,
-          redirectUri: googleRedirectUri,
-          extraParams: {
-            code_verifier: googleRequest?.codeVerifier || '',
-          },
-        },
-        { tokenEndpoint: 'https://oauth2.googleapis.com/token' }
-      );
-
-      const idToken = tokenResult.idToken;
-      if (!idToken) {
-        Alert.alert('Google Login Error', 'Missing ID token from Google');
-        return;
-      }
-
-      const decoded: any = jwtDecode(idToken);
-      const userInfo = {
-        id: decoded.sub,
-        email: decoded.email,
-        name: decoded.name || decoded.email?.split('@')[0] || 'User',
-        photo: decoded.picture,
-      };
-      handleSocialAuth('google', idToken, userInfo);
-    };
-
-    runGoogleExchange().catch((error) => {
-      Alert.alert('Google Login Error', error?.message || 'Failed to complete Google login');
-    });
-  }, [googleResponse]);
 
   const checkDatabaseStatus = async () => {
     if (isCheckingConnection) return;
@@ -216,6 +191,9 @@ export const LoginScreen: React.FC = () => {
       });
 
       if (!response.success) {
+        await authService.clearSession();
+        authService.invalidateCache('load-session');
+        authService.invalidateCache('check-authentication');
         Alert.alert('Login Error', response.message || 'Social login failed');
         return;
       }
@@ -227,13 +205,12 @@ export const LoginScreen: React.FC = () => {
       const session = await authService.loadSession();
       const completion = authService.getProfileCompletion(session?.user);
       if (!completion.complete) {
-        const rootNav = navigation.getParent();
-        rootNav?.reset({
-          index: 0,
-          routes: [{ name: 'CompleteProfile', params: { mode: 'onboarding' } }],
-        });
+        console.log('🧾 [Social Login] Profile incomplete, waiting for root navigator to route to onboarding');
       }
     } catch (error: any) {
+      await authService.clearSession();
+      authService.invalidateCache('load-session');
+      authService.invalidateCache('check-authentication');
       Alert.alert('Login Error', error?.message || 'Social login failed');
     } finally {
       setLoading(false);
@@ -285,10 +262,16 @@ export const LoginScreen: React.FC = () => {
         authService.invalidateCache('check-authentication');
         
       } else {
+        await authService.clearSession();
+        authService.invalidateCache('load-session');
+        authService.invalidateCache('check-authentication');
         Alert.alert('❌ Login Error', response.message || 'Invalid credentials');
       }
     } catch (error: any) {
       console.error('❌ [Login] Error:', error);
+      await authService.clearSession();
+      authService.invalidateCache('load-session');
+      authService.invalidateCache('check-authentication');
       Alert.alert('❌ System Error', 'Please try again');
     } finally {
       setLoading(false);
@@ -319,14 +302,65 @@ export const LoginScreen: React.FC = () => {
 
   const handleSocialLogin = async (provider: 'google' | 'apple') => {
     if (provider === 'google') {
-      if (!googleAuthConfig?.expoClientId && !googleAuthConfig?.iosClientId && !googleAuthConfig?.androidClientId) {
+      const googleModule = getGoogleSigninModule();
+
+      if (!googleModule) {
+        Alert.alert(
+          'Google Login',
+          'Google login requires the development build, not Expo Go.'
+        );
+        return;
+      }
+
+      if (!googleAuthConfig?.iosClientId && !googleAuthConfig?.webClientId && !googleAuthConfig?.expoClientId) {
         Alert.alert('Google Login', 'Please set Google client IDs in app.json (extra.googleAuth).');
         return;
       }
-      await googlePromptAsync({
-        useProxy: isExpoGo,
-        redirectUri: googleRedirectUri,
-      });
+
+      const { GoogleSignin, isErrorWithCode, isSuccessResponse, statusCodes } = googleModule;
+
+      try {
+        if (Platform.OS === 'android') {
+          await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+        }
+
+        const result = await GoogleSignin.signIn();
+        if (!isSuccessResponse(result)) {
+          return;
+        }
+
+        const { user, idToken } = result.data;
+
+        if (!idToken) {
+          Alert.alert('Google Login Error', 'Missing ID token from Google');
+          return;
+        }
+
+        await handleSocialAuth('google', idToken, {
+          id: user.id,
+          email: user.email,
+          name: user.name || user.email?.split('@')[0] || 'User',
+          photo: user.photo || undefined,
+        });
+      } catch (error: any) {
+        if (isErrorWithCode(error)) {
+          if (error.code === statusCodes.SIGN_IN_CANCELLED) {
+            return;
+          }
+
+          if (error.code === statusCodes.IN_PROGRESS) {
+            Alert.alert('Google Login', 'Google sign-in is already in progress.');
+            return;
+          }
+
+          if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+            Alert.alert('Google Login', 'Google Play Services are not available on this device.');
+            return;
+          }
+        }
+
+        Alert.alert('Google Login Error', error?.message || 'Google login failed');
+      }
       return;
     }
 
@@ -367,14 +401,6 @@ export const LoginScreen: React.FC = () => {
         Alert.alert('Apple Login Error', error?.message || 'Apple login failed');
       }
     }
-  };
-
-  const handleForgotPassword = () => {
-    Alert.alert(
-      'Forgot Password',
-      'This feature will be available soon',
-      [{ text: 'OK' }]
-    );
   };
 
   const handleRegister = () => {
@@ -549,7 +575,14 @@ export const LoginScreen: React.FC = () => {
                   </Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity onPress={handleForgotPassword} activeOpacity={0.7}>
+                <TouchableOpacity
+                  onPress={() =>
+                    navigation.navigate('ForgotPassword', {
+                      prefilledEmail: values.email || prefilledEmail,
+                    })
+                  }
+                  activeOpacity={0.7}
+                >
                   <Text className="text-sm text-primary font-semibold">
                     {texts.forgot}
                   </Text>
@@ -625,7 +658,7 @@ export const LoginScreen: React.FC = () => {
                 <TouchableOpacity
                   className="flex-row items-center justify-center bg-red-500 rounded-xl py-3 px-6 mx-2"
                   onPress={() => handleSocialLogin('google')}
-                  disabled={loading || !googleRequest}
+                  disabled={loading || (!googleAuthConfig?.iosClientId && !googleAuthConfig?.webClientId && !googleAuthConfig?.expoClientId)}
                   activeOpacity={0.7}
                 >
                   <MaterialCommunityIcons name="google" size={20} color="#FFF" />
