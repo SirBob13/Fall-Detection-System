@@ -29,9 +29,6 @@
         "UIBackgroundModes": [
           "location",
           "fetch",
-          "remote-notification",
-          "location",
-          "fetch",
           "remote-notification"
         ],
         "NSCameraUsageDescription": "يحتاج التطبيق للوصول إلى الكاميرا لمسح الرمز الشريطي للجهاز.",
@@ -101,7 +98,7 @@
       "policy": "sdkVersion"
     },
     "updates": {
-      "url": "https://u.expo.dev/your-project-id"
+      "url": "https://u.expo.dev/d33adc67-9b40-45a7-ba77-c1f3907a62ab"
     },
     "newArchEnabled": true,
     "owner": "aysha-kassems-organization"

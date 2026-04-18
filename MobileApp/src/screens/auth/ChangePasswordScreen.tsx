@@ -72,7 +72,7 @@ export const ChangePasswordScreen: React.FC = () => {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-white dark:bg-darkTheme-surface">
+    <SafeAreaView className="flex-1 bg-white">
       <KeyboardAvoidingView
         className="flex-1"
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -85,10 +85,10 @@ export const ChangePasswordScreen: React.FC = () => {
             <View className="w-24 h-24 rounded-full bg-blue-50 justify-center items-center mb-6">
               <MaterialIcons name="lock-reset" size={48} color="#2196F3" />
             </View>
-            <Text className="text-2xl font-bold text-dark dark:text-darkTheme-text text-center mb-3">
+            <Text className="text-2xl font-bold text-dark text-center mb-3">
               {t('settings.changePassword')}
             </Text>
-            <Text className="text-base text-gray dark:text-darkTheme-muted text-center leading-6 max-w-xs">
+            <Text className="text-base text-gray text-center leading-6 max-w-xs">
               {t('settings.changePasswordHint')}
             </Text>
           </View>
@@ -114,7 +114,7 @@ export const ChangePasswordScreen: React.FC = () => {
             }) => (
               <View className="mb-8">
                 <View className="mb-5">
-                  <Text className="text-base font-semibold text-dark dark:text-darkTheme-text mb-2">
+                  <Text className="text-base font-semibold text-dark mb-2">
                     {t('settings.currentPassword')}
                   </Text>
                   <View className="relative">
@@ -146,7 +146,7 @@ export const ChangePasswordScreen: React.FC = () => {
                 </View>
 
                 <View className="mb-5">
-                  <Text className="text-base font-semibold text-dark dark:text-darkTheme-text mb-2">
+                  <Text className="text-base font-semibold text-dark mb-2">
                     {t('settings.newPassword')}
                   </Text>
                   <View className="relative">
@@ -178,7 +178,7 @@ export const ChangePasswordScreen: React.FC = () => {
                 </View>
 
                 <View className="mb-8">
-                  <Text className="text-base font-semibold text-dark dark:text-darkTheme-text mb-2">
+                  <Text className="text-base font-semibold text-dark mb-2">
                     {t('settings.confirmPassword')}
                   </Text>
                   <View className="relative">

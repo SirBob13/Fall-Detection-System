@@ -1114,6 +1114,10 @@ class AuthService {
         AUTH_CONFIG.STORAGE_KEYS.USER_SESSION,
         JSON.stringify(session)
       );
+
+      // Invalidate cached session requests so future loads use the updated session
+      this.requestManager.clearCache('load-session');
+      this.requestManager.clearCache('check-authentication');
       
       console.log('✅ [Session] Session saved successfully');
     } catch (error) {

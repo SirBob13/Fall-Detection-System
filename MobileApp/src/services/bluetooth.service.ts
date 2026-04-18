@@ -73,7 +73,7 @@ class BluetoothService {
     });
   }
 
-  async scan(timeoutMs: number = 8000): Promise<ScannedDevice[]> {
+  async scan(timeoutMs: number = 8000, serviceUUIDs: string[] | null = null): Promise<ScannedDevice[]> {
     const ready = await this.ensureBleManager();
     if (!ready || !this.manager) {
       throw new Error('Bluetooth requires a development build (not Expo Go).');
@@ -95,7 +95,11 @@ class BluetoothService {
     const results: Record<string, ScannedDevice> = {};
 
     return new Promise((resolve) => {
-      this.manager.startDeviceScan(null, { allowDuplicates: false }, (error: BleError | null, device: BleDevice | null) => {
+      const normalizedUuids = Array.isArray(serviceUUIDs)
+        ? serviceUUIDs.map(uuid => uuid?.trim()).filter(Boolean)
+        : null;
+
+      this.manager.startDeviceScan(normalizedUuids?.length ? normalizedUuids : null, { allowDuplicates: false }, (error: BleError | null, device: BleDevice | null) => {
         if (error) {
           console.warn('BLE scan error:', error.message);
           return;
@@ -127,7 +131,10 @@ class BluetoothService {
       throw new Error('Bluetooth requires a development build (not Expo Go).');
     }
 
-    const device = await this.manager.connectToDevice(deviceId, { autoConnect: true });
+    const device = await this.manager.connectToDevice(deviceId, {
+      autoConnect: false,
+      timeout: 12000,
+    });
     await device.discoverAllServicesAndCharacteristics();
     return device;
   }

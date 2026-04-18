@@ -17,6 +17,8 @@ import { apiService } from '../services/api';
 import { deviceService } from '../services/device.service';
 import { Device, User } from '../types';
 import { realtimeService } from '../services/realtime.service';
+import { isDeviceOnline } from '../utils/deviceStatus';
+import { BLE_CONFIG, BLE_KNOWN_DEVICE_NAME_PATTERN, BLE_SCAN_TIMEOUT_MS } from '../utils/constants';
 
 export const DeviceManagementScreen: React.FC = () => {
   const { t } = useLanguage();
@@ -175,7 +177,11 @@ export const DeviceManagementScreen: React.FC = () => {
     }
     setIsScanning(true);
     try {
-      const devices = await bluetoothService.scan(8000);
+      let devices = await bluetoothService.scan(BLE_SCAN_TIMEOUT_MS, [BLE_CONFIG.PROVISIONING_SERVICE_UUID]);
+      if (devices.length === 0) {
+        const broad = await bluetoothService.scan(BLE_SCAN_TIMEOUT_MS, null);
+        devices = broad.filter((d) => BLE_KNOWN_DEVICE_NAME_PATTERN.test(d.name));
+      }
       setScanResults(devices);
       if (devices.length === 0) {
         Alert.alert(t('system.noDevicesFound'), t('system.tryManual'));
@@ -294,24 +300,30 @@ export const DeviceManagementScreen: React.FC = () => {
   };
 
   return (
-    <ScrollView className="flex-1 bg-light dark:bg-darkTheme-background" showsVerticalScrollIndicator={false}>
+    <ScrollView className="flex-1 bg-light" showsVerticalScrollIndicator={false}>
       <View className="mx-4 mt-4">
-        <Text className="text-lg font-bold text-dark dark:text-darkTheme-text">{t('settings.deviceManagement')}</Text>
-        <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">{t('settings.deviceManagementDesc')}</Text>
+        <Text className="text-lg font-bold text-dark">
+          {t('settings.deviceManagement')}
+        </Text>
+        <Text className="text-xs text-gray mt-1">{t('settings.deviceManagementDesc')}</Text>
       </View>
 
-      <View className="mx-4 mt-4 bg-white dark:bg-darkTheme-surface rounded-2xl shadow-lg border border-lightGray dark:border-darkTheme-border p-4">
-        <Text className="text-base font-semibold text-dark dark:text-darkTheme-text mb-3">{t('settings.deviceInfo')}</Text>
+      <View className="mx-4 mt-4 bg-white rounded-2xl shadow-lg border border-lightGray p-4">
+        <Text className="text-base font-semibold text-dark mb-3">{t('settings.deviceInfo')}</Text>
         {isLoadingDevices ? (
           <ActivityIndicator size="small" color="#2196F3" />
         ) : devices.length > 0 ? (
           devices.map((item) => (
-            <View key={item.device_id} className="border border-lightGray dark:border-darkTheme-border rounded-xl p-3 mb-3">
+            <View key={item.device_id} className="border border-lightGray rounded-xl p-3 mb-3">
+              {(() => {
+                const deviceOnline = isDeviceOnline(item);
+                return (
+                  <>
               <View className="flex-row items-center mb-2">
                 <MaterialCommunityIcons name="devices" size={18} color="#4CAF50" />
-                <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text ml-2">{item.device_id}</Text>
+                <Text className="text-sm font-semibold text-dark ml-2">{item.device_id}</Text>
                 <View className="flex-1 items-end">
-                  <View className={`w-3 h-3 rounded-full ${item.is_connected ? 'bg-success' : 'bg-danger'}`} />
+                  <View className={`w-3 h-3 rounded-full ${deviceOnline ? 'bg-success' : 'bg-danger'}`} />
                 </View>
               </View>
               {defaultDeviceId === item.device_id ? (
@@ -336,20 +348,24 @@ export const DeviceManagementScreen: React.FC = () => {
                 </TouchableOpacity>
               )}
               <View className="flex-row justify-between">
-                <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('home.battery')}</Text>
-                <Text className="text-xs text-gray dark:text-darkTheme-muted">
+                <Text className="text-xs text-gray">
+                  {t('system.battery')}
+                </Text>
+                <Text className="text-xs text-gray">
                   {item.battery_level?.toFixed(0) || '--'}%
                 </Text>
               </View>
               <View className="flex-row justify-between mt-1">
-                <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('system.lastSeen')}</Text>
-                <Text className="text-xs text-gray dark:text-darkTheme-muted">
+                <Text className="text-xs text-gray">
+                  {t('system.lastSeen')}
+                </Text>
+                <Text className="text-xs text-gray">
                   {formatLastSeen(item.last_seen)}
                 </Text>
               </View>
 
               <View className="flex-row items-center mt-3">
-                {item.is_connected ? (
+                {deviceOnline ? (
                   <TouchableOpacity
                     className="flex-1 bg-danger rounded-xl py-2 items-center"
                     onPress={() => handleDisconnect(item.device_id)}
@@ -363,7 +379,9 @@ export const DeviceManagementScreen: React.FC = () => {
                   </TouchableOpacity>
                 ) : (
                   <View className="flex-1">
-                    <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('system.disconnected')}</Text>
+                    <Text className="text-xs text-gray">
+                      {t('system.notDefaultDevice')}
+                    </Text>
                   </View>
                 )}
                 <TouchableOpacity
@@ -376,16 +394,23 @@ export const DeviceManagementScreen: React.FC = () => {
                   </Text>
                 </TouchableOpacity>
               </View>
+                  </>
+                );
+              })()}
             </View>
           ))
         ) : (
-          <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('system.noDevice')}</Text>
+          <Text className="text-xs text-gray">
+            {t('system.noDevicesFound')}
+          </Text>
         )}
       </View>
 
-      <View className="mx-4 mt-4 bg-white dark:bg-darkTheme-surface rounded-2xl shadow-lg border border-lightGray dark:border-darkTheme-border p-4">
+      <View className="mx-4 mt-4 bg-white rounded-2xl shadow-lg border border-lightGray p-4">
         <View className="flex-row items-center justify-between">
-          <Text className="text-base font-semibold text-dark dark:text-darkTheme-text">{t('system.archivedDevices')}</Text>
+          <Text className="text-base font-semibold text-dark">
+            {t('system.archivedDevices')}
+          </Text>
           <TouchableOpacity
             className="px-3 py-2 rounded-full border border-primary"
             onPress={async () => {
@@ -408,14 +433,16 @@ export const DeviceManagementScreen: React.FC = () => {
           ) : archivedDevices.length > 0 ? (
             <View className="mt-3">
               {archivedDevices.map((item) => (
-                <View key={item.device_id} className="border border-lightGray dark:border-darkTheme-border rounded-xl p-3 mb-3">
+                <View key={item.device_id} className="border border-lightGray rounded-xl p-3 mb-3">
                   <View className="flex-row items-center mb-2">
                     <MaterialCommunityIcons name="archive" size={18} color="#9E9E9E" />
-                    <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text ml-2">{item.device_id}</Text>
+                    <Text className="text-sm font-semibold text-dark ml-2">{item.device_id}</Text>
                   </View>
                   <View className="flex-row justify-between">
-                    <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('system.lastSeen')}</Text>
-                    <Text className="text-xs text-gray dark:text-darkTheme-muted">{formatLastSeen(item.last_seen)}</Text>
+                    <Text className="text-xs text-gray">{t('system.archivedAt')}</Text>
+                    <Text className="text-xs text-gray">
+                      {formatLastSeen(item.updated_at || item.last_seen)}
+                    </Text>
                   </View>
                   <TouchableOpacity
                     className="mt-3 bg-primary rounded-xl py-2 items-center"
@@ -445,18 +472,20 @@ export const DeviceManagementScreen: React.FC = () => {
               ))}
             </View>
           ) : (
-            <Text className="text-xs text-gray dark:text-darkTheme-muted mt-3">{t('system.noArchivedDevices')}</Text>
+            <Text className="text-xs text-gray mt-3">{t('system.noArchivedDevices')}</Text>
           )
         ) : (
-          <Text className="text-xs text-gray dark:text-darkTheme-muted mt-2">{t('system.archivedDevicesHint')}</Text>
+          <Text className="text-xs text-gray mt-2">{t('system.archivedDevicesHint')}</Text>
         )}
       </View>
 
-      <View className="mx-4 mt-4 bg-white dark:bg-darkTheme-surface rounded-2xl shadow-lg border border-lightGray dark:border-darkTheme-border p-4">
-        <Text className="text-base font-semibold text-dark dark:text-darkTheme-text mb-3">{t('system.scanBluetooth')}</Text>
+      <View className="mx-4 mt-4 bg-white rounded-2xl shadow-lg border border-lightGray p-4">
+        <Text className="text-base font-semibold text-dark mb-3">{t('system.scanBluetooth')}</Text>
         {!isBluetoothSupported() && (
           <View className="bg-orange-50 border border-orange-200 rounded-xl p-3 mb-3">
-            <Text className="text-xs text-dark dark:text-darkTheme-text">{t('system.bluetoothRequiresDevBuild')}</Text>
+            <Text className="text-xs text-dark">
+              {t('system.bluetoothUnsupported')}
+            </Text>
           </View>
         )}
         <TouchableOpacity
@@ -477,20 +506,22 @@ export const DeviceManagementScreen: React.FC = () => {
             {scanResults.map((item) => (
               <TouchableOpacity
                 key={item.id}
-                className="border border-lightGray dark:border-darkTheme-border rounded-xl p-3 mb-2"
+                className="border border-lightGray rounded-xl p-3 mb-2"
                 onPress={() => handleConnect(item.id)}
                 disabled={isConnecting}
               >
-                <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text">{item.name}</Text>
-                <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">{item.id}</Text>
+                <Text className="text-sm font-semibold text-dark">
+                  {item.name || t('system.unnamedDevice')}
+                </Text>
+                <Text className="text-xs text-gray mt-1">{item.id}</Text>
               </TouchableOpacity>
             ))}
           </View>
         )}
 
-        <View className="mt-4 border-t border-lightGray dark:border-darkTheme-border pt-3">
-          <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text mb-2">{t('system.wifiSetupTitle')}</Text>
-          <Text className="text-xs text-gray dark:text-darkTheme-muted mb-3">{t('system.provisioningHint')}</Text>
+        <View className="mt-4 border-t border-lightGray pt-3">
+          <Text className="text-sm font-semibold text-dark mb-2">{t('system.wifiSetupTitle')}</Text>
+          <Text className="text-xs text-gray mb-3">{t('system.provisioningHint')}</Text>
           <TextInput
             className="input-field mb-3"
             value={wifiSsid}
@@ -514,8 +545,8 @@ export const DeviceManagementScreen: React.FC = () => {
         </View>
       </View>
 
-      <View className="mx-4 mt-4 bg-white dark:bg-darkTheme-surface rounded-2xl shadow-lg border border-lightGray dark:border-darkTheme-border p-4">
-        <Text className="text-base font-semibold text-dark dark:text-darkTheme-text mb-3">{t('system.enterDeviceId')}</Text>
+      <View className="mx-4 mt-4 bg-white rounded-2xl shadow-lg border border-lightGray p-4">
+        <Text className="text-base font-semibold text-dark mb-3">{t('system.enterDeviceId')}</Text>
         <TextInput
           className="input-field"
           value={manualDeviceId}

@@ -317,7 +317,7 @@ export default function App() {
         await initializeApp();
         
         // تأخير صغير لتجربة مستخدم أفضل
-        await new Promise(resolve => setTimeout(resolve, 800));
+        await new Promise<void>((resolve) => setTimeout(() => resolve(), 800));
         
         // إخفاء شاشة البداية
         await SplashScreen.hideAsync();
@@ -351,66 +351,65 @@ export default function App() {
     );
   }
 
+  const AppContent: React.FC = () => {
+    return (
+      <>
+        <StatusBar
+          barStyle={'dark-content'}
+          backgroundColor={'#2196F3'}
+          translucent={Platform.OS === 'android'}
+        />
+
+        {/* شريط حالة الشبكة */}
+        <NetworkStatusBar />
+
+        {/* مؤشر عدم الاتصال */}
+        {networkStatus === 'disconnected' && <OfflineIndicator />}
+
+        {/* معالج انتهاء الجلسة */}
+        <SessionTimeout timeoutMinutes={30} onTimeout={handleSessionTimeout} />
+
+        {/* التنقل الرئيسي للتطبيق */}
+        <View className="flex-1 bg-light" style={{ flex: 1, backgroundColor: '#F5F5F5' }}>
+          <AppNavigator />
+        </View>
+
+        {/* عرض الأخطاء العام (اختياري) */}
+        {initializationError && (
+          <View className="absolute bottom-6 left-4 right-4 bg-danger/90 p-3 rounded-lg shadow-lg">
+            <Text className="text-white text-sm text-center">Warning: {initializationError}</Text>
+          </View>
+        )}
+
+        {/* مؤشر حالة التطبيق (للتنمية فقط) */}
+        {__DEV__ && (
+          <View className="absolute bottom-4 left-4 z-40">
+            <View className="bg-dark/70 px-2 py-1 rounded-full">
+              <Text className="text-white text-xs font-mono">{appState.toUpperCase()}</Text>
+            </View>
+          </View>
+        )}
+      </>
+    );
+  };
+
   // المكون الرئيسي للتطبيق
   return (
     <ErrorBoundary>
       <GestureHandlerRootView style={{ flex: 1 }}>
         <Provider store={store}>
-          <PersistGate 
+          <PersistGate
             loading={
               <View className="flex-1 justify-center items-center bg-white">
                 <ActivityIndicator size="large" color="#2196F3" />
               </View>
-            } 
+            }
             persistor={persistor}
           >
             <SafeAreaProvider>
               <LanguageProvider>
                 <SettingsProvider>
-                <StatusBar
-                  barStyle={isArabic() ? "light-content" : "dark-content"}
-                  backgroundColor="#2196F3"
-                  translucent={Platform.OS === 'android'}
-                />
-                
-                {/* شريط حالة الشبكة */}
-                <NetworkStatusBar />
-                
-                {/* مؤشر عدم الاتصال */}
-                {networkStatus === 'disconnected' && (
-                  <OfflineIndicator />
-                )}
-                
-                {/* معالج انتهاء الجلسة */}
-                <SessionTimeout 
-                  timeoutMinutes={30}
-                  onTimeout={handleSessionTimeout}
-                />
-                
-                {/* التنقل الرئيسي للتطبيق */}
-                <View className="flex-1 bg-light" style={{ flex: 1, backgroundColor: '#F5F5F5' }}>
-                  <AppNavigator />
-                </View>
-                
-                {/* عرض الأخطاء العام (اختياري) */}
-                {initializationError && (
-                  <View className="absolute bottom-4 left-4 right-4 bg-danger/90 p-3 rounded-lg shadow-lg">
-                    <Text className="text-white text-sm text-center">
-                      Warning: {initializationError}
-                    </Text>
-                  </View>
-                )}
-                
-                {/* مؤشر حالة التطبيق (للتنمية فقط) */}
-                {__DEV__ && (
-                  <View className="absolute bottom-4 left-4 z-40">
-                    <View className="bg-dark/70 px-2 py-1 rounded-full">
-                      <Text className="text-white text-xs font-mono">
-                        {appState.toUpperCase()}
-                      </Text>
-                    </View>
-                  </View>
-                )}
+                  <AppContent />
                 </SettingsProvider>
               </LanguageProvider>
             </SafeAreaProvider>

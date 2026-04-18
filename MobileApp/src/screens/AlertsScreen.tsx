@@ -221,7 +221,7 @@ export const AlertsScreen: React.FC = () => {
   const stats = getAlertStats();
 
   return (
-    <SafeAreaView className="flex-1 bg-light dark:bg-darkTheme-background">
+    <SafeAreaView className="flex-1 bg-light">
       <ScrollView
         className="flex-1"
         contentContainerStyle={{ paddingHorizontal: 8, paddingTop: insets.top }}
@@ -237,14 +237,14 @@ export const AlertsScreen: React.FC = () => {
       >
         <ScreenHeader title={t('alerts.historyTitle')} subtitle={t('alerts.historySubtitle')} />
 
-        <View className="mx-4 mb-4 bg-white dark:bg-darkTheme-surface border border-lightGray dark:border-darkTheme-border rounded-xl p-3">
-          <Text className="text-xs text-gray dark:text-darkTheme-muted mb-2">{t('care.monitoring')}</Text>
+        <View className="mx-4 mb-4 bg-white border border-lightGray rounded-xl p-3">
+          <Text className="text-xs text-gray mb-2">{t('care.monitoring')}</Text>
           <View className="flex-row flex-wrap">
             <TouchableOpacity
               className={`px-3 py-2 rounded-full mr-2 mb-2 ${!monitoredUser ? 'bg-primary' : 'bg-lightGray'}`}
               onPress={() => handleSelectMonitored(null)}
             >
-              <Text className={`${!monitoredUser ? 'text-white' : 'text-dark dark:text-darkTheme-text'} text-xs`}>
+              <Text className={`${!monitoredUser ? 'text-white' : 'text-dark'} text-xs`}>
                 {t('dashboard.myData')}
               </Text>
             </TouchableOpacity>
@@ -257,7 +257,7 @@ export const AlertsScreen: React.FC = () => {
                 onPress={() => handleSelectMonitored(link)}
                 disabled={!link.patient}
               >
-                <Text className={`${monitoredUser?.id === link.patient?.id ? 'text-white' : 'text-dark dark:text-darkTheme-text'} text-xs`}>
+                <Text className={`${monitoredUser?.id === link.patient?.id ? 'text-white' : 'text-dark'} text-xs`}>
                   {link.patient?.name || t('common.unknown')}
                 </Text>
               </TouchableOpacity>
@@ -293,7 +293,7 @@ export const AlertsScreen: React.FC = () => {
           
           {/* Last Updated */}
           <View className="mt-4 items-center">
-            <Text className="text-xs text-gray dark:text-darkTheme-muted">
+            <Text className="text-xs text-gray">
               {t('alerts.lastUpdated')}: {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </Text>
           </View>
@@ -320,7 +320,7 @@ export const AlertsScreen: React.FC = () => {
                 activeOpacity={0.7}
               >
                 <Text className={`font-semibold ${
-                  filter === filterType ? 'text-white' : 'text-dark dark:text-darkTheme-text'
+                  filter === filterType ? 'text-white' : 'text-dark'
                 }`}>
                   {filterType === 'all' && t('alerts.all')}
                   {filterType === 'pending' && t('alerts.pending')}
@@ -332,7 +332,7 @@ export const AlertsScreen: React.FC = () => {
           
           {/* Filter Summary */}
           <View className="flex-row items-center justify-between p-3 bg-blue-50 rounded-lg">
-            <Text className="text-sm font-medium text-dark dark:text-darkTheme-text">
+            <Text className="text-sm font-medium text-dark">
               {t('alerts.showing')}: <Text className="text-primary">{alerts.length}</Text> {t('alerts.alerts')}
             </Text>
             {alerts.length > 0 && (
@@ -353,7 +353,9 @@ export const AlertsScreen: React.FC = () => {
             <View className="w-16 h-16 rounded-full bg-blue-50 justify-center items-center mb-4">
               <Text className="text-primary text-2xl">⏳</Text>
             </View>
-            <Text className="text-base text-gray dark:text-darkTheme-muted">{t('alerts.loading')}</Text>
+            <Text className="text-base text-gray">
+              {t('alerts.loadingAlerts')}
+            </Text>
           </View>
         ) : alerts.length > 0 ? (
           <View className="mx-2 mb-8">
@@ -382,12 +384,12 @@ export const AlertsScreen: React.FC = () => {
             <View className="w-24 h-24 rounded-full bg-green-50 justify-center items-center mb-6">
               <Text className="text-4xl">✅</Text>
             </View>
-            <Text className="text-xl text-gray dark:text-darkTheme-muted font-medium mb-2">
+            <Text className="text-xl text-gray font-medium mb-2">
               {filter === 'all' && t('alerts.noAlertsAll')}
               {filter === 'pending' && t('alerts.noAlertsPending')}
               {filter === 'resolved' && t('alerts.noAlertsResolved')}
             </Text>
-            <Text className="text-sm text-lightGray dark:text-darkTheme-muted text-center max-w-xs">
+            <Text className="text-sm text-lightGray text-center max-w-xs">
               {filter === 'all' 
                 ? t('alerts.noAlertsAllDesc')
                 : filter === 'pending'
@@ -411,15 +413,15 @@ export const AlertsScreen: React.FC = () => {
         {alerts.length > 0 && (
           <View className="mx-4 mb-8 p-4 bg-blue-50 rounded-2xl border border-blue-200">
             <View className="flex-row items-center mb-3">
-              <Text className="text-lg font-semibold text-dark dark:text-darkTheme-text">⚠️ {t('alerts.importantNotes')}</Text>
+              <Text className="text-lg font-semibold text-dark">{t('alerts.importantNotes')}</Text>
             </View>
-            <Text className="text-sm text-gray dark:text-darkTheme-muted mb-2">
+            <Text className="text-sm text-gray mb-2">
               • {t('alerts.noteCritical')}
             </Text>
-            <Text className="text-sm text-gray dark:text-darkTheme-muted mb-2">
+            <Text className="text-sm text-gray mb-2">
               • {t('alerts.noteRetention')}
             </Text>
-            <Text className="text-sm text-gray dark:text-darkTheme-muted">
+            <Text className="text-sm text-gray">
               • {t('alerts.noteContact')}
             </Text>
           </View>

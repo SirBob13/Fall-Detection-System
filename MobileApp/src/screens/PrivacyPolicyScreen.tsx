@@ -1,5 +1,5 @@
 import React from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { ScrollView, Text, View, StyleSheet } from 'react-native';
 import { ScreenWrapper } from '../components/ScreenWrapper';
 import { useLanguage } from '../components/LanguageProvider';
 
@@ -8,77 +8,114 @@ export const PrivacyPolicyScreen: React.FC = () => {
 
   return (
     <ScreenWrapper>
-      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40 }}>
-        <Text className="text-2xl font-bold text-dark dark:text-darkTheme-text mb-2">
+      {/* تم تثبيت الخلفية لتكون فاتحة دائماً في المكون الأب أو هنا */}
+      <ScrollView 
+        style={styles.container} 
+        contentContainerStyle={{ padding: 24, paddingBottom: 60 }}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Header Section */}
+        <Text style={styles.mainTitle}>
           {t('privacyPolicy.title')}
         </Text>
-        <Text className="text-sm text-gray dark:text-darkTheme-muted mb-6">
+        <Text style={styles.updatedDate}>
           {t('privacyPolicy.updated')}
         </Text>
 
-        <View className="mb-5">
-          <Text className="text-lg font-semibold text-dark dark:text-darkTheme-text mb-2">
-            {t('privacyPolicy.introTitle')}
-          </Text>
-          <Text className="text-sm text-gray dark:text-darkTheme-muted leading-5">
-            {t('privacyPolicy.introBody')}
-          </Text>
-        </View>
+        <View style={styles.divider} />
 
-        <View className="mb-5">
-          <Text className="text-lg font-semibold text-dark dark:text-darkTheme-text mb-2">
-            {t('privacyPolicy.collectTitle')}
-          </Text>
-          <Text className="text-sm text-gray dark:text-darkTheme-muted leading-5">
-            {t('privacyPolicy.collectBody')}
-          </Text>
-        </View>
+        {/* Sections Wrapper */}
+        <PolicySection 
+          title={t('privacyPolicy.introTitle')} 
+          body={t('privacyPolicy.introBody')} 
+        />
 
-        <View className="mb-5">
-          <Text className="text-lg font-semibold text-dark dark:text-darkTheme-text mb-2">
-            {t('privacyPolicy.useTitle')}
-          </Text>
-          <Text className="text-sm text-gray dark:text-darkTheme-muted leading-5">
-            {t('privacyPolicy.useBody')}
-          </Text>
-        </View>
+        <PolicySection 
+          title={t('privacyPolicy.collectTitle')} 
+          body={t('privacyPolicy.collectBody')} 
+        />
 
-        <View className="mb-5">
-          <Text className="text-lg font-semibold text-dark dark:text-darkTheme-text mb-2">
-            {t('privacyPolicy.shareTitle')}
-          </Text>
-          <Text className="text-sm text-gray dark:text-darkTheme-muted leading-5">
-            {t('privacyPolicy.shareBody')}
-          </Text>
-        </View>
+        <PolicySection 
+          title={t('privacyPolicy.useTitle')} 
+          body={t('privacyPolicy.useBody')} 
+        />
 
-        <View className="mb-5">
-          <Text className="text-lg font-semibold text-dark dark:text-darkTheme-text mb-2">
-            {t('privacyPolicy.securityTitle')}
-          </Text>
-          <Text className="text-sm text-gray dark:text-darkTheme-muted leading-5">
-            {t('privacyPolicy.securityBody')}
-          </Text>
-        </View>
+        <PolicySection 
+          title={t('privacyPolicy.shareTitle')} 
+          body={t('privacyPolicy.shareBody')} 
+        />
 
-        <View className="mb-5">
-          <Text className="text-lg font-semibold text-dark dark:text-darkTheme-text mb-2">
-            {t('privacyPolicy.rightsTitle')}
-          </Text>
-          <Text className="text-sm text-gray dark:text-darkTheme-muted leading-5">
-            {t('privacyPolicy.rightsBody')}
-          </Text>
-        </View>
+        <PolicySection 
+          title={t('privacyPolicy.securityTitle')} 
+          body={t('privacyPolicy.securityBody')} 
+        />
 
-        <View className="mb-2">
-          <Text className="text-lg font-semibold text-dark dark:text-darkTheme-text mb-2">
-            {t('privacyPolicy.contactTitle')}
-          </Text>
-          <Text className="text-sm text-gray dark:text-darkTheme-muted leading-5">
-            {t('privacyPolicy.contactBody')}
-          </Text>
+        <PolicySection 
+          title={t('privacyPolicy.rightsTitle')} 
+          body={t('privacyPolicy.rightsBody')} 
+        />
+
+        <PolicySection 
+          title={t('privacyPolicy.contactTitle')} 
+          body={t('privacyPolicy.contactBody')} 
+          isLast
+        />
+
+        {/* Footer info */}
+        <View className="mt-8 items-center">
+          <Text className="text-gray-400 text-xs">© 2026 {t('app.company')}</Text>
         </View>
       </ScrollView>
     </ScreenWrapper>
   );
 };
+
+// مكون فرعي للأقسام لتقليل تكرار الكود وضمان ثبات التنسيق
+const PolicySection = ({ title, body, isLast }: { title: string, body: string, isLast?: boolean }) => (
+  <View style={[styles.section, isLast && { borderBottomWidth: 0 }]}>
+    <Text style={styles.sectionTitle}>{title}</Text>
+    <Text style={styles.sectionBody}>{body}</Text>
+  </View>
+);
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#FFFFFF', // خلفية بيضاء صريحة
+  },
+  mainTitle: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#111827', // أسود داكن جداً
+    marginBottom: 8,
+  },
+  updatedDate: {
+    fontSize: 13,
+    color: '#6B7280', // رمادي متوسط
+    marginBottom: 20,
+    fontWeight: '500',
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#F3F4F6',
+    marginBottom: 24,
+  },
+  section: {
+    marginBottom: 24,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F9FAFB', // فواصل ناعمة جداً
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginBottom: 10,
+  },
+  sectionBody: {
+    fontSize: 15,
+    color: '#4B5563', // لون مريح للقراءة الطويلة
+    leading: 24, // زيادة المسافة بين الأسطر لراحة العين
+    textAlign: 'left', // يعتمد على اللغة، يفضل تركه تلقائي
+  }
+});

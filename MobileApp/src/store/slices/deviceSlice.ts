@@ -1,6 +1,7 @@
 // src/store/slices/deviceSlice.ts
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 import { Device } from '../../types';
+import { isDeviceOnline } from '../../utils/deviceStatus';
 
 interface DeviceState {
   currentDevice: Device | null;
@@ -26,7 +27,7 @@ const deviceSlice = createSlice({
   reducers: {
     setDevice: (state, action: PayloadAction<Device>) => {
       state.currentDevice = action.payload;
-      state.isConnected = action.payload.is_connected ?? false;
+      state.isConnected = isDeviceOnline(action.payload);
       state.batteryLevel = action.payload.battery_level ?? 0;
       state.lastSeen = action.payload.last_seen ?? null;
     },

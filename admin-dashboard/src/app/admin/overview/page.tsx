@@ -5,8 +5,8 @@ import { apiFetch } from "../_lib/api";
 import { useRealtimeEvents, useRealtimeRefresh } from "../_lib/realtime";
 
 interface OverviewData {
-  users: { total: number; active: number };
-  devices: { total: number; connected: number };
+  users: { total: number; active: number; login: number; logout: number };
+  devices: { total: number; connected: number; offline: number };
   alerts: { total: number; active: number };
   motions: number;
   vitals: number;
@@ -70,13 +70,15 @@ export default function OverviewPage() {
           motion: event.payload.timestamp || prev.last_activity.motion,
         };
       }
-      if (event.resource === "devices" && event.payload?.is_connected !== undefined) {
+      if (event.resource === "devices" && event.payload?.connection_state !== undefined) {
         next.devices = { ...prev.devices };
       }
       if (event.resource === "users") {
         next.users = {
           total: prev.users.total,
           active: prev.users.active,
+          login: prev.users.login,
+          logout: prev.users.logout,
         };
       }
       return next;
@@ -87,8 +89,8 @@ export default function OverviewPage() {
     <div className="space-y-6">
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {[
-          { title: "Users", value: data?.users?.total ?? "-", sub: `Active: ${data?.users?.active ?? "-"}` },
-          { title: "Devices", value: data?.devices?.total ?? "-", sub: `Connected: ${data?.devices?.connected ?? "-"}` },
+          { title: "Users", value: data?.users?.total ?? "-", sub: `Active: ${data?.users?.active ?? "-"} · Login: ${data?.users?.login ?? "-"}` },
+          { title: "Devices", value: data?.devices?.total ?? "-", sub: `Connected: ${data?.devices?.connected ?? "-"} · Offline: ${data?.devices?.offline ?? "-"}` },
           { title: "Alerts", value: data?.alerts?.total ?? "-", sub: `Active: ${data?.alerts?.active ?? "-"}` },
           { title: "Signals", value: `${data?.motions ?? 0} motions`, sub: `${data?.vitals ?? 0} vitals` },
         ].map((card) => (

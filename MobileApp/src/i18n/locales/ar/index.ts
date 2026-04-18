@@ -172,7 +172,9 @@ export default {
     voiceCommandsDesc: "الأوامر الصوتية متاحة في نسخة التطوير.",
     voiceCommandsAction: "اضغطي للتجربة",
     voiceListening: "جاري الاستماع...",
-    voiceLast: "آخر أمر"
+    voiceLast: "آخر أمر",
+    quickStatsAlertsHint: "أحدث 5 تنبيهات محمّلة في الرئيسية",
+    quickStatsDeviceTitle: "حالة الجهاز القابل للارتداء"
   },
 
   // الإنذارات
@@ -549,6 +551,10 @@ export default {
     connected: "متصل",
     disconnected: "غير متصل",
     offline: "غير متصل",
+    userActive: "نشط",
+    userLoggedIn: "مسجل دخول",
+    userLoggedOut: "مسجل خروج",
+    deviceConnectedLabel: "الجهاز متصل",
     lowBattery: "بطارية منخفضة",
     lowBatteryTitle: "بطارية منخفضة",
     lowBatteryDesc: "يُرجى شحن الجهاز القابل للارتداء قريبًا.",

@@ -11,7 +11,6 @@ import { authService } from '../services/auth.service';
 import { deviceService } from '../services/device.service';
 import { useLanguage } from '../components/LanguageProvider';
 import { analyticsService } from '../services/analytics.service';
-import { useSettings } from '../components/SettingsProvider';
 import { realtimeService } from '../services/realtime.service';
 
 // Import authentication screens
@@ -89,29 +88,28 @@ const EmergencyStack = createNativeStackNavigator<EmergencyStackParamList>();
 
 // Loading component
 const LoadingScreen = () => {
-  const { isDark } = useSettings();
+  const { t } = useLanguage();
   return (
     <View style={{ 
       flex: 1, 
       justifyContent: 'center', 
       alignItems: 'center',
-      backgroundColor: isDark ? '#061521' : '#FFF'
+      backgroundColor: '#FFF'
     }}>
       <ActivityIndicator size="large" color={AUTH_CONFIG.COLORS.primary} />
-      <Text style={{ marginTop: 16, color: isDark ? '#9BB3C7' : '#666' }}>Loading...</Text>
+      <Text style={{ marginTop: 16, color: '#666' }}>{t('common.loading')}</Text>
     </View>
   );
 };
 
 // Authentication screens
 const AuthNavigator = () => {
-  const { isDark } = useSettings();
   return (
     <AuthStack.Navigator
       initialRouteName="Login"
       screenOptions={{
         headerShown: false,
-        contentStyle: { backgroundColor: isDark ? '#061521' : '#FFF' },
+        contentStyle: { backgroundColor: '#FFF' },
         animation: 'slide_from_right',
       }}
     >
@@ -249,7 +247,6 @@ const SettingsNavigator = () => {
 // Emergency Stack
 const EmergencyNavigator = () => {
   const { t } = useLanguage();
-  
   return (
     <EmergencyStack.Navigator
       initialRouteName="EmergencyContacts"
@@ -289,32 +286,36 @@ const EmergencyNavigator = () => {
 
 // Main screens with bottom tabs
 const MainNavigator = () => {
-  const { t } = useLanguage();
-  const { isDark } = useSettings();
-  
+  const { t } = useLanguage();  
   return (
     <MainTab.Navigator
       initialRouteName="Home"
       screenOptions={({ route }) => ({
         tabBarActiveTintColor: AUTH_CONFIG.COLORS.primary,
-        tabBarInactiveTintColor: isDark ? '#8EA7BC' : '#66788A',
+        tabBarInactiveTintColor: '#66788A',
         tabBarStyle: {
-          backgroundColor: isDark ? '#0D1B2A' : '#F8FBFF',
+          backgroundColor: '#F8FBFF',
           borderTopWidth: 0,
-          height: Platform.OS === 'android' ? 68 : 60,
-          paddingBottom: Platform.OS === 'android' ? 10 : 8,
+          position: Platform.OS === 'android' ? 'absolute' : 'relative',
+          bottom: Platform.OS === 'android' ? 0 : undefined,
+          left: Platform.OS === 'android' ? 0 : undefined,
+          right: Platform.OS === 'android' ? 0 : undefined,
+          height: 64,
+          paddingBottom: Platform.OS === 'android' ? 8 : 12,
           paddingTop: 8,
-          elevation: Platform.OS === 'android' ? 14 : 0,
+          borderRadius: 0,
+          elevation: Platform.OS === 'android' ? 8 : 0,
           shadowColor: '#0A2A43',
           shadowOffset: { width: 0, height: -4 },
           shadowOpacity: 0.08,
           shadowRadius: 10,
+          overflow: 'hidden',
         },
         tabBarItemStyle: {
-          paddingVertical: Platform.OS === 'android' ? 4 : 0,
+          paddingVertical: 0,
         },
         tabBarLabelStyle: {
-          fontSize: Platform.OS === 'android' ? 11 : 12,
+          fontSize: 12,
           fontWeight: '600',
         },
         headerShown: false,
@@ -368,7 +369,6 @@ const MainNavigator = () => {
 
 // Main navigation component
 export const AppNavigator: React.FC = () => {
-  const { isDark } = useSettings();
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [needsProfileCompletion, setNeedsProfileCompletion] = useState(false);
@@ -646,13 +646,13 @@ export const AppNavigator: React.FC = () => {
       colors: {
         ...DefaultTheme.colors,
         primary: AUTH_CONFIG.COLORS.primary,
-        background: isDark ? '#061521' : '#FFF',
-        card: isDark ? '#0F2738' : '#FFF',
-        text: isDark ? '#EAF4FF' : '#333',
-        border: isDark ? '#1B3D59' : '#E0E0E0',
+        background: '#FFF',
+        card: '#FFF',
+        text: '#333',
+        border: '#E0E0E0',
       },
     }),
-    [isDark]
+    []
   );
 
   useEffect(() => {

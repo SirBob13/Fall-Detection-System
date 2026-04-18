@@ -5,7 +5,6 @@ import {
   StyleSheet,
   Animated,
   Easing,
-  Dimensions,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useLanguage } from './LanguageProvider';
@@ -32,7 +31,7 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({
 
   useEffect(() => {
     if (visible) {
-      // Start animations
+      // بدء الأنميشن عند الظهور
       Animated.parallel([
         Animated.timing(fadeAnim, {
           toValue: 1,
@@ -47,16 +46,17 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({
         }),
       ]).start();
 
-      // Rotate animation
+      // أنميشن الدوران للأيقونة
       Animated.loop(
         Animated.timing(rotateAnim, {
           toValue: 1,
-          duration: 1500,
+          duration: 1200,
           easing: Easing.linear,
           useNativeDriver: true,
         })
       ).start();
     } else {
+      // أنميشن الاختفاء
       Animated.parallel([
         Animated.timing(fadeAnim, {
           toValue: 0,
@@ -72,47 +72,26 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({
     }
   }, [visible]);
 
-  const getConfig = (): {
-    icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
-    color: string;
-    bgColor: string;
-  } => {
+  const getConfig = () => {
     switch (type) {
       case 'success':
-        return {
-          icon: 'check-circle',
-          color: '#4CAF50',
-          bgColor: 'rgba(76, 175, 80, 0.1)',
-        };
+        return { icon: 'check-circle', color: '#4CAF50', bgColor: '#E8F5E9' };
       case 'error':
-        return {
-          icon: 'alert-circle',
-          color: '#F44336',
-          bgColor: 'rgba(244, 67, 54, 0.1)',
-        };
+        return { icon: 'alert-circle', color: '#F44336', bgColor: '#FFEBEE' };
       case 'warning':
-        return {
-          icon: 'alert',
-          color: '#FF9800',
-          bgColor: 'rgba(255, 152, 0, 0.1)',
-        };
+        return { icon: 'alert', color: '#FF9800', bgColor: '#FFF3E0' };
       default:
-        return {
-          icon: 'loading',
-          color: '#2196F3',
-          bgColor: 'rgba(33, 150, 243, 0.1)',
-        };
+        return { icon: 'loading', color: '#2196F3', bgColor: '#E3F2FD' };
     }
   };
 
   const config = getConfig();
-
   const rotateInterpolate = rotateAnim.interpolate({
     inputRange: [0, 1],
     outputRange: ['0deg', '360deg'],
   });
 
-  if (!visible) return null;
+  if (!visible && fadeAnim._value === 0) return null;
 
   return (
     <Animated.View style={[styles.overlay, { opacity: fadeAnim }]}>
@@ -120,37 +99,25 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({
         style={[
           styles.container,
           {
-            opacity: fadeAnim,
             transform: [
               { scale: scaleAnim },
-              { translateY: fadeAnim.interpolate({
-                inputRange: [0, 1],
-                outputRange: [20, 0],
-              })},
+              {
+                translateY: fadeAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [20, 0],
+                }),
+              },
             ],
           },
         ]}
       >
-        <View
-          style={[
-            styles.iconContainer,
-            { backgroundColor: config.bgColor },
-          ]}
-        >
+        <View style={[styles.iconContainer, { backgroundColor: config.bgColor }]}>
           {type === 'default' ? (
             <Animated.View style={{ transform: [{ rotate: rotateInterpolate }] }}>
-              <MaterialCommunityIcons
-                name={config.icon}
-                size={48}
-                color={config.color}
-              />
+              <MaterialCommunityIcons name={config.icon} size={48} color={config.color} />
             </Animated.View>
           ) : (
-            <MaterialCommunityIcons
-              name={config.icon}
-              size={48}
-              color={config.color}
-            />
+            <MaterialCommunityIcons name={config.icon} size={48} color={config.color} />
           )}
         </View>
 
@@ -171,9 +138,7 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({
                 ]}
               />
             </View>
-            <Text style={styles.progressText}>
-              {Math.round(progress)}%
-            </Text>
+            <Text style={styles.progressText}>{Math.round(progress)}%</Text>
           </View>
         )}
       </Animated.View>
@@ -184,60 +149,60 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({
 const styles = StyleSheet.create({
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    backgroundColor: 'rgba(0, 0, 0, 0.4)', // تعتيم خفيف للخلفية (Light Mode Friendly)
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 9999,
   },
   container: {
-    backgroundColor: '#FFF',
-    borderRadius: 20,
+    backgroundColor: '#FFFFFF', // خلفية بيضاء نقية
+    borderRadius: 24,
     padding: 32,
     alignItems: 'center',
     maxWidth: 300,
     width: '80%',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
     elevation: 10,
   },
   iconContainer: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: 20,
   },
   message: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#212121',
+    fontWeight: '700',
+    color: '#212121', // نص داكن وواضح
     textAlign: 'center',
-    marginBottom: 16,
+    marginBottom: 8,
     lineHeight: 24,
   },
   progressContainer: {
     width: '100%',
-    marginTop: 16,
+    marginTop: 10,
   },
   progressBar: {
-    height: 4,
-    backgroundColor: '#E0E0E0',
-    borderRadius: 2,
+    height: 6,
+    backgroundColor: '#F5F5F5',
+    borderRadius: 3,
     overflow: 'hidden',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   progressFill: {
     height: '100%',
-    borderRadius: 2,
+    borderRadius: 3,
   },
   progressText: {
     fontSize: 12,
     color: '#757575',
     textAlign: 'center',
-    fontWeight: '500',
+    fontWeight: '600',
   },
 });
 

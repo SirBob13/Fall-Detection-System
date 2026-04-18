@@ -7,7 +7,6 @@ interface SettingsState {
   fallDetection: boolean;
   vitalMonitoring: boolean;
   language: 'ar' | 'en';
-  theme: 'light' | 'dark';
   emergencySettings: {
     autoCallEmergency: boolean;
     sendSMS: boolean;
@@ -24,7 +23,6 @@ const initialState: SettingsState = {
   fallDetection: true,
   vitalMonitoring: true,
   language: 'ar',
-  theme: 'light',
   emergencySettings: {
     autoCallEmergency: true,
     sendSMS: true,
@@ -51,9 +49,6 @@ const settingsSlice = createSlice({
     changeLanguage: (state, action: PayloadAction<'ar' | 'en'>) => {
       state.language = action.payload;
     },
-    toggleTheme: (state) => {
-      state.theme = state.theme === 'light' ? 'dark' : 'light';
-    },
     resetSettings: () => initialState,
   },
 });
@@ -62,7 +57,6 @@ export const {
   updateSetting,
   updateEmergencySetting,
   changeLanguage,
-  toggleTheme,
   resetSettings,
 } = settingsSlice.actions;
 

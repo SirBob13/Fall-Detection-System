@@ -10,6 +10,8 @@ interface UserItem {
   name: string;
   email: string;
   is_active: boolean;
+  presence_status?: "active" | "login" | "logout";
+  online_devices?: number;
   devices: number;
   last_seen?: string | null;
   created_at?: string | null;
@@ -109,12 +111,22 @@ export default function UsersPage() {
                   <p className="text-sm font-semibold text-slate-100">{user.name}</p>
                   <p className="text-xs text-slate-400">{user.email}</p>
                 </div>
-                <span className={`text-xs ${user.is_active ? "text-emerald-300" : "text-red-400"}`}>
-                  {user.is_active ? "Active" : "Inactive"}
+                <span className={`text-xs ${
+                  user.presence_status === "active"
+                    ? "text-emerald-300"
+                    : user.presence_status === "login"
+                    ? "text-amber-300"
+                    : "text-red-400"
+                }`}>
+                  {user.presence_status === "active"
+                    ? "Active"
+                    : user.presence_status === "login"
+                    ? "Login"
+                    : "Logout"}
                 </span>
               </div>
               <div className="mt-2 text-xs text-slate-500">
-                Devices: {user.devices} · Last seen: {user.last_seen || "-"}
+                Devices: {user.devices} · Online devices: {user.online_devices ?? 0} · Last seen: {user.last_seen || "-"}
               </div>
             </Link>
           ))}

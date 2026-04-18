@@ -105,12 +105,23 @@ export const NetworkStatusBar: React.FC = () => {
 
   if (!visible && status.isConnected) return null;
 
+  const themeStyles = {
+    borderBottomColor: 'rgba(0, 0, 0, 0.08)',
+    lastConnected: {
+      backgroundColor: 'rgba(0, 0, 0, 0.05)',
+    },
+    lastConnectedText: {
+      color: 'rgba(0, 0, 0, 0.7)',
+    },
+  };
+
   return (
     <Animated.View
       style={[
         styles.container,
         {
           backgroundColor: getStatusColor(),
+          borderBottomColor: themeStyles.borderBottomColor,
           transform: [{ translateY: slideAnim }],
         },
       ]}
@@ -144,8 +155,8 @@ export const NetworkStatusBar: React.FC = () => {
       </View>
 
       {lastConnected && (
-        <View style={styles.lastConnected}>
-          <Text style={styles.lastConnectedText}>
+        <View style={[styles.lastConnected, themeStyles.lastConnected]}>
+          <Text style={[styles.lastConnectedText, themeStyles.lastConnectedText]}>
             {t('network.lastConnected')}:{' '}
             {lastConnected.toLocaleTimeString([], {
               hour: '2-digit',

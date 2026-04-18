@@ -11,6 +11,8 @@ interface DeviceItem {
   battery_level?: number | null;
   firmware_version?: string | null;
   is_connected: boolean;
+  is_online?: boolean;
+  connection_state?: "connected" | "disconnected" | "offline" | "archived";
   last_seen?: string | null;
 }
 
@@ -47,8 +49,10 @@ export default function DevicesPage() {
                 <p className="text-sm text-slate-300">
                   <span className="text-slate-100 font-semibold">{device.device_id}</span> · User {device.user_id}
                 </p>
-                <span className={`text-xs ${device.is_connected ? "text-emerald-300" : "text-slate-500"}`}>
-                  {device.is_connected ? "Connected" : "Offline"}
+                <span className={`text-xs ${
+                  device.connection_state === "connected" ? "text-emerald-300" : "text-slate-500"
+                }`}>
+                  {device.connection_state === "connected" ? "Connected" : "Offline"}
                 </span>
               </div>
               <p className="mt-2 text-sm text-slate-400">Battery {device.battery_level ?? "-"} | Firmware {device.firmware_version || "-"}</p>

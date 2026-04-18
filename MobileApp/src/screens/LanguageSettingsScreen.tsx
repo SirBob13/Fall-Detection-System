@@ -89,10 +89,10 @@ export const LanguageSettingsScreen: React.FC = () => {
           <View className="w-20 h-20 rounded-full bg-blue-50 justify-center items-center mb-4">
             <MaterialIcons name="language" size={40} color="#2196F3" />
           </View>
-          <Text className="text-2xl font-bold text-dark dark:text-darkTheme-text mb-2">
+          <Text className="text-2xl font-bold text-dark mb-2">
             {t('language.title')}
           </Text>
-          <Text className="text-base text-gray dark:text-darkTheme-muted text-center">
+          <Text className="text-base text-gray text-center">
             {t('language.selectLanguage')}
           </Text>
         </View>
@@ -102,10 +102,10 @@ export const LanguageSettingsScreen: React.FC = () => {
             <TouchableOpacity
               key={lang.code}
               className={`
-                bg-white dark:bg-darkTheme-surface rounded-xl p-5 mb-4 border-2
+                bg-white rounded-xl p-5 mb-4 border-2
                 ${selectedLang === lang.code 
                   ? 'border-primary bg-blue-50' 
-                  : 'border-lightGray dark:border-darkTheme-border'
+                  : 'border-lightGray'
                 }
                 ${(isChanging || language === lang.code) ? 'opacity-60' : 'active:opacity-80'}
               `}
@@ -119,7 +119,7 @@ export const LanguageSettingsScreen: React.FC = () => {
                 </View>
                 <View className="flex-1">
                   <View className="flex-row items-center justify-between mb-1">
-                    <Text className="text-lg font-semibold text-dark dark:text-darkTheme-text">
+                    <Text className="text-lg font-semibold text-dark">
                       {lang.name}
                     </Text>
                     {language === lang.code && (

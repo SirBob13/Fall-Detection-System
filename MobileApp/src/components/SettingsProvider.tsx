@@ -1,5 +1,4 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { useColorScheme as useSystemColorScheme } from 'react-native';
 import { storageService } from '../services/storage';
 
 export type AppSettings = {
@@ -12,7 +11,6 @@ export type AppSettings = {
   automaticSOS: boolean;
   familyPortal: boolean;
   healthInsights: boolean;
-  theme: 'system' | 'light' | 'dark';
   defaultDeviceId?: string | null;
 };
 
@@ -26,13 +24,12 @@ const DEFAULT_SETTINGS: AppSettings = {
   automaticSOS: true,
   familyPortal: false,
   healthInsights: true,
-  theme: 'system',
   defaultDeviceId: null,
 };
 
 interface SettingsContextValue {
   settings: AppSettings;
-  isDark: boolean;
+  isDark: false;
   updateSetting: (key: keyof AppSettings, value: AppSettings[keyof AppSettings]) => Promise<void>;
   updateSettings: (patch: Partial<AppSettings>) => Promise<void>;
   refreshSettings: () => Promise<void>;
@@ -50,9 +47,6 @@ export const useSettings = () => useContext(SettingsContext);
 
 export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
-  const systemColorScheme = useSystemColorScheme();
-  const resolvedTheme =
-    settings.theme === 'system' ? (systemColorScheme ?? 'light') : settings.theme;
 
   const refreshSettings = async () => {
     const stored = await storageService.getSettings();
@@ -87,12 +81,12 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const contextValue = useMemo(
     () => ({
       settings,
-      isDark: resolvedTheme === 'dark',
+      isDark: false as const,
       updateSetting,
       updateSettings,
       refreshSettings,
     }),
-    [settings, resolvedTheme]
+    [settings]
   );
 
   return <SettingsContext.Provider value={contextValue}>{children}</SettingsContext.Provider>;

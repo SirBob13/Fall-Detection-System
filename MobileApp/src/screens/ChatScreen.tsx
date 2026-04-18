@@ -75,11 +75,13 @@ export const ChatScreen: React.FC = () => {
   };
 
   return (
-    <View className="flex-1 bg-light dark:bg-darkTheme-background">
-      <View className="bg-white dark:bg-darkTheme-surface px-5 py-4 border-b border-lightGray dark:border-darkTheme-border flex-row items-center justify-between">
+    <View className="flex-1 bg-light">
+      <View className="bg-white px-5 py-4 border-b border-lightGray flex-row items-center justify-between">
         <View>
-          <Text className="text-lg font-bold text-dark dark:text-darkTheme-text">{t('chat.title')}</Text>
-          <Text className="text-sm text-gray dark:text-darkTheme-muted mt-1">
+          <Text className="text-lg font-bold text-dark">
+            {t('chat.title')}
+          </Text>
+          <Text className="text-sm text-gray mt-1">
             {t('chat.with')} {patientName || t('chat.patient')}
           </Text>
         </View>
@@ -103,17 +105,19 @@ export const ChatScreen: React.FC = () => {
             <View className={`my-2 ${isMine ? 'items-end' : 'items-start'}`}>
               <View
                 className={`px-4 py-3 rounded-2xl max-w-[80%] ${
-                  isMine ? 'bg-primary' : 'bg-white dark:bg-darkTheme-surface'
+                  isMine ? 'bg-primary' : 'bg-white'
                 }`}
               >
-                <Text className={`${isMine ? 'text-white' : 'text-dark dark:text-darkTheme-text'}`}>{item.text}</Text>
+                <Text className={`${isMine ? 'text-white' : 'text-dark'}`}>
+                  {item.text}
+                </Text>
               </View>
             </View>
           );
         }}
       />
 
-      <View className="bg-white dark:bg-darkTheme-surface px-4 py-3 border-t border-lightGray dark:border-darkTheme-border flex-row items-center">
+      <View className="bg-white px-4 py-3 border-t border-lightGray flex-row items-center">
         <TextInput
           className="flex-1 input-field"
           placeholder={t('chat.placeholder')}

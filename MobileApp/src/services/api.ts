@@ -181,7 +181,8 @@ class ApiService {
       const data = payload?.data ?? null;
       return { success: payload?.success ?? true, data };
     } catch (error: any) {
-      console.error('❌ Error getting last location:', error.message);
+      const status = error?.response?.status;
+      console.error(`❌ Error getting last location (${userId}):`, status ?? '', error.message);
       return {
         success: false,
         error: error.message,

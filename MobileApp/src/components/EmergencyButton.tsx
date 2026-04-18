@@ -74,14 +74,14 @@ export const EmergencyButton: React.FC<EmergencyButtonProps> = ({
       </TouchableOpacity>
 
       <Text
-        className={`mt-4 font-bold ${disabled ? 'text-gray dark:text-darkTheme-muted' : 'text-danger'}`}
+        className={`mt-4 font-bold ${disabled ? 'text-gray' : 'text-danger'}`}
         style={{ fontSize: labelSize }}
       >
         {t('emergency.sosButton')}
       </Text>
       
       <Text
-        className="text-gray dark:text-darkTheme-muted mt-2 text-center max-w-xs"
+        className="text-gray mt-2 text-center max-w-xs"
         style={{ fontSize: descriptionSize, lineHeight: compact ? 18 : undefined }}
       >
         {disabled ? t('emergency.loginRequired') : t('emergency.sosDescription')}
@@ -99,7 +99,7 @@ export const EmergencyButton: React.FC<EmergencyButtonProps> = ({
                 {t('emergency.tapLabel')}
               </Text>
             </View>
-            <Text className="text-gray dark:text-darkTheme-muted" style={{ fontSize: compact ? 11 : large ? 14 : 12 }}>
+            <Text className="text-gray" style={{ fontSize: compact ? 11 : large ? 14 : 12 }}>
               {t('emergency.tapForHelp')}
             </Text>
           </View>
@@ -113,7 +113,7 @@ export const EmergencyButton: React.FC<EmergencyButtonProps> = ({
                 {t('emergency.holdLabel')}
               </Text>
             </View>
-            <Text className="text-gray dark:text-darkTheme-muted" style={{ fontSize: compact ? 11 : large ? 14 : 12 }}>
+            <Text className="text-gray" style={{ fontSize: compact ? 11 : large ? 14 : 12 }}>
               {t('emergency.holdForEmergency')}
             </Text>
           </View>

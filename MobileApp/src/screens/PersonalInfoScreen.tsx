@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView, TextInput, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, ScrollView, TextInput, TouchableOpacity, Alert, StyleSheet, ActivityIndicator } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -12,56 +12,17 @@ import { transliterateArabic } from '../utils/transliteration';
 import { realtimeService } from '../services/realtime.service';
 import type { SettingsStackParamList } from '../navigation/AppNavigator';
 
-const ARABIC_DIGITS_MAP: Record<string, string> = {
-  '٠': '0',
-  '١': '1',
-  '٢': '2',
-  '٣': '3',
-  '٤': '4',
-  '٥': '5',
-  '٦': '6',
-  '٧': '7',
-  '٨': '8',
-  '٩': '9',
-};
-
-const EASTERN_ARABIC_DIGITS_MAP: Record<string, string> = {
-  '۰': '0',
-  '۱': '1',
-  '۲': '2',
-  '۳': '3',
-  '۴': '4',
-  '۵': '5',
-  '۶': '6',
-  '۷': '7',
-  '۸': '8',
-  '۹': '9',
-};
-
+// دالة التطبيع لتحويل الأرقام العربية إلى إنجليزية
 const normalizeToEnglishDigits = (value: string): string =>
-  value
-    .replace(/[٠-٩]/g, (digit) => ARABIC_DIGITS_MAP[digit] ?? digit)
-    .replace(/[۰-۹]/g, (digit) => EASTERN_ARABIC_DIGITS_MAP[digit] ?? digit);
+  value.replace(/[٠-٩]/g, (d) => "٠١٢٣٤٥٦٧٨٩".indexOf(d).toString())
+       .replace(/[۰-۹]/g, (d) => "۰۱۲۳۴۵۶۷۸۹".indexOf(d).toString());
 
-const normalizeTextInput = (value: string): string =>
-  normalizeToEnglishDigits(transliterateArabic(value));
-
-const normalizeNumericInput = (value: string): string =>
-  normalizeToEnglishDigits(value).replace(/[^0-9]/g, '');
-
+const normalizeTextInput = (value: string): string => normalizeToEnglishDigits(transliterateArabic(value));
+const normalizeNumericInput = (value: string): string => normalizeToEnglishDigits(value).replace(/[^0-9]/g, '');
 const normalizePhoneInput = (value: string): string => {
   let normalized = normalizeToEnglishDigits(value).replace(/[^\d+]/g, '');
-  if (normalized.includes('+')) {
-    normalized = normalized.replace(/(?!^)\+/g, '');
-  }
+  if (normalized.includes('+')) normalized = normalized.replace(/(?!^)\+/g, '');
   return normalized;
-};
-
-const validateEgyptianPhone = (phone: string): boolean => {
-  if (!phone) return false;
-  const normalized = normalizePhoneInput(phone);
-  const phoneRegex = /^(?:\+20|0)?1[0125]\d{8}$/;
-  return phoneRegex.test(normalized);
 };
 
 export const PersonalInfoScreen: React.FC = () => {
@@ -69,154 +30,55 @@ export const PersonalInfoScreen: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<SettingsStackParamList>>();
   const route = useRoute<any>();
   const isOnboarding = route?.params?.mode === 'onboarding';
+  
   const [user, setUser] = useState<User | null>(null);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
-    name: '',
-    phone: '',
-    age: '',
-    gender: '' as User['gender'] | '',
-    weight: '',
-    height: '',
-    emergency_contact: '',
-    medical_conditions: '',
+    name: '', phone: '', age: '', gender: '' as User['gender'] | '',
+    weight: '', height: '', emergency_contact: '', medical_conditions: '',
   });
 
-  useEffect(() => {
-    loadUser();
-  }, []);
-
-  useEffect(() => {
-    if (!isOnboarding) return;
-    const listener = navigation.addListener('beforeRemove', (e: any) => {
-      if (e?.data?.action?.type === 'GO_BACK') {
-        e.preventDefault();
-      }
-    });
-    return () => listener?.();
-  }, [isOnboarding, navigation]);
+  useEffect(() => { loadUser(); }, []);
 
   const loadUser = async () => {
     const sessionUser = await authService.getCurrentUser();
-    const normalizedSessionUser = sessionUser
-      ? ({
-          id: Number(sessionUser.id ?? 0),
-          name: sessionUser.name || '',
-          phone: sessionUser.phone || '',
-          age: sessionUser.age ?? 0,
-          gender: (sessionUser.gender as User['gender']) || 'other',
-          weight: sessionUser.weight,
-          height: sessionUser.height,
-          medical_conditions: sessionUser.medical_conditions,
-          emergency_contact: sessionUser.emergency_contact,
-          is_active: sessionUser.is_active ?? true,
-          created_at: sessionUser.created_at || new Date().toISOString(),
-        } as User)
-      : null;
-
-    const storedUser = normalizedSessionUser || (await storageService.getUser());
-    if (normalizedSessionUser) {
-      await storageService.saveUser(normalizedSessionUser);
-    }
-
+    const storedUser = sessionUser || (await storageService.getUser());
     if (storedUser) {
-      setUser(storedUser);
+      setUser(storedUser as User);
       setForm({
         name: storedUser.name || '',
-        phone: storedUser.phone || '',
+        phone: (storedUser as User).phone || '',
         age: storedUser.age ? String(storedUser.age) : '',
-        gender: storedUser.gender || '',
+        gender: (storedUser as User).gender || '',
         weight: storedUser.weight ? String(storedUser.weight) : '',
         height: storedUser.height ? String(storedUser.height) : '',
-        emergency_contact: storedUser.emergency_contact || '',
-        medical_conditions: storedUser.medical_conditions || '',
+        emergency_contact: (storedUser as User).emergency_contact || '',
+        medical_conditions: (storedUser as User).medical_conditions || '',
       });
     }
   };
 
-  useEffect(() => {
-    if (isOnboarding) return;
-    const unsubscribe = realtimeService.subscribe('profile', (event) => {
-      if (!event.payload) return;
-      setUser((prev) => {
-        if (!prev) return prev;
-        if (event.payload?.id !== prev.id) return prev;
-        const next = { ...prev, ...event.payload };
-        setForm({
-          name: next.name || '',
-          phone: next.phone || '',
-          age: next.age ? String(next.age) : '',
-          gender: next.gender || '',
-          weight: next.weight ? String(next.weight) : '',
-          height: next.height ? String(next.height) : '',
-          emergency_contact: next.emergency_contact || '',
-          medical_conditions: next.medical_conditions || '',
-        });
-        return next;
-      });
-    });
-
-    return unsubscribe;
-  }, [isOnboarding]);
-
   const handleSave = async () => {
     if (!user) return;
-
-    const normalized = {
-      name: normalizeTextInput(form.name).trim(),
-      phone: normalizePhoneInput(form.phone || ''),
-      age: form.age ? Number(normalizeNumericInput(form.age)) : undefined,
-      gender: form.gender || undefined,
-      weight: form.weight ? Number(normalizeNumericInput(form.weight)) : undefined,
-      height: form.height ? Number(normalizeNumericInput(form.height)) : undefined,
-      emergency_contact: normalizePhoneInput(form.emergency_contact || ''),
-      medical_conditions: normalizeTextInput(form.medical_conditions || '').trim(),
-    };
-
-    if (isOnboarding) {
-      const missing: string[] = [];
-      if (!normalized.name) missing.push('name');
-      if (!normalized.phone || !validateEgyptianPhone(normalized.phone)) missing.push('phone');
-      if (!normalized.age || normalized.age < 18) missing.push('age');
-      if (normalized.gender !== 'male' && normalized.gender !== 'female') missing.push('gender');
-
-      if (missing.length > 0) {
-        Alert.alert(t('common.warning'), t('auth.completeProfile.required'));
-        return;
-      }
-    }
-
     setSaving(true);
     try {
-      const response = await apiService.updateUser(user.id, normalized);
-      if (response.success && response.data) {
-        setUser(response.data);
+      const payload = {
+        ...form,
+        age: form.age ? Number(form.age) : undefined,
+        weight: form.weight ? Number(form.weight) : undefined,
+        height: form.height ? Number(form.height) : undefined,
+      };
+      const response = await apiService.updateUser(user.id, payload);
+      if (response.success) {
         await storageService.saveUser(response.data);
-        await authService.updateCurrentUser({
-          ...response.data,
-          id: String(response.data.id),
-        });
         if (isOnboarding) {
-          navigation.reset({
-            index: 0,
-            routes: [{ name: 'MainTabs' as never }],
-          });
+          navigation.reset({ index: 0, routes: [{ name: 'MainTabs' as any }] });
         } else {
-          Alert.alert(t('success.updated'), t('success.saved'), [
-            {
-              text: t('common.ok'),
-              onPress: () => {
-                if (navigation.canGoBack()) {
-                  navigation.goBack();
-                }
-              },
-            },
-          ]);
+          Alert.alert(t('success.updated'), t('success.saved'));
+          navigation.goBack();
         }
-      } else {
-        Alert.alert(t('common.error'), response.message || t('errors.unknown'));
       }
-    } catch (error) {
+    } catch (e) {
       Alert.alert(t('common.error'), t('errors.unknown'));
     } finally {
       setSaving(false);
@@ -224,154 +86,190 @@ export const PersonalInfoScreen: React.FC = () => {
   };
 
   return (
-    <ScrollView className="flex-1 bg-light dark:bg-darkTheme-background" contentContainerStyle={{ padding: 16 }}>
-      <View className="card mb-4">
-        <Text className="section-title mb-1">
+    <ScrollView style={styles.container} contentContainerStyle={{ padding: 20 }} showsVerticalScrollIndicator={false}>
+      <View style={styles.card}>
+        <Text style={styles.title}>
           {isOnboarding ? t('auth.completeProfile.title') : t('settings.personalInfo')}
         </Text>
-        {isOnboarding ? (
-          <Text className="text-sm text-gray dark:text-darkTheme-muted-500 mb-4">{t('auth.completeProfile.subtitle')}</Text>
-        ) : (
-          <View className="mb-4" />
-        )}
+        
+        <Label>{t('auth.register.name')}</Label>
+        <TextInput
+          style={styles.input}
+          value={form.name}
+          onChangeText={(v) => setForm({...form, name: normalizeTextInput(v)})}
+          placeholder="John Doe"
+          placeholderTextColor="#9CA3AF"
+        />
 
-        <View className="mb-4">
-          <Text className="input-label">{t('auth.register.name')}</Text>
-          <TextInput
-            className="input-field"
-            value={form.name}
-            onChangeText={(text) => setForm({ ...form, name: normalizeTextInput(text) })}
-            placeholder={t('auth.register.name')}
-            placeholderTextColor="#BDBDBD"
-          />
-        </View>
+        <Label>{t('auth.register.phone')}</Label>
+        <TextInput
+          style={styles.input}
+          value={form.phone}
+          onChangeText={(v) => setForm({...form, phone: normalizePhoneInput(v)})}
+          keyboardType="phone-pad"
+          placeholder="+201234567890"
+          placeholderTextColor="#9CA3AF"
+        />
 
-        <View className="mb-4">
-          <Text className="input-label">{t('auth.register.phone')}</Text>
-          <TextInput
-            className="input-field"
-            value={form.phone}
-            onChangeText={(text) => setForm({ ...form, phone: normalizePhoneInput(text) })}
-            placeholder="+201234567890"
-            placeholderTextColor="#BDBDBD"
-            keyboardType="phone-pad"
-          />
-        </View>
-
-        <View className="mb-4">
-          <Text className="input-label">{t('settings.age')}</Text>
-          <TextInput
-            className="input-field"
-            value={form.age}
-            onChangeText={(text) => setForm({ ...form, age: normalizeNumericInput(text) })}
-            placeholder="30"
-            placeholderTextColor="#BDBDBD"
-            keyboardType="number-pad"
-            maxLength={3}
-          />
-        </View>
-
-        <View className="mb-4">
-          <Text className="input-label">{t('settings.gender')}</Text>
-          <View className="flex-row">
-            {(['male', 'female'] as const).map((gender) => (
-              <TouchableOpacity
-                key={gender}
-                className={`flex-1 flex-row items-center justify-center py-3 mx-1 rounded-lg border ${
-                  form.gender === gender ? 'bg-primary border-primary' : 'bg-white dark:bg-darkTheme-surface border-lightGray dark:border-darkTheme-border'
-                }`}
-                onPress={() => setForm({ ...form, gender })}
-                activeOpacity={0.7}
-              >
-                <MaterialCommunityIcons
-                  name={gender === 'male' ? 'gender-male' : 'gender-female'}
-                  size={18}
-                  color={form.gender === gender ? '#FFFFFF' : '#757575'}
+        <View className="flex-row mb-4">
+            <View className="flex-1 mr-2">
+                <Label>{t('settings.age')}</Label>
+                <TextInput
+                style={styles.input}
+                value={form.age}
+                onChangeText={(v) => setForm({...form, age: normalizeNumericInput(v)})}
+                keyboardType="number-pad"
+                maxLength={3}
                 />
-                <Text className={`ml-2 text-sm font-medium ${
-                  form.gender === gender ? 'text-white' : 'text-dark dark:text-darkTheme-text'
-                }`}>
-                  {gender === 'male' ? t('common.male') : t('common.female')}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+            </View>
+            <View className="flex-1 ml-2">
+                <Label>{t('settings.gender')}</Label>
+                <View className="flex-row h-[50px]">
+                    {['male', 'female'].map((g) => (
+                        <TouchableOpacity
+                            key={g}
+                            onPress={() => setForm({...form, gender: g as any})}
+                            style={[styles.genderBtn, form.gender === g && styles.genderBtnActive]}
+                            className="flex-1 flex-row items-center justify-center mx-1 rounded-xl"
+                        >
+                            <MaterialCommunityIcons 
+                                name={g === 'male' ? 'gender-male' : 'gender-female'} 
+                                size={18} 
+                                color={form.gender === g ? '#FFF' : '#6B7280'} 
+                            />
+                        </TouchableOpacity>
+                    ))}
+                </View>
+            </View>
         </View>
 
         <View className="flex-row mb-4">
           <View className="flex-1 mr-2">
-            <Text className="input-label">{t('settings.height')}</Text>
-            <TextInput
-              className="input-field"
-              value={form.height}
-              onChangeText={(text) => setForm({ ...form, height: normalizeNumericInput(text) })}
-              placeholder="170"
-              placeholderTextColor="#BDBDBD"
-              keyboardType="numeric"
-            />
+            <Label>{t('settings.height')} (cm)</Label>
+            <TextInput style={styles.input} value={form.height} keyboardType="numeric" onChangeText={(v) => setForm({...form, height: v})} />
           </View>
           <View className="flex-1 ml-2">
-            <Text className="input-label">{t('settings.weight')}</Text>
-            <TextInput
-              className="input-field"
-              value={form.weight}
-              onChangeText={(text) => setForm({ ...form, weight: normalizeNumericInput(text) })}
-              placeholder="70"
-              placeholderTextColor="#BDBDBD"
-              keyboardType="numeric"
-            />
+            <Label>{t('settings.weight')} (kg)</Label>
+            <TextInput style={styles.input} value={form.weight} keyboardType="numeric" onChangeText={(v) => setForm({...form, weight: v})} />
           </View>
         </View>
 
-        <View className="mb-4">
-          <Text className="input-label">{t('settings.emergencyContact')}</Text>
-          <TextInput
-            className="input-field"
-            value={form.emergency_contact}
-            onChangeText={(text) => setForm({ ...form, emergency_contact: normalizePhoneInput(text) })}
-            placeholder="+201234567890"
-            placeholderTextColor="#BDBDBD"
-            keyboardType="phone-pad"
-          />
-        </View>
+        <Label>{t('settings.emergencyContact')}</Label>
+        <TextInput
+          style={styles.input}
+          value={form.emergency_contact}
+          onChangeText={(v) => setForm({...form, emergency_contact: normalizePhoneInput(v)})}
+          keyboardType="phone-pad"
+        />
 
-        <View className="mb-2">
-          <Text className="input-label">{t('settings.medicalConditions')}</Text>
-          <TextInput
-            className="input-field h-24 text-align-top"
-            value={form.medical_conditions}
-            onChangeText={(text) => setForm({ ...form, medical_conditions: normalizeTextInput(text) })}
-            placeholder={t('settings.medicalConditionsPlaceholder')}
-            placeholderTextColor="#BDBDBD"
-            multiline
-            numberOfLines={3}
-            textAlignVertical="top"
-          />
-        </View>
+        <Label>{t('settings.medicalConditions')}</Label>
+        <TextInput
+          style={[styles.input, { height: 100, textAlignVertical: 'top' }]}
+          value={form.medical_conditions}
+          multiline
+          onChangeText={(v) => setForm({...form, medical_conditions: v})}
+        />
       </View>
 
-      <TouchableOpacity
-        className={`btn-primary py-4 items-center ${saving ? 'opacity-60' : ''}`}
-        onPress={handleSave}
+      <TouchableOpacity 
+        style={styles.saveBtn} 
+        onPress={handleSave} 
         disabled={saving}
-        activeOpacity={0.7}
       >
-        <Text className="text-white font-bold text-lg">{t('common.save')}</Text>
+        {saving ? <ActivityIndicator color="#FFF" /> : <Text style={styles.saveBtnText}>{t('common.save')}</Text>}
       </TouchableOpacity>
 
-      {!isOnboarding && user?.email ? (
-        <TouchableOpacity
-          className="mt-3 border border-primary rounded-xl py-4 items-center bg-white dark:bg-darkTheme-surface"
-          onPress={() => navigation.navigate('ChangePassword')}
-          activeOpacity={0.7}
+      {!isOnboarding && (
+        <TouchableOpacity 
+            style={styles.passwordBtn}
+            onPress={() => navigation.navigate('ChangePassword' as any)}
         >
-          <Text className="text-primary font-semibold text-base">
-            {t('settings.changePassword')}
-          </Text>
+          <Text style={styles.passwordBtnText}>{t('settings.changePassword')}</Text>
         </TouchableOpacity>
-      ) : null}
+      )}
     </ScrollView>
   );
 };
+
+// مكون صغير للعنوان (Label)
+const Label = ({ children }: { children: string }) => (
+  <Text style={{ fontSize: 13, fontWeight: '700', color: '#4B5563', marginBottom: 8, marginLeft: 4 }}>{children}</Text>
+);
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#F9FAFB',
+  },
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 3,
+    marginBottom: 20,
+  },
+  title: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 20,
+  },
+  input: {
+    backgroundColor: '#F3F4F6',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    height: 50,
+    fontSize: 15,
+    color: '#1F2937',
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  genderBtn: {
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  genderBtnActive: {
+    backgroundColor: '#2196F3',
+    borderColor: '#2196F3',
+  },
+  saveBtn: {
+    backgroundColor: '#2196F3',
+    height: 56,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#2196F3',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  saveBtnText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  passwordBtn: {
+    marginTop: 15,
+    height: 56,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    backgroundColor: '#FFF',
+  },
+  passwordBtnText: {
+    color: '#4B5563',
+    fontSize: 15,
+    fontWeight: '600',
+  }
+});
 
 export default PersonalInfoScreen;

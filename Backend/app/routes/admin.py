@@ -15,8 +15,9 @@ import csv
 import io
 
 from ..database import get_db
-from ..models import User, UserAuth, Device, MotionSensorData, VitalSensorData, Alert, Prediction
+from ..models import User, UserAuth, Device, MotionSensorData, VitalSensorData, Alert, Prediction, UserSession
 from ..config import SECRET_KEY, ALGORITHM, ADMIN_EMAILS
+from ..status_utils import get_device_connection_state, is_device_online, summarize_user_presence
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -98,14 +99,38 @@ def get_admin_overview(
 ):
     """High-level stats for admin dashboard."""
     total_users = db.query(User).count()
-    active_users = db.query(User).filter(User.is_active == True).count()  # noqa: E712
     total_devices = db.query(Device).count()
-    connected_devices = db.query(Device).filter(Device.is_connected == True).count()  # noqa: E712
+    devices = db.query(Device).all()
+    connected_devices = sum(1 for device in devices if is_device_online(device))
     total_motions = db.query(MotionSensorData).count()
     total_vitals = db.query(VitalSensorData).count()
     total_predictions = db.query(Prediction).count()
     total_alerts = db.query(Alert).count()
     active_alerts = db.query(Alert).filter(Alert.status.in_(["active", "pending"])).count()
+
+    users = db.query(User).all()
+    sessions_by_user = {}
+    for session in db.query(UserSession).all():
+        sessions_by_user.setdefault(session.user_id, []).append(session)
+    devices_by_user = {}
+    for device in devices:
+        devices_by_user.setdefault(device.user_id, []).append(device)
+
+    active_users = 0
+    logged_in_users = 0
+    logged_out_users = 0
+    for user in users:
+        presence_status, _ = summarize_user_presence(
+            devices_by_user.get(user.id, []),
+            sessions_by_user.get(user.id, []),
+        )
+        if presence_status == "active":
+            active_users += 1
+            logged_in_users += 1
+        elif presence_status == "login":
+            logged_in_users += 1
+        else:
+            logged_out_users += 1
 
     last_motion = db.query(func.max(MotionSensorData.timestamp)).scalar()
     last_vital = db.query(func.max(VitalSensorData.timestamp)).scalar()
@@ -118,11 +143,14 @@ def get_admin_overview(
             "data": {
                 "users": {
                     "total": total_users,
-                    "active": active_users
+                    "active": active_users,
+                    "login": logged_in_users,
+                    "logout": logged_out_users,
                 },
                 "devices": {
                     "total": total_devices,
-                    "connected": connected_devices
+                    "connected": connected_devices,
+                    "offline": max(total_devices - connected_devices, 0),
                 },
                 "motions": total_motions,
                 "vitals": total_vitals,
@@ -226,6 +254,8 @@ def get_admin_devices(
             "battery_level": d.battery_level,
             "firmware_version": d.firmware_version,
             "is_connected": bool(d.is_connected),
+            "is_online": is_device_online(d),
+            "connection_state": get_device_connection_state(d),
             "last_seen": d.last_seen.isoformat() if d.last_seen else None,
         }
         for d in devices
@@ -277,14 +307,26 @@ def get_admin_users(
         .group_by(Device.user_id)
         .all()
     )
+    devices_by_user = {}
+    for device in db.query(Device).all():
+        devices_by_user.setdefault(device.user_id, []).append(device)
+    sessions_by_user = {}
+    for session in db.query(UserSession).all():
+        sessions_by_user.setdefault(session.user_id, []).append(session)
 
     data = []
     for user, auth in rows:
+        presence_status, online_devices = summarize_user_presence(
+            devices_by_user.get(user.id, []),
+            sessions_by_user.get(user.id, []),
+        )
         data.append({
             "id": user.id,
             "name": user.name,
             "email": auth.email,
             "is_active": bool(user.is_active),
+            "presence_status": presence_status,
+            "online_devices": online_devices,
             "created_at": user.created_at.isoformat() if user.created_at else None,
             "devices": device_counts.get(user.id, 0),
             "last_seen": last_seen.get(user.id).isoformat() if last_seen.get(user.id) else None
@@ -307,6 +349,8 @@ def get_admin_user_detail(
         )
 
     devices = db.query(Device).filter(Device.user_id == user_id).all()
+    sessions = db.query(UserSession).filter(UserSession.user_id == user_id).all()
+    presence_status, online_devices = summarize_user_presence(devices, sessions)
     alerts = db.query(Alert).filter(Alert.user_id == user_id).count()
     vitals = db.query(VitalSensorData).filter(VitalSensorData.user_id == user_id).count()
     motions = db.query(MotionSensorData).filter(MotionSensorData.user_id == user_id).count()
@@ -318,6 +362,8 @@ def get_admin_user_detail(
             "name": user.name,
             "email": auth.email,
             "is_active": bool(user.is_active),
+            "presence_status": presence_status,
+            "online_devices": online_devices,
             "created_at": user.created_at.isoformat() if user.created_at else None,
             "updated_at": user.updated_at.isoformat() if user.updated_at else None,
             "age": user.age,
@@ -333,6 +379,8 @@ def get_admin_user_detail(
                     "battery_level": d.battery_level,
                     "firmware_version": d.firmware_version,
                     "is_connected": bool(d.is_connected),
+                    "is_online": is_device_online(d),
+                    "connection_state": get_device_connection_state(d),
                     "last_seen": d.last_seen.isoformat() if d.last_seen else None,
                 }
                 for d in devices

@@ -25,11 +25,14 @@ End-to-end **AI Fall Detection System** predicting **fall_now** and **fall_soon*
 - Activate sensor 1 min if abnormal  
 - Alert if still abnormal
 
-### 🔌 Hardware (Next)
-- ESP32 + IMU, WiFi/BLE streaming
+### 🔌 Hardware
+- ESP32 + IMU (`hardware/hardware.ino`), Wi‑Fi / BLE provisioning
 
-### 📱 Mobile App (Next)
-- Live alerts, history, dashboard
+### 📱 Mobile App
+- Expo / React Native (`MobileApp/`): alerts, BLE pairing, vitals, offline queue
+
+### 🖥 Admin dashboard
+- Next.js (`admin-dashboard/`): users, devices, overview
 
 ---
 
@@ -121,7 +124,12 @@ Backend/
 │       └── predict.py
 └── test/test_full_system.py
 
-MobileApp/ (coming soon)
+MobileApp/
+├── README.md, app.json, eas.json, src/ (screens, services, i18n)
+admin-dashboard/
+├── src/app/admin/ …
+hardware/
+└── hardware.ino
 ```
 
 ---
@@ -175,20 +183,26 @@ ensemble = (p1*m1 + p2*m2 + p3*m3)
 
 # ▶️ Running the Project
 
+**Backend** (from repo root):
+
 ```bash
+cd Backend
 pip install -r requirements.txt
+# copy Backend/.env.example to Backend/.env and edit
 uvicorn app.main:app --reload
-python app/simulate_sensor.py
 ```
+
+**Mobile app:** see [`MobileApp/README.md`](MobileApp/README.md) — setup, `.env`, local APK, and EAS builds.
 
 ---
 
 # 💻 Installation
 
-**Windows / MacOS / Linux**
+**Windows / macOS / Linux**
+
 ```bash
 git clone <repo-url>
-cd <repo-folder>
+cd <repo-folder>/Backend
 pip install -r requirements.txt
 ```
 

@@ -95,13 +95,12 @@ export const LoginScreen: React.FC = () => {
 
   useEffect(() => {
     const resetStaleLoginState = async () => {
-      await authService.clearSession();
       authService.invalidateCache('load-session');
       authService.invalidateCache('check-authentication');
     };
 
     resetStaleLoginState().catch((error) => {
-      console.warn('⚠️ [Login] Failed to clear stale session state:', error);
+      console.warn('⚠️ [Login] Failed to refresh auth cache:', error);
     });
 
     const googleModule = getGoogleSigninModule();
@@ -162,11 +161,21 @@ export const LoginScreen: React.FC = () => {
   };
 
   const checkAppleAvailability = async () => {
-    if (Platform.OS !== 'ios') return;
+    console.log('🔍 [Apple Login] Checking availability...');
+    console.log('📱 Platform:', Platform.OS);
+
+    if (Platform.OS !== 'ios') {
+      console.log('⚠️ [Apple Login] Not iOS, disabling Apple Sign-In');
+      setAppleAvailable(false);
+      return;
+    }
+
     try {
       const available = await AppleAuthentication.isAvailableAsync();
+      console.log('✅ [Apple Login] Apple Sign-In available:', available);
       setAppleAvailable(available);
-    } catch {
+    } catch (error) {
+      console.log('❌ [Apple Login] Error checking availability:', error);
       setAppleAvailable(false);
     }
   };
@@ -424,7 +433,7 @@ export const LoginScreen: React.FC = () => {
 
   return (
     <KeyboardAvoidingView
-      className="flex-1 bg-white dark:bg-darkTheme-surface"
+      className="flex-1 bg-white"
       style={{ flex: 1, backgroundColor: '#FFFFFF' }}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
@@ -439,9 +448,9 @@ export const LoginScreen: React.FC = () => {
           <View className="w-32 h-32 rounded-full bg-gradient-to-r from-blue-50 to-blue-100 justify-center items-center mb-6">
             <MaterialCommunityIcons name="shield-check" size={60} color="#2196F3" />
           </View>
-          <Text className="text-3xl font-bold text-dark dark:text-darkTheme-text mb-2">Fall Detection</Text>
+          <Text className="text-3xl font-bold text-dark mb-2">Fall Detection</Text>
           <Text className="text-xl font-semibold text-primary mb-3">{texts.welcome}</Text>
-          <Text className="text-base text-gray dark:text-darkTheme-muted text-center leading-6 max-w-md">
+          <Text className="text-base text-gray text-center leading-6 max-w-md">
             {texts.subtitle}
           </Text>
         </View>
@@ -458,16 +467,14 @@ export const LoginScreen: React.FC = () => {
           <View className="flex-row items-center bg-orange-50 border border-orange-200 p-4 rounded-xl mb-6">
             <MaterialCommunityIcons name="wifi-off" size={20} color="#FF9800" />
             <View className="ml-3 flex-1">
-              <Text className="text-sm font-medium text-dark dark:text-darkTheme-text">
-                Limited Connection
-              </Text>
-              <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">
+              <Text className="text-sm font-medium text-dark">Limited Connection</Text>
+              <Text className="text-xs text-gray mt-1">
                 You can login later
               </Text>
             </View>
             <TouchableOpacity 
               onPress={checkDatabaseStatus} 
-              className="p-2 bg-white dark:bg-darkTheme-surface rounded-full"
+              className="p-2 bg-white rounded-full"
               activeOpacity={0.7}
             >
               <Text className="text-primary font-bold">⟳</Text>
@@ -497,7 +504,7 @@ export const LoginScreen: React.FC = () => {
               <View className="mb-5">
                 <View className="flex-row items-center mb-2">
                   <MaterialCommunityIcons name="email-outline" size={18} color="#666" />
-                  <Text className="text-base font-semibold text-dark dark:text-darkTheme-text ml-2">
+                  <Text className="text-base font-semibold text-dark ml-2">
                     {texts.email}
                   </Text>
                 </View>
@@ -522,7 +529,7 @@ export const LoginScreen: React.FC = () => {
               <View className="mb-6">
                 <View className="flex-row items-center mb-2">
                   <MaterialCommunityIcons name="lock-outline" size={18} color="#666" />
-                  <Text className="text-base font-semibold text-dark dark:text-darkTheme-text ml-2">
+                  <Text className="text-base font-semibold text-dark ml-2">
                     {texts.password}
                   </Text>
                 </View>
@@ -570,9 +577,7 @@ export const LoginScreen: React.FC = () => {
                       <MaterialCommunityIcons name="check" size={12} color="#FFFFFF" />
                     )}
                   </View>
-                  <Text className="text-sm text-gray dark:text-darkTheme-muted">
-                    {texts.remember}
-                  </Text>
+                  <Text className="text-sm text-gray">{texts.remember}</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -630,7 +635,7 @@ export const LoginScreen: React.FC = () => {
               {databaseStatus === 'disconnected' && (
                 <View className="flex-row items-center bg-orange-50 border border-orange-200 p-4 rounded-xl mb-4">
                   <MaterialCommunityIcons name="wifi-off" size={20} color="#FF9800" />
-                  <Text className="text-sm text-dark dark:text-darkTheme-text ml-3 flex-1">
+                  <Text className="text-sm text-dark ml-3 flex-1">
                     You can login using your saved credentials
                   </Text>
                 </View>
@@ -644,13 +649,13 @@ export const LoginScreen: React.FC = () => {
           <>
             <View className="flex-row items-center my-6">
               <View className="flex-1 h-px bg-lightGray" />
-              <Text className="text-sm text-gray dark:text-darkTheme-muted mx-4">{texts.or}</Text>
+              <Text className="text-sm text-gray mx-4">{texts.or}</Text>
               <View className="flex-1 h-px bg-lightGray" />
             </View>
 
             {/* Social Media Login */}
             <View className="mb-8">
-              <Text className="text-sm text-gray dark:text-darkTheme-muted text-center mb-4">
+              <Text className="text-sm text-gray text-center mb-4">
                 {texts.continueWith}
               </Text>
               
@@ -682,8 +687,8 @@ export const LoginScreen: React.FC = () => {
         )}
 
         {/* Registration Link */}
-        <View className="flex-row justify-center items-center py-6 border-t border-lightGray dark:border-darkTheme-border">
-          <Text className="text-base text-gray dark:text-darkTheme-muted mr-2">{texts.noAccount}</Text>
+        <View className="flex-row justify-center items-center py-6 border-t border-lightGray">
+          <Text className="text-base text-gray mr-2">{texts.noAccount}</Text>
           <TouchableOpacity 
             onPress={handleRegister}
             disabled={loading}
@@ -699,9 +704,9 @@ export const LoginScreen: React.FC = () => {
         <View className="items-center mt-4">
           <View className="flex-row items-center">
             <MaterialCommunityIcons name="shield" size={16} color="#757575" />
-            <Text className="text-xs text-gray dark:text-darkTheme-muted ml-2">Fall Detection App v1.0.0</Text>
+            <Text className="text-xs text-gray ml-2">Fall Detection App v1.0.0</Text>
           </View>
-          <Text className="text-xs text-lightGray dark:text-darkTheme-muted mt-1">© 2024 All rights reserved</Text>
+          <Text className="text-xs text-lightGray mt-1">© 2024 All rights reserved</Text>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>

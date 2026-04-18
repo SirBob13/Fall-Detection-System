@@ -11,6 +11,8 @@ export interface User {
   medical_conditions?: string;
   emergency_contact?: string;
   is_active: boolean;
+  presence_status?: 'active' | 'login' | 'logout';
+  online_devices?: number;
   created_at: string;
 }
 
@@ -23,6 +25,8 @@ export interface Device {
   firmware_version?: string;
   battery_level?: number;
   is_connected?: boolean;
+  is_online?: boolean;
+  connection_state?: 'connected' | 'disconnected' | 'offline' | 'archived';
   is_archived?: boolean;
   last_seen?: string;
   created_at?: string;

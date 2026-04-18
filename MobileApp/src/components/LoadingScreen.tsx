@@ -22,16 +22,19 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
   networkStatus = 'checking',
   currentLanguage = 'ar',
 }) => {
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
         {/* Logo/Icon */}
         <View style={styles.iconContainer}>
-          <MaterialCommunityIcons 
-            name="shield-check" 
-            size={80} 
-            color="#2196F3" 
-          />
+          <View style={styles.iconCircle}>
+            <MaterialCommunityIcons 
+              name="shield-check" 
+              size={60} 
+              color="#2196F3" 
+            />
+          </View>
         </View>
         
         {/* App Name */}
@@ -42,7 +45,7 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#2196F3" />
           <Text style={styles.loadingText}>
-            {initializing ? 'Initializing...' : 'Loading...'}
+            {initializing ? 'Initializing System...' : 'Loading Data...'}
           </Text>
         </View>
         
@@ -66,7 +69,7 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
             <MaterialCommunityIcons 
               name="translate" 
               size={16} 
-              color="#666" 
+              color="#757575" 
             />
             <Text style={styles.statusText}>
               Language: {currentLanguage === 'ar' ? 'العربية' : 'English'}
@@ -79,8 +82,8 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
           <View style={styles.errorContainer}>
             <MaterialCommunityIcons 
               name="alert-circle" 
-              size={24} 
-              color="#F44336" 
+              size={20} 
+              color="#D32F2F" 
             />
             <Text style={styles.errorText}>{error}</Text>
           </View>
@@ -89,7 +92,7 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
         {/* Footer */}
         <View style={styles.footer}>
           <Text style={styles.versionText}>Version 2.0.0</Text>
-          <Text style={styles.copyrightText}>© 2024 Fall Detection System</Text>
+          <Text style={styles.copyrightText}>© 2026 Fall Detection System</Text>
         </View>
       </View>
     </SafeAreaView>
@@ -99,56 +102,76 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#FFFFFF', // أبيض صريح
   },
   content: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    padding: 24,
   },
   iconContainer: {
-    marginBottom: 20,
+    marginBottom: 24,
+  },
+  iconCircle: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: '#E3F2FD',
+    justifyContent: 'center',
+    alignItems: 'center',
+    // ظل خفيف للأيقونة
+    shadowColor: '#2196F3',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 3,
   },
   appName: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#212121',
-    marginBottom: 5,
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#1A1A1A',
+    letterSpacing: 0.5,
   },
   appTagline: {
-    fontSize: 16,
-    color: '#666',
-    marginBottom: 40,
+    fontSize: 14,
+    color: '#757575',
+    fontWeight: '500',
+    marginTop: 4,
+    marginBottom: 48,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
   },
   loadingContainer: {
     alignItems: 'center',
     marginBottom: 40,
   },
   loadingText: {
-    fontSize: 16,
-    color: '#666',
-    marginTop: 10,
+    fontSize: 15,
+    color: '#616161',
+    marginTop: 12,
+    fontWeight: '500',
   },
   statusContainer: {
     width: '100%',
-    maxWidth: 300,
-    marginBottom: 20,
+    maxWidth: 280,
   },
   statusItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 10,
-    paddingHorizontal: 15,
-    paddingVertical: 8,
-    backgroundColor: '#F5F5F5',
-    borderRadius: 8,
+    marginBottom: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#FAFAFA', // رمادي خفيف جداً
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#F0F0F0',
   },
   statusDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    marginRight: 10,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 12,
   },
   statusConnected: {
     backgroundColor: '#4CAF50',
@@ -161,37 +184,43 @@ const styles = StyleSheet.create({
   },
   statusText: {
     fontSize: 14,
-    color: '#333',
-    marginLeft: 5,
+    color: '#424242',
+    fontWeight: '500',
   },
   errorContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFEBEE',
-    padding: 15,
-    borderRadius: 8,
-    marginTop: 20,
+    padding: 16,
+    borderRadius: 12,
+    marginTop: 24,
+    width: '100%',
     maxWidth: 300,
+    borderWidth: 1,
+    borderColor: '#FFCDD2',
   },
   errorText: {
     fontSize: 14,
-    color: '#D32F2F',
+    color: '#B71C1C',
     marginLeft: 10,
     flex: 1,
+    fontWeight: '500',
   },
   footer: {
     position: 'absolute',
-    bottom: 30,
+    bottom: 40,
     alignItems: 'center',
   },
   versionText: {
     fontSize: 12,
-    color: '#999',
-    marginBottom: 5,
+    color: '#9E9E9E',
+    fontWeight: '600',
+    marginBottom: 4,
   },
   copyrightText: {
     fontSize: 10,
-    color: '#BBB',
+    color: '#BDBDBD',
+    fontWeight: '400',
   },
 });
 

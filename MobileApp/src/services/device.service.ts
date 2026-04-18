@@ -5,6 +5,7 @@ import { bluetoothService } from './bluetooth.service';
 import { bleGatewayService } from './bleGateway.service';
 import { deviceProvisioningService } from './deviceProvisioning.service';
 import { Device, DeviceProvisioningStatus } from '../types';
+import { isDeviceOnline } from '../utils/deviceStatus';
 
 class DeviceService {
   private isMacAddress(deviceId: string): boolean {
@@ -177,7 +178,7 @@ class DeviceService {
       }
 
       if (!device) return;
-      if (device.is_connected) return;
+      if (isDeviceOnline(device)) return;
 
       await this.connectDeviceToUser({
         userId,

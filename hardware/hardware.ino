@@ -11,6 +11,7 @@
 #include <Adafruit_Sensor.h>
 #include <MAX30105.h>
 #include "heartRate.h"
+#include "esp_bt.h"
 
 // =========================
 // Device identity
@@ -40,6 +41,11 @@ const unsigned long WIFI_CONNECT_TIMEOUT_MS = 15000;
 const unsigned long MQTT_RETRY_INTERVAL_MS = 5000;
 const unsigned long FINGER_ON_SENSOR_THRESHOLD = 50000;
 const byte RATE_SIZE = 4;
+
+static const size_t DEVICE_INFO_JSON_SIZE = 192;
+static const size_t STATUS_JSON_SIZE = 192;
+static const size_t TELEMETRY_JSON_SIZE = 384;
+static const size_t PROVISIONING_JSON_SIZE = 384;
 
 Preferences preferences;
 WiFiClient wifiClient;
@@ -74,15 +80,21 @@ float beatsPerMinute = 0.0;
 int beatAvg = 0;
 long lastIrValue = 0;
 
+void disableClassicBluetooth() {
+  esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
+}
+
 String buildDeviceInfoJson() {
-  StaticJsonDocument<256> doc;
+  StaticJsonDocument<DEVICE_INFO_JSON_SIZE> doc;
   doc["device_id"] = deviceId;
   doc["firmware_version"] = FIRMWARE_VERSION;
   doc["device_type"] = "fall_bracelet";
   doc["wifi_connected"] = wifiConnected;
   doc["backend_connected"] = mqttConnected;
   doc["battery_level"] = 100;
-  doc["status"] = wifiSsid.isEmpty() ? "ready_for_provisioning" : (mqttConnected ? "streaming" : (wifiConnected ? "wifi_connected" : "configured"));
+  doc["status"] = wifiSsid.isEmpty()
+                      ? "ready_for_provisioning"
+                      : (mqttConnected ? "streaming" : (wifiConnected ? "wifi_connected" : "configured"));
 
   String output;
   serializeJson(doc, output);
@@ -91,13 +103,13 @@ String buildDeviceInfoJson() {
 
 void refreshDeviceInfoCharacteristic() {
   if (deviceInfoCharacteristic != nullptr) {
-    const String payload = buildDeviceInfoJson();
+    String payload = buildDeviceInfoJson();
     deviceInfoCharacteristic->setValue(payload.c_str());
   }
 }
 
 void notifyStatus(const char *stage, bool success, const char *message) {
-  StaticJsonDocument<256> doc;
+  StaticJsonDocument<STATUS_JSON_SIZE> doc;
   doc["device_id"] = deviceId;
   doc["stage"] = stage;
   doc["success"] = success;
@@ -179,9 +191,9 @@ bool connectToMqtt() {
   }
 
   mqttClient.setServer(mqttHost.c_str(), mqttPort);
-  mqttClient.setBufferSize(1024);
+  mqttClient.setBufferSize(512);
 
-  String clientId = "esp32-" + deviceId;
+  String clientId = String("esp32-") + deviceId;
   mqttConnected = mqttClient.connect(clientId.c_str());
 
   if (mqttConnected) {
@@ -269,11 +281,13 @@ void updateHeartRate() {
 }
 
 String buildTelemetryPayload(float ax, float ay, float az, float gx, float gy, float gz) {
-  StaticJsonDocument<768> doc;
+  StaticJsonDocument<TELEMETRY_JSON_SIZE> doc;
   doc["device_id"] = deviceId;
+
   if (!pairingToken.isEmpty()) {
     doc["pairing_token"] = pairingToken;
   }
+
   doc["firmware_version"] = FIRMWARE_VERSION;
   doc["battery_level"] = 100;
 
@@ -310,20 +324,20 @@ void publishTelemetry(const String &payload) {
 
 class DeviceInfoCallbacks : public BLECharacteristicCallbacks {
   void onRead(BLECharacteristic *characteristic) override {
-    const String info = buildDeviceInfoJson();
+    String info = buildDeviceInfoJson();
     characteristic->setValue(info.c_str());
   }
 };
 
 class ProvisioningCallbacks : public BLECharacteristicCallbacks {
   void onWrite(BLECharacteristic *characteristic) override {
-    std::string rawValue = characteristic->getValue();
-    if (rawValue.empty()) {
+    String rawValue = characteristic->getValue();
+    if (rawValue.isEmpty()) {
       return;
     }
 
-    StaticJsonDocument<768> doc;
-    DeserializationError error = deserializeJson(doc, rawValue.c_str());
+    StaticJsonDocument<PROVISIONING_JSON_SIZE> doc;
+    DeserializationError error = deserializeJson(doc, rawValue);
     if (error) {
       notifyStatus("provisioning_received", false, "Invalid provisioning JSON");
       return;
@@ -372,11 +386,14 @@ void startBleProvisioningServer() {
   BLEAdvertising *advertising = BLEDevice::getAdvertising();
   advertising->addServiceUUID(PROVISIONING_SERVICE_UUID);
   advertising->start();
+
   Serial.println("BLE provisioning server started");
 }
 
 void setup() {
   Serial.begin(115200);
+
+  disableClassicBluetooth();
   Wire.begin(SDA_PIN, SCL_PIN);
 
   loadSavedConfig();
@@ -447,6 +464,7 @@ void loop() {
     if (max301Ready) {
       Serial.print("MAX30102 IR: ");
       Serial.println(lastIrValue);
+
       if (validRateCount > 0 && beatAvg > 0) {
         Serial.print("Heart Rate (BPM): ");
         Serial.println(beatAvg);

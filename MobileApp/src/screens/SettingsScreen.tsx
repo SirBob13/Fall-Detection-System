@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   Alert,
   Linking,
+  StyleSheet,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -18,6 +19,7 @@ import { notificationService } from '../services/notifications';
 import { authService } from '../services/auth.service';
 import { User, Device } from '../types';
 import { ScreenHeader } from '../components/ScreenHeader';
+import { getUserPresenceStatus, isDeviceOnline } from '../utils/deviceStatus';
 
 type SettingsScreenNavigationProp = StackNavigationProp<any>;
 
@@ -34,606 +36,216 @@ export const SettingsScreen: React.FC = () => {
 
   const loadData = async () => {
     const sessionUser = await authService.getCurrentUser();
-    const normalizedSessionUser = sessionUser
-      ? ({
-          id: Number(sessionUser.id ?? 0),
-          name: sessionUser.name || '',
-          age: sessionUser.age ?? 0,
-          gender: (sessionUser.gender as User['gender']) || 'other',
-          weight: sessionUser.weight,
-          height: sessionUser.height,
-          medical_conditions: sessionUser.medical_conditions,
-          emergency_contact: sessionUser.emergency_contact,
-          is_active: sessionUser.is_active ?? true,
-          created_at: sessionUser.created_at || new Date().toISOString(),
-        } as User)
-      : null;
-    const storedUser = normalizedSessionUser || (await storageService.getUser());
+    const storedUser = sessionUser || (await storageService.getUser());
     const storedDevice = await storageService.getDevice();
-    setUser(storedUser);
-    if (normalizedSessionUser) {
-      await storageService.saveUser(normalizedSessionUser);
-    }
+    setUser(storedUser as User);
     setDevice(storedDevice);
     await refreshSettings();
   };
 
   const handleSettingChange = async (key: keyof typeof settings, value: any) => {
     await updateSetting(key, value);
-
     if (key === 'notifications' && !value) {
       notificationService.cancelAllNotifications();
     }
   };
 
-  const handlePersonalInfo = () => {
-    navigation.navigate('PersonalInfo');
-  };
-
-  const handleCareManagement = () => {
-    navigation.navigate('CareManagement');
-  };
-
-  const handleCareDashboard = () => {
-    navigation.navigate('CareDashboard');
-  };
-
-  const handleReports = () => {
-    navigation.navigate('Reports');
-  };
-
   const handleFamilyPortal = async () => {
-    try {
-      const url = 'https://family.falldetection.app';
-      const canOpen = await Linking.canOpenURL(url);
-      if (canOpen) {
-        await Linking.openURL(url);
-      } else {
-        Alert.alert(t('common.error'), t('settings.familyPortalUnavailable'));
-      }
-    } catch (error) {
-      Alert.alert(t('common.error'), t('settings.familyPortalUnavailable'));
-    }
+    const url = 'https://family.falldetection.app';
+    const canOpen = await Linking.canOpenURL(url);
+    if (canOpen) await Linking.openURL(url);
+    else Alert.alert(t('common.error'), t('settings.familyPortalUnavailable'));
   };
+
   const handleLogout = () => {
-    Alert.alert(
-      t('settings.logout'),
-      `${t('common.confirm')} ${t('settings.logout').toLowerCase()}?`,
-      [
-        { text: t('common.cancel'), style: 'cancel' },
-        {
-          text: t('settings.logout'),
-          style: 'destructive',
-          onPress: async () => {
-            await authService.logout();
-            await storageService.clearAll();
-            const rootNavigation: any = navigation.getParent?.()?.getParent?.();
-            rootNavigation?.reset?.({
-              index: 0,
-              routes: [{ name: 'Auth' }],
-            });
-          },
+    Alert.alert(t('settings.logout'), t('common.confirmLogout'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      {
+        text: t('settings.logout'),
+        style: 'destructive',
+        onPress: async () => {
+          await authService.logout();
+          await storageService.clearAll();
+          navigation.reset({ index: 0, routes: [{ name: 'Auth' }] });
         },
-      ]
-    );
+      },
+    ]);
   };
 
-  const handleEmergencyContacts = () => {
-    navigation.navigate('EmergencyContacts');
-  };
-
-  const handleEmergencySettings = () => {
-    navigation.navigate('EmergencySettings');
-  };
-
-  const handleLanguageSettings = () => {
-    navigation.navigate('LanguageSettings');
-  };
-
-  const handleDeviceManagement = () => {
-    navigation.navigate('DeviceManagement');
-  };
-
-  const handleHelp = () => {
-    Alert.alert(t('settings.help'), t('settings.helpMessage'));
-  };
-
-  const handlePrivacy = () => {
-    navigation.navigate('PrivacyPolicy');
-  };
-
-  const handleAbout = () => {
-    Alert.alert(
-      t('app.name'),
-      `${t('app.version')} 1.0.0\n${t('app.description')}`
-    );
-  };
-
-  const handleSyncData = async () => {
-    try {
-      Alert.alert(t('common.syncing'), t('common.pleaseWait'));
-      await loadData();
-      Alert.alert(t('success.synced'), t('success.dataUpdated'));
-    } catch (error) {
-      Alert.alert(t('common.error'), t('errors.syncFailed'));
-    }
-  };
+  const presenceStatus = getUserPresenceStatus(!!user, device ? [device] : []);
+  const presenceLabel = presenceStatus === 'active' ? t('system.userActive') : t('system.userLoggedIn');
 
   return (
-    <ScrollView className="flex-1 bg-light dark:bg-darkTheme-background" showsVerticalScrollIndicator={false}>
+    <ScrollView className="flex-1 bg-gray-50" showsVerticalScrollIndicator={false}>
       <ScreenHeader title={t('settings.title')} subtitle={t('settings.subtitle')} />
-      {/* Personal Info Section */}
-      <View className="my-2">
-        <Text className="section-title">
-          {t('settings.personalInfo')}
-        </Text>
+
+      {/* User Info Card */}
+      <View className="px-5 mb-4">
+        <TouchableOpacity
+          className="flex-row items-center bg-white p-5 rounded-3xl shadow-sm border border-gray-100"
+          onPress={() => navigation.navigate('PersonalInfo')}
+          activeOpacity={0.8}
+        >
+          <View className="w-14 h-14 rounded-full bg-indigo-50 justify-center items-center">
+            <MaterialCommunityIcons name="account" size={30} color="#4F46E5" />
+          </View>
+          <View className="ml-4 flex-1">
+            <Text className="text-lg font-bold text-gray-900">{user?.name || t('common.user')}</Text>
+            <Text className="text-xs text-gray-500 mt-1">
+              {user ? `${user.age} ${t('common.years')} • ${presenceLabel}` : t('settings.personalInfoDesc')}
+            </Text>
+          </View>
+          <MaterialCommunityIcons name="chevron-right" size={24} color="#D1D5DB" />
+        </TouchableOpacity>
+      </View>
+
+      {/* Main Settings Section */}
+      <View className="px-5 space-y-3">
+        <SettingItem 
+          icon="account-multiple" 
+          color="#10B981" 
+          bgColor="bg-green-50"
+          title={t('settings.careManagement')}
+          desc={t('settings.careManagementDesc')}
+          onPress={() => navigation.navigate('CareManagement')}
+        />
         
+        <SettingItem 
+          icon="view-dashboard" 
+          color="#3B82F6" 
+          bgColor="bg-blue-50"
+          title={t('dashboard.title')}
+          desc={t('dashboard.shortDesc')}
+          onPress={() => navigation.navigate('CareDashboard')}
+        />
+
+        <SettingItem 
+          icon="translate" 
+          color="#6366F1" 
+          bgColor="bg-indigo-50"
+          title={t('language.title')}
+          desc={language === 'ar' ? 'العربية' : 'English'}
+          onPress={() => navigation.navigate('LanguageSettings')}
+        />
+      </View>
+
+      {/* Emergency Contacts Box */}
+      <View className="px-5 mt-6">
+        <Text className="text-xs font-bold text-gray-400 uppercase mb-2 ml-2">{t('emergency.title')}</Text>
         <TouchableOpacity
-          className="flex-row items-center justify-between bg-white dark:bg-darkTheme-surface mx-4 p-5 rounded-2xl shadow-lg active:opacity-80"
-          onPress={handlePersonalInfo}
-          activeOpacity={0.7}
+          className="flex-row items-center bg-white p-5 rounded-3xl shadow-sm border border-red-50"
+          onPress={() => navigation.navigate('EmergencyContacts')}
         >
-          <View className="flex-row items-center flex-1">
-            <View className="w-12 h-12 rounded-full bg-purple-50 justify-center items-center">
-              <MaterialCommunityIcons name="account-circle" size={24} color="#7E57C2" />
-            </View>
-            <View className="ml-3 flex-1">
-              <Text className="text-base font-semibold text-dark dark:text-darkTheme-text">{t('settings.personalInfo')}</Text>
-              <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">
-                {user ? `${user.name} • ${user.age} ${t('common.years')}` : t('settings.personalInfoDesc')}
-              </Text>
-            </View>
+          <View className="w-12 h-12 rounded-full bg-red-50 justify-center items-center">
+            <MaterialCommunityIcons name="phone-alert" size={24} color="#EF4444" />
           </View>
-          <MaterialCommunityIcons name="chevron-right" size={24} color="#757575" />
+          <View className="ml-4 flex-1">
+            <Text className="text-base font-bold text-gray-900">{t('emergency.contacts.title')}</Text>
+            <Text className="text-xs text-gray-500">{t('emergency.contacts.description')}</Text>
+          </View>
+          <MaterialCommunityIcons name="chevron-right" size={24} color="#D1D5DB" />
         </TouchableOpacity>
       </View>
 
-      {/* Care Management Section */}
-      <View className="my-2">
-        <Text className="section-title">
-          {t('care.title')}
-        </Text>
-
-        <TouchableOpacity
-          className="flex-row items-center justify-between bg-white dark:bg-darkTheme-surface mx-4 p-5 rounded-2xl shadow-lg active:opacity-80"
-          onPress={handleCareManagement}
-          activeOpacity={0.7}
-        >
-          <View className="flex-row items-center flex-1">
-            <View className="w-12 h-12 rounded-full bg-green-50 justify-center items-center">
-              <MaterialCommunityIcons name="account-multiple" size={24} color="#4CAF50" />
-            </View>
-            <View className="ml-3 flex-1">
-              <Text className="text-base font-semibold text-dark dark:text-darkTheme-text">{t('settings.careManagement')}</Text>
-              <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">
-                {t('settings.careManagementDesc')}
-              </Text>
-            </View>
-          </View>
-          <MaterialCommunityIcons name="chevron-right" size={24} color="#757575" />
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          className="flex-row items-center justify-between bg-white dark:bg-darkTheme-surface mx-4 mt-3 p-5 rounded-2xl shadow-lg active:opacity-80"
-          onPress={handleCareDashboard}
-          activeOpacity={0.7}
-        >
-          <View className="flex-row items-center flex-1">
-            <View className="w-12 h-12 rounded-full bg-blue-50 justify-center items-center">
-              <MaterialCommunityIcons name="view-dashboard" size={24} color="#2196F3" />
-            </View>
-            <View className="ml-3 flex-1">
-              <Text className="text-base font-semibold text-dark dark:text-darkTheme-text">{t('dashboard.title')}</Text>
-              <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">
-                {t('dashboard.shortDesc')}
-              </Text>
-            </View>
-          </View>
-          <MaterialCommunityIcons name="chevron-right" size={24} color="#757575" />
-        </TouchableOpacity>
-
-        {settings.familyPortal && (
-          <TouchableOpacity
-            className="flex-row items-center justify-between bg-white dark:bg-darkTheme-surface mx-4 mt-3 p-5 rounded-2xl shadow-lg active:opacity-80"
-            onPress={handleFamilyPortal}
-            activeOpacity={0.7}
-          >
-            <View className="flex-row items-center flex-1">
-              <View className="w-12 h-12 rounded-full bg-purple-50 justify-center items-center">
-                <MaterialCommunityIcons name="web" size={24} color="#7E57C2" />
-              </View>
-              <View className="ml-3 flex-1">
-                <Text className="text-base font-semibold text-dark dark:text-darkTheme-text">{t('settings.familyPortal')}</Text>
-                <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">
-                  {t('settings.familyPortalDesc')}
-                </Text>
-              </View>
-            </View>
-            <MaterialCommunityIcons name="chevron-right" size={24} color="#757575" />
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {/* Reports Section */}
-      <View className="my-2">
-        <Text className="section-title">
-          {t('reports.title')}
-        </Text>
-
-        <TouchableOpacity
-          className="flex-row items-center justify-between bg-white dark:bg-darkTheme-surface mx-4 p-5 rounded-2xl shadow-lg active:opacity-80"
-          onPress={handleReports}
-          activeOpacity={0.7}
-        >
-          <View className="flex-row items-center flex-1">
-            <View className="w-12 h-12 rounded-full bg-orange-50 justify-center items-center">
-              <MaterialCommunityIcons name="file-chart" size={24} color="#FF9800" />
-            </View>
-            <View className="ml-3 flex-1">
-              <Text className="text-base font-semibold text-dark dark:text-darkTheme-text">{t('reports.title')}</Text>
-              <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">
-                {t('reports.shortDesc')}
-              </Text>
-            </View>
-          </View>
-          <MaterialCommunityIcons name="chevron-right" size={24} color="#757575" />
-        </TouchableOpacity>
-      </View>
-      
-      {/* Language Section */}
-      <View className="my-2">
-        <Text className="section-title">
-      {t('language.title')}
-        </Text>
-        
-        <TouchableOpacity
-          className="flex-row items-center justify-between bg-white dark:bg-darkTheme-surface mx-4 p-5 rounded-2xl shadow-lg active:opacity-80"
-          onPress={handleLanguageSettings}
-          activeOpacity={0.7}
-        >
-          <View className="flex-row items-center flex-1">
-            <View className="w-12 h-12 rounded-full bg-blue-50 justify-center items-center">
-              <MaterialCommunityIcons name="translate" size={24} color="#2196F3" />
-            </View>
-            <View className="ml-3 flex-1">
-              <Text className="text-base font-semibold text-dark dark:text-darkTheme-text">{t('language.title')}</Text>
-              <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">
-                {language === 'ar' ? t('language.arabic') : t('language.english')}
-              </Text>
-            </View>
-          </View>
-          <MaterialCommunityIcons name="chevron-right" size={24} color="#757575" />
-        </TouchableOpacity>
-      </View>
-
-      {/* Appearance / Theme */}
-      <View className="my-2">
-        <Text className="section-title">{t('settings.appearance')}</Text>
-
-        <View className="card">
-          <Text className="text-xs text-gray dark:text-darkTheme-muted">
-            {t('settings.themeDesc')}
-          </Text>
-          <View className="flex-row mt-4">
-            {([
-              { value: 'system', label: t('settings.themeSystem') },
-              { value: 'light', label: t('settings.themeLight') },
-              { value: 'dark', label: t('settings.themeDark') },
-            ] as const).map((option, index) => {
-              const isActive = settings.theme === option.value;
-              return (
-                <TouchableOpacity
-                  key={option.value}
-                  className={`flex-1 py-3 rounded-xl border ${
-                    isActive
-                      ? 'bg-primary border-primary'
-                      : 'bg-white dark:bg-darkTheme-surface border-lightGray dark:border-darkTheme-border'
-                  } ${index < 2 ? 'mr-2' : ''}`}
-                  onPress={() => handleSettingChange('theme', option.value)}
-                  activeOpacity={0.7}
-                >
-                  <Text
-                    className={`text-center font-semibold ${
-                      isActive ? 'text-white' : 'text-dark dark:text-darkTheme-text'
-                    }`}
-                  >
-                    {option.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </View>
-      </View>
-
-      {/* Emergency System Section */}
-      <View className="my-2">
-        <Text className="section-title">
-          {t('emergency.title')}
-        </Text>
-        
-        <View className="emergency-card">
-          <TouchableOpacity
-            className="flex-row items-center p-5 active:bg-lightGray/10"
-            onPress={handleEmergencyContacts}
-            activeOpacity={0.7}
-          >
-            <View className="w-12 h-12 rounded-full bg-red-50 justify-center items-center mr-4">
-              <MaterialCommunityIcons name="account-group" size={24} color="#F44336" />
-            </View>
-            <View className="flex-1">
-              <Text className="text-base font-semibold text-dark dark:text-darkTheme-text mb-1">
-                {t('emergency.contacts.title')}
-              </Text>
-              <Text className="text-xs text-gray dark:text-darkTheme-muted leading-4">
-                {t('emergency.contacts.description')}
-              </Text>
-            </View>
-            <MaterialCommunityIcons name="chevron-right" size={24} color="#757575" />
-          </TouchableOpacity>
-          
-          <View className="h-px bg-lightGray mx-5" />
-          
-          <TouchableOpacity
-            className="flex-row items-center p-5 active:bg-lightGray/10"
-            onPress={handleEmergencySettings}
-            activeOpacity={0.7}
-          >
-            <View className="w-12 h-12 rounded-full bg-orange-50 justify-center items-center mr-4">
-              <MaterialCommunityIcons name="cog" size={24} color="#FF9800" />
-            </View>
-            <View className="flex-1">
-              <Text className="text-base font-semibold text-dark dark:text-darkTheme-text mb-1">
-                {t('emergency.settings.title')}
-              </Text>
-              <Text className="text-xs text-gray dark:text-darkTheme-muted leading-4">
-                {t('emergency.settings.description')}
-              </Text>
-            </View>
-            <MaterialCommunityIcons name="chevron-right" size={24} color="#757575" />
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* Device Information Section */}
-      <View className="my-2">
-        <Text className="section-title">
-          {t('settings.deviceInfo')}
-        </Text>
-        <TouchableOpacity
-          className="flex-row items-center justify-between bg-white dark:bg-darkTheme-surface mx-4 p-5 rounded-2xl shadow-lg active:opacity-80"
-          onPress={handleDeviceManagement}
-          activeOpacity={0.7}
-        >
-          <View className="flex-row items-center flex-1">
-            <View className="w-12 h-12 rounded-full bg-green-50 justify-center items-center">
-              <MaterialCommunityIcons name="devices" size={24} color="#4CAF50" />
-            </View>
-            <View className="ml-3 flex-1">
-              <Text className="text-base font-semibold text-dark dark:text-darkTheme-text">{t('settings.deviceManagement')}</Text>
-              <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">
-                {t('settings.deviceManagementDesc')}
-              </Text>
-            </View>
-          </View>
-          <MaterialCommunityIcons name="chevron-right" size={24} color="#757575" />
-        </TouchableOpacity>
-
-        {device && (
-          <View className="card mt-3">
-            <View className="flex-row items-center mb-4">
-              <View className="w-12 h-12 rounded-full bg-green-50 justify-center items-center">
-                <MaterialCommunityIcons name="devices" size={24} color="#4CAF50" />
-              </View>
-              <View className="ml-3 flex-1">
-                <Text className="text-base font-semibold text-dark dark:text-darkTheme-text">
-                  {device.device_id}
-                </Text>
-                <Text className="text-sm text-gray dark:text-darkTheme-muted mt-1">{device.device_id}</Text>
-              </View>
+      {/* Device Status Box */}
+      {device && (
+        <View className="px-5 mt-6">
+          <Text className="text-xs font-bold text-gray-400 uppercase mb-2 ml-2">{t('system.deviceInfo')}</Text>
+          <View className="bg-white p-5 rounded-3xl shadow-sm border border-gray-100">
+            <View className="flex-row items-center justify-between mb-4">
               <View className="flex-row items-center">
-                <View 
-                  className={`w-3 h-3 rounded-full mr-2 ${device.is_connected ? 'bg-success' : 'bg-danger'}`}
-                />
-                <Text className="text-xs text-gray dark:text-darkTheme-muted">
-                  {device.is_connected ? t('common.connected') : t('common.disconnected')}
+                <MaterialCommunityIcons name="watch" size={24} color="#6B7280" />
+                <Text className="ml-2 font-bold text-gray-800">{device.device_id}</Text>
+              </View>
+              <View className={`px-3 py-1 rounded-full ${isDeviceOnline(device) ? 'bg-green-100' : 'bg-red-100'}`}>
+                <Text className={`text-[10px] font-bold ${isDeviceOnline(device) ? 'text-green-700' : 'text-red-700'}`}>
+                  {isDeviceOnline(device) ? t('common.online') : t('common.offline')}
                 </Text>
               </View>
             </View>
             
-            <View className="flex-row justify-between border-t border-lightGray dark:border-darkTheme-border pt-4">
-              <View className="items-center flex-1">
-                <View className="flex-row items-center mb-1">
-                  <MaterialCommunityIcons name="battery" size={16} color="#757575" />
-                  <Text className="text-xs text-gray dark:text-darkTheme-muted ml-1">{t('home.battery')}</Text>
-                </View>
-                <Text className="text-base font-semibold text-dark dark:text-darkTheme-text">
-                  {device.battery_level?.toFixed(0) || '--'}%
-                </Text>
-              </View>
-              
-              <View className="items-center flex-1 border-x border-lightGray dark:border-darkTheme-border">
-                <View className="flex-row items-center mb-1">
-                  <MaterialCommunityIcons name="clock" size={16} color="#757575" />
-                  <Text className="text-xs text-gray dark:text-darkTheme-muted ml-1">{t('system.lastSeen')}</Text>
-                </View>
-                <Text className="text-base font-semibold text-dark dark:text-darkTheme-text">
-                  {device.last_seen
-                    ? new Date(device.last_seen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                    : '--'}
-                </Text>
-              </View>
-              
-              <View className="items-center flex-1">
-                <View className="flex-row items-center mb-1">
-                  <MaterialCommunityIcons name="tag" size={16} color="#757575" />
-                  <Text className="text-xs text-gray dark:text-darkTheme-muted ml-1">{t('system.version')}</Text>
-                </View>
-                <Text className="text-base font-semibold text-dark dark:text-darkTheme-text">
-                  {device.firmware_version || '--'}
-                </Text>
-              </View>
+            <View className="flex-row justify-between border-t border-gray-50 pt-4">
+              <StatusMiniItem icon="battery" label={t('home.battery')} value={`${device.battery_level}%`} />
+              <StatusMiniItem icon="clock-outline" label={t('system.lastSeen')} value={device.last_seen ? new Date(device.last_seen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--'} />
+              <StatusMiniItem icon="tag-outline" label={t('system.version')} value={device.firmware_version || '1.0'} />
             </View>
           </View>
-        )}
-      </View>
+        </View>
+      )}
 
-      {/* General Settings Section */}
-      <View className="my-2">
-        <Text className="section-title">
-          {t('settings.generalSettings')}
-        </Text>
-        
-        <View className="card">
-          {Object.entries({
-            notifications: t('settings.notifications'),
-            autoConnect: t('settings.autoConnect'),
-            fallDetection: t('settings.fallDetection'),
-            vitalMonitoring: t('settings.vitalMonitoring'),
-          }).map(([key, label]) => (
-            <View key={key} className="setting-row">
-              <View className="flex-1">
-                <Text className="text-base text-dark dark:text-darkTheme-text font-medium">{label}</Text>
-                {key === 'fallDetection' && (
-                  <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">
-                    {t('settings.fallDetectionDesc')}
-                  </Text>
-                )}
-                {key === 'vitalMonitoring' && (
-                  <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">
-                    {t('settings.vitalMonitoringDesc')}
-                  </Text>
-                )}
-              </View>
-              <Switch
-                value={Boolean(settings[key as keyof typeof settings])}
-                onValueChange={(value) => 
-                  handleSettingChange(key as keyof typeof settings, value)
-                }
-                trackColor={{ false: '#E0E0E0', true: '#2196F3' }}
-                thumbColor="#FFFFFF"
-                ios_backgroundColor="#E0E0E0"
-              />
-            </View>
-          ))}
+      {/* Toggles Section */}
+      <View className="px-5 mt-6">
+        <View className="bg-white rounded-3xl p-2 border border-gray-100">
+          <ToggleRow 
+            label={t('settings.notifications')} 
+            value={!!settings.notifications} 
+            onValueChange={(val) => handleSettingChange('notifications', val)} 
+          />
+          <View className="h-px bg-gray-50 mx-4" />
+          <ToggleRow 
+            label={t('settings.autoConnect')} 
+            value={!!settings.autoConnect} 
+            onValueChange={(val) => handleSettingChange('autoConnect', val)} 
+          />
         </View>
       </View>
 
-      {/* Advanced Features */}
-      <View className="my-2">
-        <Text className="section-title">
-          {t('settings.advanced')}
-        </Text>
-        <View className="card">
-          {(['offlineMode', 'voiceCommands', 'automaticSOS', 'familyPortal', 'healthInsights'] as const).map((key) => (
-            <View key={key} className="setting-row">
-              <View className="flex-1">
-                <Text className="text-base text-dark dark:text-darkTheme-text font-medium">{t(`settings.${key}`)}</Text>
-                <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">{t(`settings.${key}Desc`)}</Text>
-              </View>
-              <Switch
-                value={settings[key]}
-                onValueChange={(value) => handleSettingChange(key, value)}
-                trackColor={{ false: '#E0E0E0', true: '#2196F3' }}
-                thumbColor="#FFFFFF"
-                ios_backgroundColor="#E0E0E0"
-              />
-            </View>
-          ))}
-        </View>
+      {/* Bottom Actions */}
+      <View className="px-5 mt-6 mb-10 space-y-2">
+        <ActionRow icon="help-circle" title={t('settings.help')} color="#06B6D4" onPress={() => Alert.alert(t('settings.help'), t('settings.helpMessage'))} />
+        <ActionRow icon="shield-lock" title={t('settings.privacy')} color="#10B981" onPress={() => navigation.navigate('PrivacyPolicy')} />
+        <ActionRow icon="information" title={t('settings.about')} color="#3B82F6" onPress={() => Alert.alert(t('app.name'), `${t('app.version')} 2.0.0`)} />
+        <ActionRow icon="logout" title={t('settings.logout')} color="#EF4444" onPress={handleLogout} isLast />
       </View>
 
-      {/* Sync Section */}
-      <View className="my-2">
-        <Text className="section-title">
-          {t('settings.sync')}
-        </Text>
-        
-        <View className="card">
-          <TouchableOpacity 
-            className="flex-row items-center py-4 active:opacity-70"
-            onPress={handleSyncData}
-            activeOpacity={0.7}
-          >
-            <View className="w-10 h-10 rounded-full bg-blue-50 justify-center items-center">
-              <MaterialCommunityIcons name="refresh" size={20} color="#2196F3" />
-            </View>
-            <View className="ml-3 flex-1">
-              <Text className="text-base font-medium text-dark dark:text-darkTheme-text">
-                {t('settings.refreshData')}
-              </Text>
-              <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">
-                {t('settings.refreshDataDesc')}
-              </Text>
-            </View>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* Actions Section */}
-      <View className="my-2 mb-8">
-        <Text className="section-title">
-          {t('settings.actions')}
-        </Text>
-        
-        <View className="emergency-card">
-          <TouchableOpacity 
-            className="flex-row items-center p-5 border-b border-lightGray dark:border-darkTheme-border active:bg-lightGray/10"
-            onPress={handleLogout}
-            activeOpacity={0.7}
-          >
-            <View className="w-10 h-10 rounded-full bg-gray-100 justify-center items-center">
-              <MaterialCommunityIcons name="logout" size={20} color="#757575" />
-            </View>
-            <Text className="text-base text-dark dark:text-darkTheme-text ml-3 flex-1">{t('settings.logout')}</Text>
-            <MaterialCommunityIcons name="chevron-right" size={20} color="#757575" />
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            className="flex-row items-center p-5 border-b border-lightGray dark:border-darkTheme-border active:bg-lightGray/10"
-            onPress={handleHelp}
-            activeOpacity={0.7}
-          >
-            <View className="w-10 h-10 rounded-full bg-blue-50 justify-center items-center">
-              <MaterialCommunityIcons name="help-circle" size={20} color="#00BCD4" />
-            </View>
-            <Text className="text-base text-dark dark:text-darkTheme-text ml-3 flex-1">{t('settings.help')}</Text>
-            <MaterialCommunityIcons name="chevron-right" size={20} color="#757575" />
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            className="flex-row items-center p-5 border-b border-lightGray dark:border-darkTheme-border active:bg-lightGray/10"
-            onPress={handlePrivacy}
-            activeOpacity={0.7}
-          >
-            <View className="w-10 h-10 rounded-full bg-green-50 justify-center items-center">
-              <MaterialCommunityIcons name="shield-check" size={20} color="#4CAF50" />
-            </View>
-            <Text className="text-base text-dark dark:text-darkTheme-text ml-3 flex-1">{t('settings.privacy')}</Text>
-            <MaterialCommunityIcons name="chevron-right" size={20} color="#757575" />
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            className="flex-row items-center p-5 active:bg-lightGray/10"
-            onPress={handleAbout}
-            activeOpacity={0.7}
-          >
-            <View className="w-10 h-10 rounded-full bg-purple-50 justify-center items-center">
-              <MaterialCommunityIcons name="information" size={20} color="#2196F3" />
-            </View>
-            <Text className="text-base text-dark dark:text-darkTheme-text ml-3 flex-1">{t('settings.about')}</Text>
-            <MaterialCommunityIcons name="chevron-right" size={20} color="#757575" />
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* App Info */}
-      <View className="items-center py-8 mb-4">
-        <MaterialCommunityIcons name="heart-pulse" size={40} color="#2196F3" />
-        <Text className="text-base text-gray dark:text-darkTheme-muted mt-3 mb-1">{t('app.name')}</Text>
-        <Text className="text-sm text-lightGray dark:text-darkTheme-muted">v1.0.0 • {t('app.description')}</Text>
-        <Text className="text-xs text-lightGray dark:text-darkTheme-muted mt-2">© 2024 {t('app.company')}</Text>
+      {/* App Branding */}
+      <View className="items-center pb-12">
+        <MaterialCommunityIcons name="heart-pulse" size={32} color="#3B82F6" />
+        <Text className="text-gray-400 text-xs mt-2">© 2026 {t('app.company')}</Text>
       </View>
     </ScrollView>
   );
 };
+
+// --- Sub-components to keep code clean ---
+
+const SettingItem = ({ icon, color, bgColor, title, desc, onPress }: any) => (
+  <TouchableOpacity onPress={onPress} className="flex-row items-center bg-white p-4 rounded-2xl mb-3 shadow-sm border border-gray-50">
+    <View className={`w-11 h-11 rounded-xl ${bgColor} justify-center items-center`}>
+      <MaterialCommunityIcons name={icon} size={22} color={color} />
+    </View>
+    <View className="ml-4 flex-1">
+      <Text className="text-sm font-bold text-gray-800">{title}</Text>
+      <Text className="text-[11px] text-gray-400 mt-0.5">{desc}</Text>
+    </View>
+    <MaterialCommunityIcons name="chevron-right" size={20} color="#D1D5DB" />
+  </TouchableOpacity>
+);
+
+const StatusMiniItem = ({ icon, label, value }: any) => (
+  <View className="items-center flex-1">
+    <MaterialCommunityIcons name={icon} size={16} color="#9CA3AF" />
+    <Text className="text-[10px] text-gray-400 mt-1 uppercase font-bold">{label}</Text>
+    <Text className="text-xs font-bold text-gray-700">{value}</Text>
+  </View>
+);
+
+const ToggleRow = ({ label, value, onValueChange }: any) => (
+  <View className="flex-row items-center justify-between p-4">
+    <Text className="text-sm font-semibold text-gray-700">{label}</Text>
+    <Switch 
+      value={value} 
+      onValueChange={onValueChange} 
+      trackColor={{ false: '#E5E7EB', true: '#3B82F6' }}
+      thumbColor="#FFFFFF"
+    />
+  </View>
+);
+
+const ActionRow = ({ icon, title, color, onPress, isLast }: any) => (
+  <TouchableOpacity onPress={onPress} className={`flex-row items-center bg-white p-4 ${isLast ? 'rounded-b-2xl' : ''} border-b border-gray-50`}>
+    <MaterialCommunityIcons name={icon} size={20} color={color} />
+    <Text className="ml-3 flex-1 text-sm font-medium text-gray-700">{title}</Text>
+    <MaterialCommunityIcons name="chevron-right" size={18} color="#D1D5DB" />
+  </TouchableOpacity>
+);

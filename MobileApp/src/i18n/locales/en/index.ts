@@ -171,7 +171,9 @@ export default {
     voiceCommandsDesc: "Voice commands are available in the development build.",
     voiceCommandsAction: "Tap to try",
     voiceListening: "Listening...",
-    voiceLast: "Last command"
+    voiceLast: "Last command",
+    quickStatsAlertsHint: "Up to 5 latest alerts loaded on Home",
+    quickStatsDeviceTitle: "Wearable status"
   },
 
   // Alerts
@@ -548,6 +550,10 @@ export default {
     connected: "Connected",
     disconnected: "Disconnected",
     offline: "Offline",
+    userActive: "Active",
+    userLoggedIn: "Login",
+    userLoggedOut: "Logout",
+    deviceConnectedLabel: "Device Connected",
     lowBattery: "Low battery",
     lowBatteryTitle: "Low battery",
     lowBatteryDesc: "Please charge the wearable device soon.",

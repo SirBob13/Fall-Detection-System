@@ -37,14 +37,14 @@ export const ScreenHeader: React.FC<ScreenHeaderProps> = ({ title, subtitle, com
       />
       <View style={{ paddingHorizontal: 20, paddingVertical: compact ? 18 : 20 }}>
         <Text
-          className="font-bold text-dark dark:text-darkTheme-text"
+          className="font-bold text-dark"
           style={{ fontSize: compact ? 20 : 24 }}
         >
           {title}
         </Text>
         {subtitle ? (
           <Text
-            className="text-gray dark:text-darkTheme-muted mt-1"
+            className="text-gray mt-1"
             style={{ fontSize: compact ? 13 : 12, lineHeight: compact ? 18 : 16 }}
           >
             {subtitle}

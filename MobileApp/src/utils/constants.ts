@@ -74,6 +74,11 @@ export const STORAGE_KEYS = {
   DEVICE_QUEUE: '@FallDetection:deviceQueue',
 };
 
+/** Firmware advertises `FallDetectionBracelet`; broad BLE scans use this when OS service-UUID filtering misses devices. */
+export const BLE_KNOWN_DEVICE_NAME_PATTERN = /fall|bracelet|detection|esp32/i;
+
+export const BLE_SCAN_TIMEOUT_MS = 8000;
+
 export const BLE_CONFIG = {
   SERVICE_UUID:
     process.env.EXPO_PUBLIC_BLE_SERVICE_UUID ||

@@ -143,7 +143,7 @@ export const ResetPasswordScreen: React.FC = () => {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-white dark:bg-darkTheme-surface">
+    <SafeAreaView className="flex-1 bg-white">
       <KeyboardAvoidingView
         className="flex-1"
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -157,10 +157,10 @@ export const ResetPasswordScreen: React.FC = () => {
             <View className="w-24 h-24 rounded-full bg-blue-50 justify-center items-center mb-6">
               <MaterialIcons name="lock" size={50} color="#2196F3" />
             </View>
-            <Text className="text-2xl font-bold text-dark dark:text-darkTheme-text text-center mb-3">
+            <Text className="text-2xl font-bold text-dark text-center mb-3">
               Set New Password
             </Text>
-            <Text className="text-base text-gray dark:text-darkTheme-muted text-center leading-6 max-w-xs">
+            <Text className="text-base text-gray text-center leading-6 max-w-xs">
               Choose a strong password to protect your account
             </Text>
           </View>
@@ -187,7 +187,7 @@ export const ResetPasswordScreen: React.FC = () => {
               <View className="mb-8">
                 {/* New Password Field */}
                 <View className="mb-6">
-                  <Text className="text-base font-semibold text-dark dark:text-darkTheme-text mb-2">
+                  <Text className="text-base font-semibold text-dark mb-2">
                     <MaterialIcons name="lock" size={16} color="#666" /> New Password
                   </Text>
                   <View className="relative">
@@ -228,7 +228,7 @@ export const ResetPasswordScreen: React.FC = () => {
                   {values.password.length > 0 && (
                     <View className="mt-4">
                       <View className="flex-row justify-between items-center mb-2">
-                        <Text className="text-sm text-dark dark:text-darkTheme-text font-medium">
+                        <Text className="text-sm text-dark font-medium">
                           Password Strength:
                         </Text>
                         <Text 
@@ -255,7 +255,7 @@ export const ResetPasswordScreen: React.FC = () => {
 
                 {/* Confirm Password Field */}
                 <View className="mb-8">
-                  <Text className="text-base font-semibold text-dark dark:text-darkTheme-text mb-2">
+                  <Text className="text-base font-semibold text-dark mb-2">
                     <MaterialIcons name="lock" size={16} color="#666" /> Confirm Password
                   </Text>
                   <View className="relative">
@@ -311,8 +311,8 @@ export const ResetPasswordScreen: React.FC = () => {
                 </View>
 
                 {/* Security Requirements */}
-                <View className="bg-light dark:bg-darkTheme-background p-5 rounded-2xl mb-8 border border-lightGray dark:border-darkTheme-border">
-                  <Text className="text-base font-bold text-dark dark:text-darkTheme-text mb-4">
+                <View className="bg-light p-5 rounded-2xl mb-8 border border-lightGray">
+                  <Text className="text-base font-bold text-dark mb-4">
                     Password Requirements
                   </Text>
                   
@@ -350,7 +350,7 @@ export const ResetPasswordScreen: React.FC = () => {
                         color={requirement.check ? "#4CAF50" : "#9E9E9E"}
                       />
                       <Text className={`text-sm ml-3 flex-1 ${
-                        requirement.check ? 'text-success font-medium' : 'text-gray dark:text-darkTheme-muted'
+                        requirement.check ? 'text-success font-medium' : 'text-gray'
                       }`}>
                         {requirement.text}
                       </Text>
@@ -399,17 +399,17 @@ export const ResetPasswordScreen: React.FC = () => {
           <View className="mt-8 p-4 bg-yellow-50 rounded-xl border border-yellow-200">
             <View className="flex-row items-center mb-2">
               <MaterialIcons name="security" size={20} color="#FF9800" />
-              <Text className="text-base font-semibold text-dark dark:text-darkTheme-text ml-2">
+              <Text className="text-base font-semibold text-dark ml-2">
                 Security Tips
               </Text>
             </View>
-            <Text className="text-sm text-gray dark:text-darkTheme-muted mb-1">
+            <Text className="text-sm text-gray mb-1">
               • Do not reuse passwords from other sites
             </Text>
-            <Text className="text-sm text-gray dark:text-darkTheme-muted mb-1">
+            <Text className="text-sm text-gray mb-1">
               • Use a password manager for strong, unique passwords
             </Text>
-            <Text className="text-sm text-gray dark:text-darkTheme-muted">
+            <Text className="text-sm text-gray">
               • Change your password regularly for better security
             </Text>
           </View>

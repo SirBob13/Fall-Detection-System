@@ -1,12 +1,43 @@
+# Python
 .venv/
 */.venv/
 __pycache__/
-*.pyc
-.DS_Store.venv/
-.codex/
-.github
-.gitignore
-DS_Store
-.DS_Store
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
 
+# Node
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets — do not commit (use *.env.example as a template)
+.env
+**/.env
+!.env.example
+!**/.env.example
+
+# SSH keys under Backend (use your own keys locally)
+Backend/app/Server/*.key
+Backend/app/Server/*.pub
+
+# Certificates / keystores
+*.pem
+*.jks
+*.p12
+
+# IDE / tooling
+.codex/
+.idea/
+.vscode/
+*.swp
+
+# Project-specific
 docs/

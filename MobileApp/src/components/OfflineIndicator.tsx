@@ -7,6 +7,10 @@ import { useLanguage } from './LanguageProvider';
 export const OfflineIndicator: React.FC = () => {
   const { t } = useLanguage();
   const [isVisible, setIsVisible] = useState(false);
+
+  const themeContainerStyles = {
+    backgroundColor: '#F44336',
+  };
   const [opacityAnim] = useState(new Animated.Value(0));
   const [slideAnim] = useState(new Animated.Value(-50));
 
@@ -69,6 +73,7 @@ export const OfflineIndicator: React.FC = () => {
     <Animated.View
       style={[
         styles.container,
+        themeContainerStyles,
         {
           opacity: opacityAnim,
           transform: [{ translateY: slideAnim }],

@@ -25,6 +25,7 @@ from ..device_auth import device_auth
 from ..double_verification import DoubleVerificationSystem
 from ..services.notification_service import NotificationService
 from ..realtime import notify_user, notify_users, notify_admins
+from ..status_utils import get_device_connection_state, is_device_online, summarize_user_presence
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -72,6 +73,7 @@ def _serialize_alert(alert: Alert) -> Dict[str, Any]:
     }
 
 def _serialize_device(device: Device) -> Dict[str, Any]:
+    is_online = is_device_online(device)
     return {
         "id": device.id,
         "user_id": device.user_id,
@@ -80,6 +82,8 @@ def _serialize_device(device: Device) -> Dict[str, Any]:
         "firmware_version": device.firmware_version,
         "battery_level": device.battery_level,
         "is_connected": device.is_connected,
+        "is_online": is_online,
+        "connection_state": get_device_connection_state(device),
         "is_archived": device.is_archived,
         "last_seen": device.last_seen.isoformat() if device.last_seen else None,
         "created_at": device.created_at.isoformat() if device.created_at else None,
@@ -105,10 +109,12 @@ def _serialize_motion(motion: models.MotionSensorData) -> Dict[str, Any]:
 
 def _serialize_user_profile(user: User) -> Dict[str, Any]:
     devices = list(getattr(user, "devices", []) or [])
+    sessions = list(getattr(user, "sessions", []) or [])
     last_seen = None
     for device in devices:
         if device.last_seen and (last_seen is None or device.last_seen > last_seen):
             last_seen = device.last_seen
+    presence_status, online_devices = summarize_user_presence(devices, sessions)
     return {
         "id": user.id,
         "name": user.name,
@@ -121,6 +127,8 @@ def _serialize_user_profile(user: User) -> Dict[str, Any]:
         "medical_conditions": user.medical_conditions,
         "emergency_contact": user.emergency_contact,
         "is_active": user.is_active,
+        "presence_status": presence_status,
+        "online_devices": online_devices,
         "created_at": user.created_at.isoformat() if user.created_at else None,
         "updated_at": user.updated_at.isoformat() if user.updated_at else None,
         "devices": len(devices),

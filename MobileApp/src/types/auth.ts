@@ -17,6 +17,8 @@ export interface UserProfile {
   created_at: string;
   updated_at: string;
   is_active: boolean;
+  presence_status?: 'active' | 'login' | 'logout';
+  online_devices?: number;
   email_verified: boolean;
   phone_verified: boolean;
   profile_complete?: boolean;

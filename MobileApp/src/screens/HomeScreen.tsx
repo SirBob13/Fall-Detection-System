@@ -11,6 +11,7 @@ import {
   TextInput,
   ActivityIndicator,
   Platform,
+  I18nManager,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -34,7 +35,8 @@ import { User, Device, Alert as AlertType, Prediction, VitalData } from '../type
 import { useNavigation } from '@react-navigation/native';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { realtimeService } from '../services/realtime.service';
-
+import { BLE_CONFIG, BLE_KNOWN_DEVICE_NAME_PATTERN, BLE_SCAN_TIMEOUT_MS } from '../utils/constants';
+import { isDeviceOnline } from '../utils/deviceStatus';
 
 export const HomeScreen: React.FC = () => {
   const { t } = useLanguage();
@@ -387,8 +389,7 @@ export const HomeScreen: React.FC = () => {
   };
 
   const handleViewAllAlerts = () => {
-    // Navigate to alerts screen
-    // navigation.navigate('Alerts');
+    navigation.navigate('Alerts');
   };
 
   const handleOpenDeviceManagement = () => {
@@ -410,7 +411,11 @@ export const HomeScreen: React.FC = () => {
     }
     setScanLoading(true);
     try {
-      const devices = await bluetoothService.scan(8000);
+      let devices = await bluetoothService.scan(BLE_SCAN_TIMEOUT_MS, [BLE_CONFIG.PROVISIONING_SERVICE_UUID]);
+      if (devices.length === 0) {
+        const broad = await bluetoothService.scan(BLE_SCAN_TIMEOUT_MS, null);
+        devices = broad.filter((d) => BLE_KNOWN_DEVICE_NAME_PATTERN.test(d.name));
+      }
       setScanResults(devices);
       if (devices.length === 0) {
         RNAlert.alert(t('system.noDevicesFound'), t('system.tryManual'));
@@ -466,8 +471,8 @@ export const HomeScreen: React.FC = () => {
         className="flex-1"
         contentContainerStyle={{
           paddingHorizontal: 8,
-          paddingTop: isAndroid ? 6 : 0,
-          paddingBottom: Math.max(insets.bottom + (isAndroid ? 96 : 72), 88),
+          paddingTop: isAndroid ? 70 : 20,
+          paddingBottom: Math.max(insets.bottom + (isAndroid ? 50 : 100), 88),
         }}
         refreshControl={
           <RefreshControl 
@@ -485,11 +490,11 @@ export const HomeScreen: React.FC = () => {
           <View className="mx-4 my-3 bg-red-50 border border-danger rounded-xl p-3">
             <View className="flex-row items-center">
               <View className="w-3 h-3 rounded-full bg-danger mr-2" />
-              <Text className="text-sm font-medium text-dark dark:text-darkTheme-text flex-1">
+              <Text className="text-sm font-medium text-dark flex-1">
                 {t('errors.connection')}
               </Text>
             </View>
-            <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">
+            <Text className="text-xs text-gray mt-1">
               {t('errors.connectionDesc')}
             </Text>
           </View>
@@ -498,12 +503,12 @@ export const HomeScreen: React.FC = () => {
         {/* Offline Sync Banner */}
         {queueSize > 0 && (
           <View className="mx-4 my-3 bg-yellow-50 border border-yellow-200 rounded-xl p-3">
-            <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('system.offlineQueueTitle')}</Text>
-            <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text mt-1">
+            <Text className="text-xs text-gray">{t('system.offlineQueueTitle')}</Text>
+            <Text className="text-sm font-semibold text-dark mt-1">
               {t('system.offlineQueueDesc', { count: queueSize })}
             </Text>
             {networkStatus && (
-              <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">
+              <Text className="text-xs text-gray mt-1">
                 {networkStatus.isInternetReachable ? t('common.syncing') : t('errors.connection')}
               </Text>
             )}
@@ -512,9 +517,17 @@ export const HomeScreen: React.FC = () => {
 
         {/* Low Battery Banner */}
         {device?.battery_level !== undefined && device.battery_level !== null && device.battery_level <= 20 && (
-          <View className="mx-4 my-3 bg-orange-50 border border-orange-200 rounded-xl p-3">
-            <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('system.lowBatteryTitle')}</Text>
-            <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text mt-1">
+          <View
+            className="mx-4 my-3 rounded-xl p-3"
+            style={{
+                    backgroundColor: '#FFF4E5',
+                    borderColor: '#FED7AA',
+                    borderWidth: 1,
+                  }
+            }
+          >
+            <Text className="text-xs text-gray">{t('system.lowBatteryTitle')}</Text>
+            <Text className="text-sm font-semibold text-dark mt-1">
               {t('system.lowBatteryDesc')}
             </Text>
           </View>
@@ -522,9 +535,17 @@ export const HomeScreen: React.FC = () => {
 
         {/* Monitoring Context */}
         {monitoredUser && user && monitoredUser.id !== user.id && (
-          <View className="mx-4 mt-2 mb-2 bg-purple-50 border border-purple-100 rounded-xl p-3">
-            <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('care.monitoring')}</Text>
-            <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text mt-1">{monitoredUser.name}</Text>
+          <View
+            className="mx-4 mt-2 mb-2 rounded-xl p-3"
+            style={{
+                    backgroundColor: '#F5F3FF',
+                    borderColor: '#E9D5FF',
+                    borderWidth: 1,
+                  }
+            }
+          >
+            <Text className="text-xs text-gray">{t('home.monitoringUser')}</Text>
+            <Text className="text-sm font-semibold text-dark mt-1">{monitoredUser.name}</Text>
           </View>
         )}
 
@@ -555,41 +576,46 @@ export const HomeScreen: React.FC = () => {
               {'  '}
               {t('settings.deviceManagement')}
             </Text>
-            <MaterialCommunityIcons name="chevron-right" size={18} color="#2196F3" style={{ marginLeft: 6 }} />
+            <MaterialCommunityIcons
+              name={I18nManager.isRTL ? 'chevron-left' : 'chevron-right'}
+              size={18}
+              color="#2196F3"
+              style={{ marginStart: 6 }}
+            />
           </TouchableOpacity>
         </View>
 
         {/* Vital Signs */}
         <View className="mx-4 mt-6">
-          <Text className="text-lg font-bold text-dark dark:text-darkTheme-text mb-3">{t('vitals.title')}</Text>
-          <View className="bg-white dark:bg-darkTheme-surface rounded-2xl shadow-lg border border-lightGray dark:border-darkTheme-border p-4">
+          <Text className="text-lg font-bold text-dark mb-3">{t('vitals.title')}</Text>
+          <View className="bg-white rounded-2xl shadow-lg border border-lightGray p-4">
             {latestVitals ? (
               <>
                 <View className="flex-row justify-between mb-3">
-                  <Text className="text-sm text-gray dark:text-darkTheme-muted">{t('vitals.heartRate')}</Text>
-                  <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text">
+                  <Text className="text-sm text-gray">{t('vitals.heartRate')}</Text>
+                  <Text className="text-sm font-semibold text-dark">
                     {latestVitals.heart_rate ?? '--'} {t('vitals.bpm')}
                   </Text>
                 </View>
                 <View className="flex-row justify-between mb-3">
-                  <Text className="text-sm text-gray dark:text-darkTheme-muted">{t('vitals.bloodPressure')}</Text>
-                  <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text">
+                  <Text className="text-sm text-gray">{t('vitals.bloodPressure')}</Text>
+                  <Text className="text-sm font-semibold text-dark">
                     {latestVitals.blood_pressure_systolic && latestVitals.blood_pressure_diastolic
                       ? `${latestVitals.blood_pressure_systolic}/${latestVitals.blood_pressure_diastolic}`
                       : '--'}
                   </Text>
                 </View>
                 <View className="flex-row justify-between mb-3">
-                  <Text className="text-sm text-gray dark:text-darkTheme-muted">{t('vitals.oxygen')}</Text>
-                  <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text">
+                  <Text className="text-sm text-gray">{t('vitals.oxygenSaturation')}</Text>
+                  <Text className="text-sm font-semibold text-dark">
                     {latestVitals.oxygen_saturation !== undefined && latestVitals.oxygen_saturation !== null
                       ? `${latestVitals.oxygen_saturation} ${t('vitals.percent')}`
                       : '--'}
                   </Text>
                 </View>
                 <View className="flex-row justify-between">
-                  <Text className="text-sm text-gray dark:text-darkTheme-muted">{t('vitals.temperature')}</Text>
-                  <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text">
+                  <Text className="text-sm text-gray">{t('vitals.temperature')}</Text>
+                  <Text className="text-sm font-semibold text-dark">
                     {latestVitals.body_temperature !== undefined && latestVitals.body_temperature !== null
                       ? `${latestVitals.body_temperature} ${t('vitals.celsius')}`
                       : '--'}
@@ -601,7 +627,7 @@ export const HomeScreen: React.FC = () => {
                 <View className="w-12 h-12 rounded-full bg-blue-50 items-center justify-center mb-3">
                   <MaterialCommunityIcons name="heart-pulse" size={24} color="#2196F3" />
                 </View>
-                <Text className="text-sm text-gray dark:text-darkTheme-muted text-center">{t('vitals.noData')}</Text>
+                <Text className="text-sm text-gray text-center">{t('vitals.noData')}</Text>
               </View>
             )}
           </View>
@@ -609,7 +635,7 @@ export const HomeScreen: React.FC = () => {
 
         {/* Emergency Button */}
         <View
-          className="mx-4 my-6 bg-white dark:bg-darkTheme-surface rounded-3xl border border-lightGray dark:border-darkTheme-border items-center"
+          className="mx-4 my-6 bg-white rounded-3xl border border-lightGray items-center"
           style={{ paddingVertical: isAndroid ? 22 : 24, paddingHorizontal: 16 }}
         >
           <EmergencyButton
@@ -620,7 +646,7 @@ export const HomeScreen: React.FC = () => {
             compact={isAndroid}
           />
           {!user && (
-            <Text className="text-xs text-gray dark:text-darkTheme-muted mt-2">
+            <Text className="text-xs text-gray mt-2">
               {t('auth.login.title')} {t('common.required')}
             </Text>
           )}
@@ -629,7 +655,7 @@ export const HomeScreen: React.FC = () => {
         {/* Recent Alerts Section */}
         <View className="mt-4">
           <View className="flex-row justify-between items-center mx-4 mb-3">
-            <Text className="text-lg font-bold text-dark dark:text-darkTheme-text">
+            <Text className="text-lg font-bold text-dark">
               {t('alerts.recentAlerts')}
             </Text>
             {alerts.length > 0 && (
@@ -662,10 +688,10 @@ export const HomeScreen: React.FC = () => {
               <View className="w-16 h-16 rounded-full bg-green-50 justify-center items-center mb-3">
                 <Text className="text-3xl">✅</Text>
               </View>
-              <Text className="text-lg text-gray dark:text-darkTheme-muted mb-2">
+              <Text className="text-lg text-gray mb-2">
                 {t('alerts.noAlerts')}
               </Text>
-              <Text className="text-sm text-lightGray dark:text-darkTheme-muted">
+              <Text className="text-sm text-lightGray">
                 {t('home.everythingOk')}
               </Text>
             </View>
@@ -674,20 +700,20 @@ export const HomeScreen: React.FC = () => {
 
         {/* Safety Tips Section */}
         <View className="mt-8 mx-4">
-          <Text className="text-lg font-bold text-dark dark:text-darkTheme-text mb-4">
+          <Text className="text-lg font-bold text-dark mb-4">
             {t('home.safetyTips')}
           </Text>
           
-          <View className="bg-white dark:bg-darkTheme-surface rounded-2xl shadow-lg border border-lightGray dark:border-darkTheme-border p-5">
+          <View className="bg-white rounded-2xl shadow-lg border border-lightGray p-5">
             <View className="flex-row items-start mb-3">
               <View className="w-8 h-8 rounded-full bg-blue-50 justify-center items-center mr-3">
                 <Text className="text-primary font-bold">1</Text>
               </View>
               <View className="flex-1">
-                <Text className="text-base font-semibold text-dark dark:text-darkTheme-text mb-1">
+                <Text className="text-base font-semibold text-dark mb-1">
                   {t('home.tip1Title')}
                 </Text>
-                <Text className="text-sm text-gray dark:text-darkTheme-muted">
+                <Text className="text-sm text-gray">
                   {t('home.tip1')}
                 </Text>
               </View>
@@ -698,10 +724,10 @@ export const HomeScreen: React.FC = () => {
                 <Text className="text-primary font-bold">2</Text>
               </View>
               <View className="flex-1">
-                <Text className="text-base font-semibold text-dark dark:text-darkTheme-text mb-1">
+                <Text className="text-base font-semibold text-dark mb-1">
                   {t('home.tip2Title')}
                 </Text>
-                <Text className="text-sm text-gray dark:text-darkTheme-muted">
+                <Text className="text-sm text-gray">
                   {t('home.tip2')}
                 </Text>
               </View>
@@ -712,10 +738,10 @@ export const HomeScreen: React.FC = () => {
                 <Text className="text-primary font-bold">3</Text>
               </View>
               <View className="flex-1">
-                <Text className="text-base font-semibold text-dark dark:text-darkTheme-text mb-1">
+                <Text className="text-base font-semibold text-dark mb-1">
                   {t('home.tip3Title')}
                 </Text>
-                <Text className="text-sm text-gray dark:text-darkTheme-muted">
+                <Text className="text-sm text-gray">
                   {t('home.tip3')}
                 </Text>
               </View>
@@ -726,10 +752,10 @@ export const HomeScreen: React.FC = () => {
                 <Text className="text-primary font-bold">4</Text>
               </View>
               <View className="flex-1">
-                <Text className="text-base font-semibold text-dark dark:text-darkTheme-text mb-1">
+                <Text className="text-base font-semibold text-dark mb-1">
                   {t('home.tip4Title')}
                 </Text>
-                <Text className="text-sm text-gray dark:text-darkTheme-muted">
+                <Text className="text-sm text-gray">
                   {t('home.tip4')}
                 </Text>
               </View>
@@ -739,38 +765,42 @@ export const HomeScreen: React.FC = () => {
 
         {/* Quick Stats */}
         <View className="mt-8 mx-4">
-          <Text className="text-lg font-bold text-dark dark:text-darkTheme-text mb-4">
+          <Text className="text-lg font-bold text-dark mb-4">
             {t('home.quickStats')}
           </Text>
           
-          <View className="flex-row justify-between">
-            <View className="bg-white dark:bg-darkTheme-surface rounded-xl p-4 flex-1 mr-2 shadow-sm border border-lightGray dark:border-darkTheme-border">
-              <Text className="text-xs text-gray dark:text-darkTheme-muted mb-1">{t('home.todayAlerts')}</Text>
-              <Text className="text-2xl font-bold text-dark dark:text-darkTheme-text">{alerts.length}</Text>
-              <View className="flex-row items-center mt-1">
-                <Text className="text-xs text-success">↓ 20%</Text>
-                <Text className="text-xs text-gray dark:text-darkTheme-muted ml-1">{t('home.fromYesterday')}</Text>
-              </View>
+          <View className="flex-row justify-between gap-2">
+            <View className="bg-white rounded-xl p-4 flex-1 shadow-sm border border-lightGray">
+              <Text className="text-xs text-gray mb-1">{t('alerts.recentAlerts')}</Text>
+              <Text className="text-2xl font-bold text-dark">
+                {alerts.length}
+              </Text>
+              <Text className="text-xs text-gray mt-1">{t('home.quickStatsAlertsHint')}</Text>
             </View>
-            
-            <View className="bg-white dark:bg-darkTheme-surface rounded-xl p-4 flex-1 ml-2 shadow-sm border border-lightGray dark:border-darkTheme-border">
-              <Text className="text-xs text-gray dark:text-darkTheme-muted mb-1">{t('home.responseTime')}</Text>
-              <Text className="text-2xl font-bold text-dark dark:text-darkTheme-text">45s</Text>
-              <View className="flex-row items-center mt-1">
-                <Text className="text-xs text-success">↑ 15%</Text>
-                <Text className="text-xs text-gray dark:text-darkTheme-muted ml-1">{t('home.faster')}</Text>
-              </View>
+
+            <View className="bg-white rounded-xl p-4 flex-1 shadow-sm border border-lightGray">
+              <Text className="text-xs text-gray mb-1">{t('home.quickStatsDeviceTitle')}</Text>
+              <Text className="text-lg font-bold text-dark">
+                {device
+                  ? isDeviceOnline(device)
+                    ? t('system.connected')
+                    : t('system.disconnected')
+                  : t('system.noDevice')}
+              </Text>
+              <Text className="text-xs text-gray mt-1">
+                {device?.device_id ? `${device.device_id.slice(0, 12)}${device.device_id.length > 12 ? '…' : ''}` : ''}
+              </Text>
             </View>
           </View>
         </View>
 
         {settings.healthInsights && (
           <View className="mt-8 mx-4">
-            <Text className="text-lg font-bold text-dark dark:text-darkTheme-text mb-4">
+            <Text className="text-lg font-bold text-dark mb-4">
               {t('home.healthInsightsTitle')}
             </Text>
-            <View className="bg-white dark:bg-darkTheme-surface rounded-2xl shadow-lg border border-lightGray dark:border-darkTheme-border p-5">
-              <Text className="text-sm text-gray dark:text-darkTheme-muted">
+            <View className="bg-white rounded-2xl shadow-lg border border-lightGray p-5">
+              <Text className="text-sm text-gray">
                 {healthInsight || t('home.healthInsightsEmpty')}
               </Text>
             </View>
@@ -779,18 +809,18 @@ export const HomeScreen: React.FC = () => {
 
         {settings.voiceCommands && (
           <View className="mt-8 mx-4">
-            <Text className="text-lg font-bold text-dark dark:text-darkTheme-text mb-4">
+            <Text className="text-lg font-bold text-dark mb-4">
               {t('home.voiceCommandsTitle')}
             </Text>
             <TouchableOpacity
-              className="bg-white dark:bg-darkTheme-surface rounded-2xl shadow-lg border border-lightGray dark:border-darkTheme-border p-5 flex-row items-center justify-between"
+              className="bg-white rounded-2xl shadow-lg border border-lightGray p-5 flex-row items-center justify-between"
               onPress={handleVoiceCommand}
               activeOpacity={0.7}
             >
               <View>
-                <Text className="text-sm text-gray dark:text-darkTheme-muted">{t('home.voiceCommandsAction')}</Text>
+                <Text className="text-sm text-gray">{t('home.voicePrompt')}</Text>
                 {lastCommand ? (
-                  <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">{t('home.voiceLast')}: {lastCommand}</Text>
+                  <Text className="text-xs text-gray mt-1">{t('home.voiceLast')}: {lastCommand}</Text>
                 ) : null}
               </View>
               <Text className="text-primary font-semibold">
@@ -812,9 +842,12 @@ export const HomeScreen: React.FC = () => {
         onRequestClose={() => setPairModalVisible(false)}
       >
         <View className="flex-1 bg-black/40 justify-end">
-          <View className="bg-white dark:bg-darkTheme-surface rounded-t-3xl p-5">
+          <View
+            className="bg-white rounded-t-3xl p-5"
+            style={{ paddingBottom: Math.max(insets.bottom, 16) }}
+          >
             <View className="flex-row justify-between items-center mb-3">
-              <Text className="text-lg font-bold text-dark dark:text-darkTheme-text">{t('system.connectDevice')}</Text>
+              <Text className="text-lg font-bold text-dark">{t('system.connectAction')}</Text>
               <TouchableOpacity onPress={() => setPairModalVisible(false)}>
                 <Text className="text-primary font-semibold">{t('common.cancel')}</Text>
               </TouchableOpacity>
@@ -822,7 +855,7 @@ export const HomeScreen: React.FC = () => {
 
             {!isBluetoothSupported() && (
               <View className="bg-orange-50 border border-orange-200 rounded-xl p-3 mb-3">
-                <Text className="text-xs text-dark dark:text-darkTheme-text">{t('system.bluetoothRequiresDevBuild')}</Text>
+                <Text className="text-xs text-dark">{t('system.bluetoothRequiresDevBuild')}</Text>
               </View>
             )}
 
@@ -844,20 +877,20 @@ export const HomeScreen: React.FC = () => {
                 {scanResults.map((item) => (
                   <TouchableOpacity
                     key={item.id}
-                    className="border border-lightGray dark:border-darkTheme-border rounded-xl p-3 mb-2"
+                    className="border border-lightGray rounded-xl p-3 mb-2"
                     onPress={() => linkDeviceToUser(item.id)}
                     disabled={isConnectingDevice}
                   >
-                    <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text">{item.name}</Text>
-                    <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">{item.id}</Text>
+                    <Text className="text-sm font-semibold text-dark">{item.name}</Text>
+                    <Text className="text-xs text-gray mt-1">{item.id}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
             )}
 
-            <View className="border-t border-lightGray dark:border-darkTheme-border pt-3">
-              <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text mb-2">{t('system.wifiSetupTitle')}</Text>
-              <Text className="text-xs text-gray dark:text-darkTheme-muted mb-3">{t('system.provisioningHint')}</Text>
+            <View className="border-t border-lightGray pt-3">
+              <Text className="text-sm font-semibold text-dark mb-2">{t('system.wifiSetupTitle')}</Text>
+              <Text className="text-xs text-gray mb-3">{t('system.provisioningHint')}</Text>
               <TextInput
                 className="input-field mb-3"
                 value={wifiSsid}
@@ -879,20 +912,20 @@ export const HomeScreen: React.FC = () => {
                 <Text className="text-xs text-primary mb-3">{provisioningMessage}</Text>
               ) : null}
 
-              <View className="border-t border-lightGray dark:border-darkTheme-border pt-3">
-              <Text className="text-sm text-dark dark:text-darkTheme-text mb-2">{t('system.enterDeviceId')}</Text>
-              <TextInput
-                className="input-field"
-                value={manualDeviceId}
-                onChangeText={setManualDeviceId}
-                placeholder={t('system.deviceIdPlaceholder')}
-                placeholderTextColor="#BDBDBD"
-                autoCapitalize="none"
-              />
-              <TouchableOpacity
-                className="mt-3 bg-primary rounded-xl py-3 items-center"
-                onPress={() => linkDeviceToUser(manualDeviceId.trim())}
-                disabled={isConnectingDevice}
+              <View className="border-t border-lightGray pt-3">
+                <Text className="text-sm text-dark mb-2">{t('system.enterDeviceId')}</Text>
+                <TextInput
+                  className="input-field"
+                  value={manualDeviceId}
+                  onChangeText={setManualDeviceId}
+                  placeholder={t('system.deviceIdPlaceholder')}
+                  placeholderTextColor="#BDBDBD"
+                  autoCapitalize="none"
+                />
+                <TouchableOpacity
+                  className="mt-3 bg-primary rounded-xl py-3 items-center"
+                  onPress={() => linkDeviceToUser(manualDeviceId.trim())}
+                  disabled={isConnectingDevice}
                 >
                   <Text className="text-white font-semibold">
                     {isConnectingDevice ? t('system.connecting') : t('system.connectAction')}

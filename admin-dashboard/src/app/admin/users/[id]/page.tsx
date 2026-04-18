@@ -12,6 +12,8 @@ interface UserDevice {
   battery_level?: number | null;
   firmware_version?: string | null;
   is_connected: boolean;
+  is_online?: boolean;
+  connection_state?: "connected" | "disconnected" | "offline" | "archived";
   last_seen?: string | null;
 }
 
@@ -20,6 +22,8 @@ interface UserDetail {
   name: string;
   email: string;
   is_active: boolean;
+  presence_status?: "active" | "login" | "logout";
+  online_devices?: number;
   created_at?: string | null;
   updated_at?: string | null;
   age?: number | null;
@@ -280,6 +284,9 @@ export default function UserDetailPage() {
             <p className="text-xs uppercase tracking-[0.3em] text-cyan-300/70">User Profile</p>
             <h2 className="mt-2 font-display text-2xl text-slate-100">{detail?.name || "User"}</h2>
             <p className="text-sm text-slate-400">{detail?.email || ""}</p>
+            <p className="mt-1 text-xs text-slate-500">
+              Presence: {detail?.presence_status || "logout"} · Online devices: {detail?.online_devices ?? 0}
+            </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <button
@@ -368,8 +375,8 @@ export default function UserDetailPage() {
               <div key={device.id} className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
                 <div className="flex items-center justify-between">
                   <span className="font-semibold text-slate-100">{device.device_id}</span>
-                  <span className={`text-xs ${device.is_connected ? "text-emerald-300" : "text-slate-500"}`}>
-                    {device.is_connected ? "Connected" : "Offline"}
+                  <span className={`text-xs ${device.connection_state === "connected" ? "text-emerald-300" : "text-slate-500"}`}>
+                    {device.connection_state === "connected" ? "Connected" : "Offline"}
                   </span>
                 </div>
                 <p className="text-xs text-slate-500">Battery {device.battery_level ?? "-"} | Firmware {device.firmware_version || "-"}</p>

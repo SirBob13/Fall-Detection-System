@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Dimensions, StyleSheet } from 'react-native';
 import { LineChart } from 'react-native-chart-kit';
-import { Dimensions } from 'react-native';
 import { useLanguage } from '../components/LanguageProvider';
 import { storageService } from '../services/storage';
 import { apiService } from '../services/api';
@@ -25,12 +24,9 @@ export const ReportsScreen: React.FC = () => {
 
   const periodDays = useMemo(() => {
     switch (period) {
-      case 'daily':
-        return 1;
-      case 'monthly':
-        return 30;
-      default:
-        return 7;
+      case 'daily': return 1;
+      case 'monthly': return 30;
+      default: return 7;
     }
   }, [period]);
 
@@ -42,18 +38,19 @@ export const ReportsScreen: React.FC = () => {
       const monitored = await storageService.getMonitoredUser();
       const selected = monitored || user;
       setActiveUser(selected);
+
       if (!selected) {
         setReport(null);
         return;
       }
+
       if (user) {
         const linksResponse = await apiService.getCareLinks(user.id);
         if (linksResponse.success && linksResponse.data) {
           setLinks(linksResponse.data);
-        } else {
-          setLinks([]);
         }
       }
+
       const response = await apiService.getUserReport(selected.id, periodDays);
       if (response.success && response.data) {
         setReport(response.data);
@@ -65,87 +62,10 @@ export const ReportsScreen: React.FC = () => {
     }
   };
 
-  useEffect(() => {
-    const unsubscribe = realtimeService.subscribe('all', (event) => {
-      if (!activeUser || !report) return;
-      if (event.user_id && event.user_id !== activeUser.id) return;
-      if (!event.payload) return;
-
-      if (event.resource === 'alerts' && event.action === 'created') {
-        setReport((prev) => {
-          if (!prev) return prev;
-          const timestamp = event.payload.timestamp ? new Date(event.payload.timestamp) : null;
-          const withinRange = timestamp
-            ? timestamp.getTime() >= Date.now() - periodDays * 24 * 60 * 60 * 1000
-            : false;
-          if (!withinRange) return prev;
-
-          const byType = { ...(prev.alerts.by_type || {}) };
-          const bySeverity = { ...(prev.alerts.by_severity || {}) };
-          const byStatus = { ...(prev.alerts.by_status || {}) };
-
-          const typeKey = event.payload.type || event.payload.alert_type || 'unknown';
-          const severityKey = event.payload.severity || 'unknown';
-          const statusKey = event.payload.status || 'pending';
-
-          byType[typeKey] = (byType[typeKey] || 0) + 1;
-          bySeverity[severityKey] = (bySeverity[severityKey] || 0) + 1;
-          byStatus[statusKey] = (byStatus[statusKey] || 0) + 1;
-
-          const dateKey = timestamp ? timestamp.toISOString().slice(0, 10) : '';
-          const dailyCounts = [...(prev.alerts.daily_counts || [])];
-          const idx = dailyCounts.findIndex((item) => item.date === dateKey);
-          if (idx >= 0) {
-            dailyCounts[idx] = { ...dailyCounts[idx], count: dailyCounts[idx].count + 1 };
-          } else if (dateKey) {
-            dailyCounts.push({ date: dateKey, count: 1 });
-          }
-
-          return {
-            ...prev,
-            alerts: {
-              ...prev.alerts,
-              total: prev.alerts.total + 1,
-              by_type: byType,
-              by_severity: bySeverity,
-              by_status: byStatus,
-              daily_counts: dailyCounts,
-            },
-          };
-        });
-      }
-
-      if (event.resource === 'vitals' && event.action === 'created') {
-        setReport((prev) => {
-          if (!prev) return prev;
-          const nextTotal = prev.vitals.total + 1;
-          const currentAbnormal = Math.round((prev.vitals.abnormal_rate || 0) * prev.vitals.total);
-          const isAbnormal = !!event.payload.is_abnormal;
-          const nextAbnormal = currentAbnormal + (isAbnormal ? 1 : 0);
-          const nextRate = nextTotal > 0 ? nextAbnormal / nextTotal : 0;
-          return {
-            ...prev,
-            vitals: {
-              ...prev.vitals,
-              total: nextTotal,
-              abnormal_rate: nextRate,
-            },
-          };
-        });
-      }
-    });
-
-    return unsubscribe;
-  }, [activeUser, report, periodDays]);
-
   const handleSelect = async (link: CareLink | null) => {
-    if (!link || !link.patient) {
-      await storageService.saveMonitoredUser(null);
-      setActiveUser(currentUser);
-      return;
-    }
-    await storageService.saveMonitoredUser(link.patient);
-    setActiveUser(link.patient);
+    const targetUser = link?.patient || null;
+    await storageService.saveMonitoredUser(targetUser);
+    setActiveUser(targetUser || currentUser);
     await loadReport();
   };
 
@@ -160,160 +80,114 @@ export const ReportsScreen: React.FC = () => {
   const labels = dailyCounts.map((d) => d.date.slice(5));
   const data = dailyCounts.map((d) => d.count);
 
-  const abnormalRate = useMemo(() => {
-    if (!report) return 0;
-    return Math.round((report.vitals.abnormal_rate || 0) * 100);
-  }, [report]);
-
   return (
     <ScrollView
-      className="flex-1 bg-light dark:bg-darkTheme-background"
+      style={styles.container}
       showsVerticalScrollIndicator={false}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#2196F3" />}
     >
       <ScreenHeader title={t('reports.title')} subtitle={t('reports.subtitle')} />
 
-      {links.length > 0 ? (
-        <View className="mx-4 mt-4 bg-white dark:bg-darkTheme-surface rounded-2xl shadow-lg border border-lightGray dark:border-darkTheme-border p-4">
-          <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text mb-2">{t('reports.viewing')}</Text>
-          {activeUser ? (
-            <Text className="text-xs text-gray dark:text-darkTheme-muted">{activeUser.name}</Text>
-          ) : null}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mt-3">
+      {/* User Selector */}
+      {links.length > 0 && (
+        <View style={styles.card} className="mx-4 mt-4">
+          <Text className="text-sm font-bold text-gray-800 mb-1">{t('reports.viewing')}</Text>
+          <Text className="text-xs text-gray-500 mb-3">{activeUser?.name}</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <TouchableOpacity
-              className={`px-3 py-2 rounded-full mr-2 ${
-                !activeUser || activeUser.id === currentUser?.id ? 'bg-primary' : 'bg-lightGray'
-              }`}
               onPress={() => handleSelect(null)}
+              className={`px-4 py-2 rounded-xl mr-2 ${(!activeUser || activeUser.id === currentUser?.id) ? 'bg-blue-500' : 'bg-gray-100'}`}
             >
-              <Text className={`${!activeUser || activeUser.id === currentUser?.id ? 'text-white' : 'text-dark dark:text-darkTheme-text'} text-xs`}>
+              <Text className={`text-xs font-bold ${(!activeUser || activeUser.id === currentUser?.id) ? 'text-white' : 'text-gray-600'}`}>
                 {t('dashboard.myData')}
               </Text>
             </TouchableOpacity>
             {links.map((link) => (
               <TouchableOpacity
                 key={link.id}
-                className={`px-3 py-2 rounded-full mr-2 ${activeUser?.id === link.patient?.id ? 'bg-primary' : 'bg-lightGray'}`}
                 onPress={() => handleSelect(link)}
-                disabled={!link.patient}
+                className={`px-4 py-2 rounded-xl mr-2 ${activeUser?.id === link.patient?.id ? 'bg-blue-500' : 'bg-gray-100'}`}
               >
-                <Text className={`${activeUser?.id === link.patient?.id ? 'text-white' : 'text-dark dark:text-darkTheme-text'} text-xs`}>
+                <Text className={`text-xs font-bold ${activeUser?.id === link.patient?.id ? 'text-white' : 'text-gray-600'}`}>
                   {link.patient?.name ?? t('dashboard.noUser')}
                 </Text>
               </TouchableOpacity>
             ))}
           </ScrollView>
         </View>
-      ) : null}
+      )}
 
-      <View className="mx-4 mt-4 flex-row">
-        {(['daily', 'weekly', 'monthly'] as const).map((value) => (
+      {/* Period Selector */}
+      <View className="flex-row mx-4 mt-4">
+        {(['daily', 'weekly', 'monthly'] as const).map((v) => (
           <TouchableOpacity
-            key={value}
-            className={`px-4 py-2 rounded-full mr-2 ${period === value ? 'bg-primary' : 'bg-lightGray'}`}
-            onPress={() => setPeriod(value)}
+            key={v}
+            onPress={() => setPeriod(v)}
+            className={`px-5 py-2 rounded-full mr-2 ${period === v ? 'bg-blue-600' : 'bg-white border border-gray-200'}`}
           >
-            <Text className={`${period === value ? 'text-white' : 'text-dark dark:text-darkTheme-text'} text-xs`}>
-              {t(`reports.${value}`)}
+            <Text className={`text-xs font-bold ${period === v ? 'text-white' : 'text-gray-500'}`}>
+              {t(`reports.${v}`)}
             </Text>
           </TouchableOpacity>
         ))}
       </View>
 
       {loading ? (
-        <View className="mt-6 items-center">
-          <ActivityIndicator color="#2196F3" />
+        <View className="mt-10 items-center">
+          <ActivityIndicator size="large" color="#2196F3" />
         </View>
       ) : !report ? (
-        <View className="mx-4 mt-6">
-          <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('reports.noData')}</Text>
+        <View className="mt-10 items-center">
+          <Text className="text-gray-400">{t('reports.noData')}</Text>
         </View>
       ) : (
         <>
-          <View className="mx-4 mt-4 bg-white dark:bg-darkTheme-surface rounded-2xl shadow-lg border border-lightGray dark:border-darkTheme-border p-4">
-            <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text mb-3">{t('reports.summary')}</Text>
+          {/* Summary Box */}
+          <View style={styles.card} className="mx-4 mt-5">
+            <Text className="text-sm font-bold text-gray-800 mb-4">{t('reports.summary')}</Text>
             <View className="flex-row justify-between">
-              <View className="items-center flex-1 bg-primary rounded-xl py-3 mx-1">
-                <Text className="text-white text-lg font-bold">{report.alerts.total}</Text>
-                <Text className="text-white/90 text-xs">{t('alerts.totalAlerts')}</Text>
-              </View>
-              <View className="items-center flex-1 bg-warning rounded-xl py-3 mx-1">
-                <Text className="text-white text-lg font-bold">{report.alerts.by_status?.pending ?? 0}</Text>
-                <Text className="text-white/90 text-xs">{t('alerts.pending')}</Text>
-              </View>
-              <View className="items-center flex-1 bg-danger rounded-xl py-3 mx-1">
-                <Text className="text-white text-lg font-bold">{report.alerts.by_severity?.critical ?? 0}</Text>
-                <Text className="text-white/90 text-xs">{t('alerts.critical')}</Text>
-              </View>
+              <SummaryItem value={report.alerts.total} label={t('alerts.totalAlerts')} color="#3B82F6" />
+              <SummaryItem value={report.alerts.by_status?.pending ?? 0} label={t('alerts.pending')} color="#F59E0B" />
+              <SummaryItem value={report.alerts.by_severity?.critical ?? 0} label={t('alerts.critical')} color="#EF4444" />
             </View>
           </View>
 
-          <View className="mx-4 mt-4 bg-white dark:bg-darkTheme-surface rounded-2xl shadow-lg border border-lightGray dark:border-darkTheme-border p-4">
-            <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text mb-3">{t('reports.trend')}</Text>
+          {/* Chart Section */}
+          <View style={styles.card} className="mx-4 mt-4">
+            <Text className="text-sm font-bold text-gray-800 mb-4">{t('reports.trend')}</Text>
             {data.length > 1 ? (
               <LineChart
-                data={{
-                  labels: labels.slice(-7),
-                  datasets: [{ data: data.slice(-7) }],
-                }}
+                data={{ labels: labels.slice(-7), datasets: [{ data: data.slice(-7) }] }}
                 width={chartWidth}
-                height={160}
-                withDots
-                withInnerLines={false}
-                withOuterLines={false}
-                withVerticalLines={false}
-                chartConfig={{
-                  backgroundGradientFrom: '#FFFFFF',
-                  backgroundGradientTo: '#FFFFFF',
-                  decimalPlaces: 0,
-                  color: (opacity = 1) => `rgba(33, 150, 243, ${opacity})`,
-                  labelColor: () => '#9E9E9E',
-                  propsForDots: {
-                    r: '3',
-                    strokeWidth: '1',
-                    stroke: '#2196F3',
-                  },
-                }}
+                height={180}
+                chartConfig={chartConfig}
                 bezier
-                style={{ borderRadius: 12 }}
+                style={{ borderRadius: 16, marginTop: 8 }}
+                withInnerLines={false}
+                withVerticalLines={false}
               />
             ) : (
-              <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('reports.noTrend')}</Text>
+              <Text className="text-center text-gray-400 py-10">{t('reports.insufficientData')}</Text>
             )}
           </View>
 
-          <View className="mx-4 mt-4 bg-white dark:bg-darkTheme-surface rounded-2xl shadow-lg border border-lightGray dark:border-darkTheme-border p-4">
-            <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text mb-3">{t('reports.vitals')}</Text>
-            <View className="flex-row justify-between mb-2">
-              <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('vitals.heartRate')}</Text>
-              <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text">
-                {report.vitals.avg_heart_rate ?? '--'} {t('vitals.bpm')}
-              </Text>
-            </View>
-            <View className="flex-row justify-between mb-2">
-              <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('vitals.oxygen')}</Text>
-              <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text">
-                {report.vitals.avg_oxygen ?? '--'} {t('vitals.percent')}
-              </Text>
-            </View>
-            <View className="flex-row justify-between mb-2">
-              <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('vitals.temperature')}</Text>
-              <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text">
-                {report.vitals.avg_temperature ?? '--'} {t('vitals.celsius')}
-              </Text>
-            </View>
-            <View className="flex-row justify-between">
-              <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('reports.abnormalRate')}</Text>
-              <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text">{abnormalRate}%</Text>
-            </View>
+          {/* Vitals Stats */}
+          <View style={styles.card} className="mx-4 mt-4">
+            <Text className="text-sm font-bold text-gray-800 mb-4">{t('reports.vitals')}</Text>
+            <VitalRow label={t('vitals.heartRate')} value={`${report.vitals.avg_heart_rate ?? '--'} BPM`} />
+            <VitalRow label={t('vitals.oxygen')} value={`${report.vitals.avg_oxygen ?? '--'} %`} />
+            <VitalRow label={t('vitals.temperature')} value={`${report.vitals.avg_temperature ?? '--'} °C`} />
+            <VitalRow label={t('vitals.abnormalStatus')} value={`${Math.round((report.vitals.abnormal_rate || 0) * 100)} %`} isLast />
           </View>
 
-          <View className="mx-4 mt-4 mb-10 bg-white dark:bg-darkTheme-surface rounded-2xl shadow-lg border border-lightGray dark:border-darkTheme-border p-4">
-            <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text mb-3">{t('reports.recommendations')}</Text>
+          {/* Recommendations */}
+          <View style={[styles.card, { backgroundColor: '#F0F9FF', borderColor: '#BAE6FD' }]} className="mx-4 mt-4 mb-12">
+            <Text className="text-sm font-bold text-blue-900 mb-3">{t('reports.recommendations')}</Text>
             {report.recommendations.map((rec, idx) => (
-              <Text key={`${rec}-${idx}`} className="text-xs text-gray dark:text-darkTheme-muted mb-2">
-                • {rec}
-              </Text>
+              <View key={idx} className="flex-row mb-2">
+                <Text className="text-blue-500 mr-2">•</Text>
+                <Text className="text-xs text-blue-800 leading-5 flex-1">{rec}</Text>
+              </View>
             ))}
           </View>
         </>
@@ -321,3 +195,48 @@ export const ReportsScreen: React.FC = () => {
     </ScrollView>
   );
 };
+
+// --- المكونات المساعدة للثيم الفاتح ---
+
+const SummaryItem = ({ value, label, color }: any) => (
+  <View style={{ backgroundColor: color }} className="items-center flex-1 rounded-2xl py-4 mx-1 shadow-sm">
+    <Text className="text-white text-xl font-black">{value}</Text>
+    <Text className="text-white/80 text-[10px] font-bold uppercase tracking-tighter">{label}</Text>
+  </View>
+);
+
+const VitalRow = ({ label, value, isLast }: any) => (
+  <View className={`flex-row justify-between items-center py-3 ${!isLast ? 'border-b border-gray-50' : ''}`}>
+    <Text className="text-xs font-medium text-gray-500">{label}</Text>
+    <Text className="text-sm font-bold text-gray-900">{value}</Text>
+  </View>
+);
+
+const chartConfig = {
+  backgroundGradientFrom: '#ffffff',
+  backgroundGradientTo: '#ffffff',
+  decimalPlaces: 0,
+  color: (opacity = 1) => `rgba(33, 150, 243, ${opacity})`,
+  labelColor: (opacity = 1) => `rgba(158, 158, 158, ${opacity})`,
+  style: { borderRadius: 16 },
+  propsForDots: { r: '4', strokeWidth: '2', stroke: '#2196F3' }
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#F9FAFB', // رمادي فاتح جداً للخلفية
+  },
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.03,
+    shadowRadius: 10,
+    elevation: 2,
+  }
+});

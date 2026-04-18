@@ -1,9 +1,8 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   TouchableOpacity,
   Text,
   StyleSheet,
-  Alert,
   View,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -11,9 +10,8 @@ import { useLanguage } from './LanguageProvider';
 import { useNavigation } from '@react-navigation/native';
 
 export const GlobalLanguageSwitcher: React.FC = () => {
-  const { language, changeLanguage, t, isChanging } = useLanguage();
+  const { language, t, isChanging } = useLanguage();
   const navigation = useNavigation();
-  const [isLoading, setIsLoading] = useState(false);
 
   const handlePress = () => {
     navigation.navigate('LanguageSettings' as never);
@@ -23,27 +21,31 @@ export const GlobalLanguageSwitcher: React.FC = () => {
     <TouchableOpacity
       style={styles.container}
       onPress={handlePress}
-      disabled={isLoading || isChanging}
+      disabled={isChanging}
+      activeOpacity={0.7}
     >
       <View style={styles.content}>
-        <MaterialIcons 
-          name="language" 
-          size={24} 
-          color="#2196F3" 
-        />
+        <View style={styles.iconBackground}>
+          <MaterialIcons 
+            name="language" 
+            size={22} 
+            color="#2196F3" 
+          />
+        </View>
+        
         <View style={styles.textContainer}>
-          <Text style={styles.languageName}>
+          <Text style={styles.languageLabel}>
             {language === 'ar' ? t('language.english') : t('language.arabic')}
           </Text>
-          <Text style={styles.currentLanguage}>
+          <Text style={styles.currentLanguageHint}>
             {t('language.title')}: {language === 'ar' ? t('language.arabic') : t('language.english')}
           </Text>
         </View>
+
         <MaterialIcons 
           name="chevron-right" 
-          size={20} 
-          color="#666" 
-          style={styles.arrow}
+          size={24} 
+          color="#BDBDBD" 
         />
       </View>
     </TouchableOpacity>
@@ -52,36 +54,44 @@ export const GlobalLanguageSwitcher: React.FC = () => {
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: '#FFF',
-    borderRadius: 12,
+    backgroundColor: '#FFFFFF', // خلفية بيضاء صريحة
+    borderRadius: 16,
     padding: 16,
     marginHorizontal: 16,
     marginVertical: 8,
+    // ظل خفيف يتناسب مع الثيم الفاتح
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#F0F0F0', // إطار خفيف جداً لتحديد العنصر
   },
   content: {
     flexDirection: 'row',
+    alignItems: 'center',
+  },
+  iconBackground: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#E3F2FD',
+    justifyContent: 'center',
     alignItems: 'center',
   },
   textContainer: {
     flex: 1,
     marginLeft: 12,
   },
-  languageName: {
+  languageLabel: {
     fontSize: 16,
-    fontWeight: 'bold',
-    color: '#2196F3',
+    fontWeight: '700',
+    color: '#212121', // أسود ناعم بدلاً من الأزرق لسهولة القراءة
   },
-  currentLanguage: {
-    fontSize: 14,
-    color: '#666',
+  currentLanguageHint: {
+    fontSize: 13,
+    color: '#757575', // رمادي متوسط
     marginTop: 2,
-  },
-  arrow: {
-    marginLeft: 8,
   },
 });

@@ -141,8 +141,10 @@ export const EmergencySettingsScreen: React.FC = () => {
             <MaterialCommunityIcons name={icon} size={20} color="#2196F3" />
           </View>
           <View className="flex-1">
-            <Text className="text-base font-semibold text-dark dark:text-darkTheme-text">{title}</Text>
-            <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">{description}</Text>
+            <Text className="text-base font-semibold text-dark">
+              {title}
+            </Text>
+            <Text className="text-xs text-gray mt-1">{description}</Text>
           </View>
           <Switch
             value={settings[key] as boolean}
@@ -176,8 +178,10 @@ export const EmergencySettingsScreen: React.FC = () => {
             <MaterialCommunityIcons name={icon} size={20} color="#2196F3" />
           </View>
           <View className="flex-1">
-            <Text className="text-base font-semibold text-dark dark:text-darkTheme-text">{title}</Text>
-            <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">{description}</Text>
+            <Text className="text-base font-semibold text-dark">
+              {title}
+            </Text>
+            <Text className="text-xs text-gray mt-1">{description}</Text>
           </View>
         </View>
         
@@ -197,8 +201,12 @@ export const EmergencySettingsScreen: React.FC = () => {
             thumbTintColor="#2196F3"
           />
           <View className="flex-row justify-between mt-1">
-            <Text className="text-xs text-gray dark:text-darkTheme-muted">{min}</Text>
-            <Text className="text-xs text-gray dark:text-darkTheme-muted">{max}</Text>
+            <Text className="text-xs text-gray">
+              {t('settings.currentValue')}
+            </Text>
+            <Text className="text-xs text-gray">
+              {String(settings[key] ?? '')}
+            </Text>
           </View>
         </View>
       </View>
@@ -207,16 +215,18 @@ export const EmergencySettingsScreen: React.FC = () => {
 
   if (isLoading || !settings) {
     return (
-      <View className="flex-1 justify-center items-center bg-white dark:bg-darkTheme-surface">
+      <View className="flex-1 justify-center items-center bg-white">
         <MaterialCommunityIcons name="cog" size={60} color="#2196F3" />
-        <Text className="mt-4 text-base text-gray dark:text-darkTheme-muted">{t('emergency.settings.loading')}</Text>
+        <Text className="mt-4 text-base text-gray">
+          {t('common.loading')}
+        </Text>
         <ActivityIndicator color="#2196F3" size="large" className="mt-4" />
       </View>
     );
   }
 
   return (
-    <ScrollView className="flex-1 bg-light dark:bg-darkTheme-background" showsVerticalScrollIndicator={false}>
+    <ScrollView className="flex-1 bg-light" showsVerticalScrollIndicator={false}>
       <ScreenHeader title={t('emergency.settings.title')} subtitle={t('emergency.settings.description')} />
 
       {/* Emergency Actions */}
@@ -285,26 +295,32 @@ export const EmergencySettingsScreen: React.FC = () => {
         <View className="flex-row justify-between mt-2">
           <View className="items-center flex-1 p-3 bg-lightGray/20 rounded-xl mx-1">
             <MaterialCommunityIcons name="history" size={24} color="#2196F3" />
-            <Text className="text-2xl font-bold text-dark dark:text-darkTheme-text mt-2">{stats.total}</Text>
-            <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('emergency.settings.statsTotal')}</Text>
+            <Text className="text-2xl font-bold text-dark mt-2">{stats.total}</Text>
+            <Text className="text-xs text-gray">
+              {t('emergency.settings.totalTests')}
+            </Text>
           </View>
           
           <View className="items-center flex-1 p-3 bg-lightGray/20 rounded-xl mx-1">
             <MaterialCommunityIcons name="check-circle" size={24} color="#4CAF50" />
-            <Text className="text-2xl font-bold text-dark dark:text-darkTheme-text mt-2">{stats.successful}</Text>
-            <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('emergency.settings.statsSuccess')}</Text>
+            <Text className="text-2xl font-bold text-dark mt-2">{stats.successful}</Text>
+            <Text className="text-xs text-gray">
+              {t('emergency.settings.successfulTests')}
+            </Text>
           </View>
           
           <View className="items-center flex-1 p-3 bg-lightGray/20 rounded-xl mx-1">
             <MaterialCommunityIcons name="alert-circle" size={24} color="#F44336" />
-            <Text className="text-2xl font-bold text-dark dark:text-darkTheme-text mt-2">{stats.failed}</Text>
-            <Text className="text-xs text-gray dark:text-darkTheme-muted">{t('emergency.settings.statsFailed')}</Text>
+            <Text className="text-2xl font-bold text-dark mt-2">{stats.failed}</Text>
+            <Text className="text-xs text-gray">
+              {t('emergency.settings.failedTests')}
+            </Text>
           </View>
         </View>
         
         <View className="mt-4 p-3 bg-blue-50 rounded-lg">
-          <Text className="text-sm text-dark dark:text-darkTheme-text font-medium">{t('emergency.settings.statsLast')}</Text>
-          <Text className="text-xs text-gray dark:text-darkTheme-muted mt-1">{stats.last}</Text>
+          <Text className="text-sm text-dark font-medium">{t('emergency.settings.statsLast')}</Text>
+          <Text className="text-xs text-gray mt-1">{stats.last}</Text>
         </View>
       </View>
 
@@ -319,7 +335,7 @@ export const EmergencySettingsScreen: React.FC = () => {
             activeOpacity={0.7}
           >
             <MaterialCommunityIcons name="restore" size={20} color="#212121" />
-            <Text className="text-sm font-semibold text-dark dark:text-darkTheme-text ml-2">{t('emergency.settings.resetAction')}</Text>
+            <Text className="text-sm font-semibold text-dark ml-2">{t('emergency.settings.resetAction')}</Text>
           </TouchableOpacity>
           
           <TouchableOpacity
@@ -339,28 +355,28 @@ export const EmergencySettingsScreen: React.FC = () => {
         <View className="space-y-3 mt-2">
           <View className="flex-row items-start">
             <MaterialCommunityIcons name="check-circle" size={16} color="#4CAF50" className="mt-0.5" />
-            <Text className="text-sm text-dark dark:text-darkTheme-text ml-2 flex-1">
+            <Text className="text-sm text-dark ml-2 flex-1">
               {t('emergency.settings.instruction1')}
             </Text>
           </View>
           
           <View className="flex-row items-start">
             <MaterialCommunityIcons name="check-circle" size={16} color="#4CAF50" className="mt-0.5" />
-            <Text className="text-sm text-dark dark:text-darkTheme-text ml-2 flex-1">
+            <Text className="text-sm text-dark ml-2 flex-1">
               {t('emergency.settings.instruction2')}
             </Text>
           </View>
           
           <View className="flex-row items-start">
             <MaterialCommunityIcons name="check-circle" size={16} color="#4CAF50" className="mt-0.5" />
-            <Text className="text-sm text-dark dark:text-darkTheme-text ml-2 flex-1">
+            <Text className="text-sm text-dark ml-2 flex-1">
               {t('emergency.settings.instruction3')}
             </Text>
           </View>
           
           <View className="flex-row items-start">
             <MaterialCommunityIcons name="check-circle" size={16} color="#4CAF50" className="mt-0.5" />
-            <Text className="text-sm text-dark dark:text-darkTheme-text ml-2 flex-1">
+            <Text className="text-sm text-dark ml-2 flex-1">
               {t('emergency.settings.instruction4')}
             </Text>
           </View>
@@ -372,10 +388,12 @@ export const EmergencySettingsScreen: React.FC = () => {
         <View className="w-12 h-12 rounded-full bg-blue-50 justify-center items-center mb-3">
           <MaterialCommunityIcons name="shield-check" size={24} color="#2196F3" />
         </View>
-        <Text className="text-sm text-gray dark:text-darkTheme-muted text-center mb-2">
+        <Text className="text-sm text-gray text-center mb-2">
           {t('emergency.settings.footerDesc')}
         </Text>
-        <Text className="text-xs text-lightGray dark:text-darkTheme-muted">{t('emergency.settings.footerVersion')}</Text>
+        <Text className="text-xs text-lightGray">
+          {t('emergency.settings.footerHint')}
+        </Text>
       </View>
 
     </ScrollView>
