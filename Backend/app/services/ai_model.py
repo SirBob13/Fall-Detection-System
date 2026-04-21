@@ -7,7 +7,6 @@ and dual output handling for real-time fall detection.
 import os
 import numpy as np
 import pandas as pd
-import tensorflow as tf
 import joblib
 import logging
 import random
@@ -16,6 +15,13 @@ from typing import Dict, Any, Tuple, Optional, List, Union
 from datetime import datetime
 from pathlib import Path
 from collections import deque
+
+try:
+    import tensorflow as tf
+    _TF_IMPORT_ERROR = None
+except Exception as e:
+    tf = None
+    _TF_IMPORT_ERROR = e
 
 # Import config
 try:
@@ -44,7 +50,10 @@ logger = logging.getLogger(__name__)
 
 # Configure TensorFlow to be less verbose
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-tf.get_logger().setLevel('ERROR')
+if tf is not None:
+    tf.get_logger().setLevel('ERROR')
+else:
+    logger.warning("⚠️ TensorFlow is unavailable, AI predictions will use mock mode: %s", _TF_IMPORT_ERROR)
 warnings.filterwarnings('ignore')
 
 # Global variables for loaded model and scaler (singleton pattern)
@@ -147,7 +156,7 @@ def clear_raw_buffer(buffer_key: str) -> None:
     if buffer_key in _raw_buffers:
         _raw_buffers[buffer_key].clear()
 
-def load_model_and_scaler() -> Tuple[Optional[tf.keras.Model], Optional[any]]:
+def load_model_and_scaler() -> Tuple[Optional[Any], Optional[Any]]:
     """
     Load AI model and scaler.
     
@@ -158,9 +167,13 @@ def load_model_and_scaler() -> Tuple[Optional[tf.keras.Model], Optional[any]]:
     
     if _model is not None and _scaler is not None:
         return _model, _scaler
-    
+
     try:
         logger.info("🔍 Loading AI model and scaler...")
+
+        if tf is None:
+            logger.error(f"❌ TensorFlow import failed: {_TF_IMPORT_ERROR}")
+            return None, None
         
         # Check if paths exist
         if not os.path.exists(MODEL_PATH):

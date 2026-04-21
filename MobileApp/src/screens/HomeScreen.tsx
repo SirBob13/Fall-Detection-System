@@ -55,6 +55,7 @@ export const HomeScreen: React.FC = () => {
   const [pairModalVisible, setPairModalVisible] = useState(false);
   const [scanLoading, setScanLoading] = useState(false);
   const [scanResults, setScanResults] = useState<ScannedDevice[]>([]);
+  const [selectedBleDeviceId, setSelectedBleDeviceId] = useState<string | null>(null);
   const [manualDeviceId, setManualDeviceId] = useState('');
   const [wifiSsid, setWifiSsid] = useState('');
   const [wifiPassword, setWifiPassword] = useState('');
@@ -417,6 +418,9 @@ export const HomeScreen: React.FC = () => {
         devices = broad.filter((d) => BLE_KNOWN_DEVICE_NAME_PATTERN.test(d.name));
       }
       setScanResults(devices);
+      setSelectedBleDeviceId((current) =>
+        current && devices.some((device) => device.id === current) ? current : null
+      );
       if (devices.length === 0) {
         RNAlert.alert(t('system.noDevicesFound'), t('system.tryManual'));
       }
@@ -451,9 +455,11 @@ export const HomeScreen: React.FC = () => {
       if (connected) {
         setDevice(connected);
         setPairModalVisible(false);
+        setSelectedBleDeviceId(null);
         setManualDeviceId('');
         setScanResults([]);
         setWifiPassword('');
+        setWifiSsid('');
         RNAlert.alert(t('success.connected'), t('system.deviceConnected'));
       } else {
         RNAlert.alert(t('common.error'), t('errors.unknown'));
@@ -877,18 +883,29 @@ export const HomeScreen: React.FC = () => {
                 {scanResults.map((item) => (
                   <TouchableOpacity
                     key={item.id}
-                    className="border border-lightGray rounded-xl p-3 mb-2"
-                    onPress={() => linkDeviceToUser(item.id)}
+                    className={`rounded-xl p-3 mb-2 border ${
+                      selectedBleDeviceId === item.id ? 'border-primary bg-blue-50' : 'border-lightGray'
+                    }`}
+                    onPress={() => setSelectedBleDeviceId(item.id)}
                     disabled={isConnectingDevice}
                   >
                     <Text className="text-sm font-semibold text-dark">{item.name}</Text>
                     <Text className="text-xs text-gray mt-1">{item.id}</Text>
+                    {selectedBleDeviceId === item.id ? (
+                      <Text className="text-xs text-primary mt-2 font-semibold">Selected</Text>
+                    ) : null}
                   </TouchableOpacity>
                 ))}
               </View>
             )}
 
             <View className="border-t border-lightGray pt-3">
+              <Text className="text-sm font-semibold text-dark mb-2">Step 2: Wi-Fi</Text>
+              <Text className="text-xs text-gray mb-2">
+                {selectedBleDeviceId
+                  ? `Selected bracelet: ${selectedBleDeviceId}`
+                  : 'Step 1: choose the bracelet from the Bluetooth list above.'}
+              </Text>
               <Text className="text-sm font-semibold text-dark mb-2">{t('system.wifiSetupTitle')}</Text>
               <Text className="text-xs text-gray mb-3">{t('system.provisioningHint')}</Text>
               <TextInput
@@ -923,12 +940,21 @@ export const HomeScreen: React.FC = () => {
                   autoCapitalize="none"
                 />
                 <TouchableOpacity
-                  className="mt-3 bg-primary rounded-xl py-3 items-center"
-                  onPress={() => linkDeviceToUser(manualDeviceId.trim())}
-                  disabled={isConnectingDevice}
+                  className={`mt-3 rounded-xl py-3 items-center ${
+                    selectedBleDeviceId && wifiSsid.trim() && wifiPassword.trim() && !isConnectingDevice
+                      ? 'bg-primary'
+                      : 'bg-gray-300'
+                  }`}
+                  onPress={() => linkDeviceToUser(selectedBleDeviceId || manualDeviceId.trim())}
+                  disabled={
+                    (!selectedBleDeviceId && !manualDeviceId.trim()) ||
+                    !wifiSsid.trim() ||
+                    !wifiPassword.trim() ||
+                    isConnectingDevice
+                  }
                 >
                   <Text className="text-white font-semibold">
-                    {isConnectingDevice ? t('system.connecting') : t('system.connectAction')}
+                    {isConnectingDevice ? t('system.connecting') : 'Step 3: Connect'}
                   </Text>
                 </TouchableOpacity>
               </View>

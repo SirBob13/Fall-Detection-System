@@ -13,7 +13,8 @@ const decodeBase64 = (value: string): string | null => {
       return atob(value);
     }
   } catch (error) {
-    // ignore
+    console.warn('[BLE decode] atob failed:', error);
+    // continue to buffer fallback
   }
 
   try {
@@ -41,20 +42,32 @@ class BleGatewayService {
     const device = await bluetoothService.connect(deviceId);
     this.device = device;
 
+    console.log('[BLE Gateway] Starting monitoring:', { serviceUUID: BLE_CONFIG.SERVICE_UUID, charUUID: BLE_CONFIG.CHARACTERISTIC_UUID });
+    
     this.subscription = device.monitorCharacteristicForService(
       BLE_CONFIG.SERVICE_UUID,
       BLE_CONFIG.CHARACTERISTIC_UUID,
       async (error, characteristic) => {
         if (error) {
-          console.warn('BLE monitor error:', error.message);
+          console.error('❌ BLE monitor error:', error.message);
           return;
         }
 
         const raw = characteristic?.value;
-        if (!raw) return;
+        if (!raw) {
+          console.log('[BLE] Empty characteristic value');
+          return;
+        }
+
+        console.log('[BLE] Raw data received (hex):', raw.substring(0, 50) + '...');
 
         const decoded = decodeBase64(raw);
-        if (!decoded) return;
+        if (!decoded) {
+          console.warn('[BLE] Failed to decode base64');
+          return;
+        }
+
+        console.log('[BLE] Decoded payload:', decoded.substring(0, 200) + '...');
 
         try {
           const parsed = JSON.parse(decoded);

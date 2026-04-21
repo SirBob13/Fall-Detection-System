@@ -1,9 +1,13 @@
 import os
 from pathlib import Path
+from dotenv import load_dotenv
 
 # Base directories
 BASE_DIR = Path(__file__).resolve().parent.parent
 APP_DIR = BASE_DIR / "app"
+
+# Load environment variables from the project .env if present.
+load_dotenv(BASE_DIR / ".env")
 
 # AI paths - SINGLE MODEL VERSION
 AI_DIR = BASE_DIR.parent / "AI"

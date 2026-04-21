@@ -1,484 +1,449 @@
 #include <WiFi.h>
 #include <Wire.h>
 #include <Preferences.h>
-#include <PubSubClient.h>
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLEUtils.h>
 #include <BLE2902.h>
 #include <ArduinoJson.h>
-#include <Adafruit_MPU6050.h>
-#include <Adafruit_Sensor.h>
-#include <MAX30105.h>
-#include "heartRate.h"
+#include <PubSubClient.h>
 #include "esp_bt.h"
+#include <math.h>
 
-// =========================
-// Device identity
-// =========================
-const char *DEFAULT_DEVICE_ID = "BRACELET-DEMO-001";
-const char *FIRMWARE_VERSION = "1.0.0";
+// ================= BLE UUIDs =================
+static const char *SERVICE_UUID = "7A100001-8C6A-4F6D-A55B-000000000001";
+static const char *DEVICE_INFO_UUID = "7A100002-8C6A-4F6D-A55B-000000000001";
+static const char *WRITE_UUID = "7A100003-8C6A-4F6D-A55B-000000000001";
+static const char *STATUS_UUID = "7A100004-8C6A-4F6D-A55B-000000000001";
 
-// =========================
-// I2C pins for ESP32
-// =========================
-const int SDA_PIN = 21;
-const int SCL_PIN = 22;
+// ================= Preferences =================
+static const char *PREF_NAMESPACE = "bracelet";
+static const char *PREF_SSID_KEY = "ssid";
+static const char *PREF_PASS_KEY = "pass";
+static const char *PREF_DEVICE_ID_KEY = "device_id";
+static const char *PREF_USER_ID_KEY = "user_id";
+static const char *PREF_PAIRING_TOKEN_KEY = "pair_tok";
+static const char *PREF_MQTT_HOST_KEY = "mqtt_host";
+static const char *PREF_MQTT_PORT_KEY = "mqtt_port";
+static const char *PREF_MQTT_TOPIC_KEY = "mqtt_topic";
 
-// =========================
-// BLE Provisioning UUIDs
-// =========================
-static const char *PROVISIONING_SERVICE_UUID = "7A100001-8C6A-4F6D-A55B-000000000001";
-static const char *DEVICE_INFO_CHARACTERISTIC_UUID = "7A100002-8C6A-4F6D-A55B-000000000001";
-static const char *PROVISIONING_CHARACTERISTIC_UUID = "7A100003-8C6A-4F6D-A55B-000000000001";
-static const char *STATUS_CHARACTERISTIC_UUID = "7A100004-8C6A-4F6D-A55B-000000000001";
+// ================= Firmware Identity =================
+static const char *DEVICE_NAME = "FallDetectionBracelet";
+static const char *DEVICE_TYPE = "esp32-bracelet";
+static const char *FIRMWARE_VERSION = "2.0.0";
 
-// =========================
-// Runtime constants
-// =========================
-const unsigned long SEND_INTERVAL_MS = 2000;
-const unsigned long WIFI_CONNECT_TIMEOUT_MS = 15000;
-const unsigned long MQTT_RETRY_INTERVAL_MS = 5000;
-const unsigned long FINGER_ON_SENSOR_THRESHOLD = 50000;
-const byte RATE_SIZE = 4;
-
-static const size_t DEVICE_INFO_JSON_SIZE = 192;
-static const size_t STATUS_JSON_SIZE = 192;
-static const size_t TELEMETRY_JSON_SIZE = 384;
-static const size_t PROVISIONING_JSON_SIZE = 384;
+// ================= Timing =================
+static const unsigned long WIFI_RETRY_INTERVAL_MS = 10000;
+static const unsigned long MQTT_RETRY_INTERVAL_MS = 5000;
+static const unsigned long PUBLISH_INTERVAL_MS = 5000;
 
 Preferences preferences;
+BLECharacteristic *deviceInfoChar = nullptr;
+BLECharacteristic *writeChar = nullptr;
+BLECharacteristic *statusChar = nullptr;
+
 WiFiClient wifiClient;
 PubSubClient mqttClient(wifiClient);
-Adafruit_MPU6050 imu;
-MAX30105 max30102;
 
-BLECharacteristic *deviceInfoCharacteristic = nullptr;
-BLECharacteristic *provisioningCharacteristic = nullptr;
-BLECharacteristic *statusCharacteristic = nullptr;
+bool deviceConnected = false;
+bool shouldApplyProvisioning = false;
 
-String deviceId = DEFAULT_DEVICE_ID;
-String pairingToken;
-String wifiSsid;
-String wifiPassword;
-String mqttHost = "broker.hivemq.com";
-int mqttPort = 1883;
-String mqttTopic = "fall-detection/device-data";
-String apiBaseUrl = "http://138.2.183.9:8000/api/v1";
+String wifiSsid = "";
+String wifiPassword = "";
+String provisionedDeviceId = "";
+String pairingToken = "";
+String mqttHost = "";
+String mqttTopic = "";
+uint16_t mqttPort = 1883;
+int provisionedUserId = 0;
 
-bool wifiConnected = false;
-bool mqttConnected = false;
-bool max301Ready = false;
-unsigned long lastSendAt = 0;
-unsigned long lastMqttAttemptAt = 0;
+unsigned long lastWifiAttemptMs = 0;
+unsigned long lastMqttAttemptMs = 0;
+unsigned long lastPublishMs = 0;
 
-byte rates[RATE_SIZE];
-byte rateSpot = 0;
-byte validRateCount = 0;
-long lastBeat = 0;
-float beatsPerMinute = 0.0;
-int beatAvg = 0;
-long lastIrValue = 0;
-
+// ================= Utilities =================
 void disableClassicBluetooth() {
   esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
 }
 
-String buildDeviceInfoJson() {
-  StaticJsonDocument<DEVICE_INFO_JSON_SIZE> doc;
-  doc["device_id"] = deviceId;
-  doc["firmware_version"] = FIRMWARE_VERSION;
-  doc["device_type"] = "fall_bracelet";
-  doc["wifi_connected"] = wifiConnected;
-  doc["backend_connected"] = mqttConnected;
-  doc["battery_level"] = 100;
-  doc["status"] = wifiSsid.isEmpty()
-                      ? "ready_for_provisioning"
-                      : (mqttConnected ? "streaming" : (wifiConnected ? "wifi_connected" : "configured"));
-
-  String output;
-  serializeJson(doc, output);
-  return output;
+String fallbackDeviceId() {
+  uint64_t chipId = ESP.getEfuseMac();
+  char buffer[32];
+  snprintf(buffer, sizeof(buffer), "bracelet-%04X%08X", (uint16_t)(chipId >> 32), (uint32_t)chipId);
+  return String(buffer);
 }
 
-void refreshDeviceInfoCharacteristic() {
-  if (deviceInfoCharacteristic != nullptr) {
-    String payload = buildDeviceInfoJson();
-    deviceInfoCharacteristic->setValue(payload.c_str());
-  }
+void loadStoredConfig() {
+  wifiSsid = preferences.getString(PREF_SSID_KEY, "");
+  wifiPassword = preferences.getString(PREF_PASS_KEY, "");
+  provisionedDeviceId = preferences.getString(PREF_DEVICE_ID_KEY, fallbackDeviceId());
+  provisionedUserId = preferences.getInt(PREF_USER_ID_KEY, 0);
+  pairingToken = preferences.getString(PREF_PAIRING_TOKEN_KEY, "");
+  mqttHost = preferences.getString(PREF_MQTT_HOST_KEY, "");
+  mqttPort = preferences.getUShort(PREF_MQTT_PORT_KEY, 1883);
+  mqttTopic = preferences.getString(PREF_MQTT_TOPIC_KEY, "fall-detection/device-data");
 }
 
-void notifyStatus(const char *stage, bool success, const char *message) {
-  StaticJsonDocument<STATUS_JSON_SIZE> doc;
-  doc["device_id"] = deviceId;
+void saveConfig() {
+  preferences.putString(PREF_SSID_KEY, wifiSsid);
+  preferences.putString(PREF_PASS_KEY, wifiPassword);
+  preferences.putString(PREF_DEVICE_ID_KEY, provisionedDeviceId);
+  preferences.putInt(PREF_USER_ID_KEY, provisionedUserId);
+  preferences.putString(PREF_PAIRING_TOKEN_KEY, pairingToken);
+  preferences.putString(PREF_MQTT_HOST_KEY, mqttHost);
+  preferences.putUShort(PREF_MQTT_PORT_KEY, mqttPort);
+  preferences.putString(PREF_MQTT_TOPIC_KEY, mqttTopic);
+}
+
+String connectionStatusLabel() {
+  if (mqttClient.connected()) return "streaming";
+  if (WiFi.status() == WL_CONNECTED) return "wifi_connected";
+  if (wifiSsid.length() > 0) return "provisioned";
+  return "ready_for_provisioning";
+}
+
+void notifyStatus(const char *stage, bool success, const String &message) {
+  if (!statusChar) return;
+
+  StaticJsonDocument<256> doc;
+  doc["device_id"] = provisionedDeviceId.length() ? provisionedDeviceId : fallbackDeviceId();
   doc["stage"] = stage;
   doc["success"] = success;
   doc["message"] = message;
 
-  String payload;
-  serializeJson(doc, payload);
-  Serial.println(payload);
+  char buffer[256];
+  size_t len = serializeJson(doc, buffer, sizeof(buffer));
+  statusChar->setValue((uint8_t *)buffer, len);
+  statusChar->notify();
 
-  if (statusCharacteristic != nullptr) {
-    statusCharacteristic->setValue(payload.c_str());
-    statusCharacteristic->notify();
-  }
-
-  refreshDeviceInfoCharacteristic();
+  Serial.printf("STATUS [%s] %s - %s\n", stage, success ? "OK" : "FAIL", message.c_str());
 }
 
-void loadSavedConfig() {
-  preferences.begin("provisioning", false);
-  deviceId = preferences.getString("device_id", DEFAULT_DEVICE_ID);
-  pairingToken = preferences.getString("pairing_token", "");
-  wifiSsid = preferences.getString("wifi_ssid", "");
-  wifiPassword = preferences.getString("wifi_pass", "");
-  mqttHost = preferences.getString("mqtt_host", mqttHost);
-  mqttPort = preferences.getInt("mqtt_port", mqttPort);
-  mqttTopic = preferences.getString("mqtt_topic", mqttTopic);
-  apiBaseUrl = preferences.getString("api_base_url", apiBaseUrl);
+void updateDeviceInfoCharacteristic() {
+  if (!deviceInfoChar) return;
+
+  StaticJsonDocument<256> doc;
+  doc["device_id"] = provisionedDeviceId.length() ? provisionedDeviceId : fallbackDeviceId();
+  doc["firmware_version"] = FIRMWARE_VERSION;
+  doc["device_type"] = DEVICE_TYPE;
+  doc["wifi_connected"] = WiFi.status() == WL_CONNECTED;
+  doc["backend_connected"] = mqttClient.connected();
+  doc["battery_level"] = 85;
+  doc["status"] = connectionStatusLabel();
+
+  char buffer[256];
+  size_t len = serializeJson(doc, buffer, sizeof(buffer));
+  deviceInfoChar->setValue((uint8_t *)buffer, len);
 }
 
-void persistProvisioning() {
-  preferences.putString("device_id", deviceId);
-  preferences.putString("pairing_token", pairingToken);
-  preferences.putString("wifi_ssid", wifiSsid);
-  preferences.putString("wifi_pass", wifiPassword);
-  preferences.putString("mqtt_host", mqttHost);
-  preferences.putInt("mqtt_port", mqttPort);
-  preferences.putString("mqtt_topic", mqttTopic);
-  preferences.putString("api_base_url", apiBaseUrl);
+void stopBleProvisioning() {
+  if (!BLEDevice::getInitialized()) return;
+  BLEDevice::deinit(true);
+  Serial.println("✅ BLE stopped after provisioning");
 }
 
-bool connectToWiFi() {
-  if (wifiSsid.isEmpty()) {
-    wifiConnected = false;
+// ================= Mock Sensor Data =================
+// Replace these helpers with actual MPU6050 / MAX30102 readings when the hardware integration is ready.
+float wave(unsigned long t, float speed, float amplitude, float offset) {
+  return sin((float)t / speed) * amplitude + offset;
+}
+
+void buildTelemetryJson(char *output, size_t outputSize) {
+  unsigned long now = millis();
+
+  float accX = wave(now, 700.0f, 0.18f, 0.02f);
+  float accY = wave(now + 200, 900.0f, 0.12f, -0.01f);
+  float accZ = wave(now + 500, 650.0f, 0.25f, 9.72f);
+
+  float gyroX = wave(now, 300.0f, 8.0f, 0.8f);
+  float gyroY = wave(now + 300, 400.0f, 7.0f, -0.5f);
+  float gyroZ = wave(now + 500, 500.0f, 6.0f, 0.2f);
+
+  float heartRate = wave(now, 1400.0f, 6.0f, 78.0f);
+  float spo2 = wave(now, 2500.0f, 1.0f, 97.5f);
+  float bodyTemp = wave(now, 3200.0f, 0.2f, 36.7f);
+  float batteryLevel = 84.0f;
+
+  StaticJsonDocument<512> doc;
+  doc["device_id"] = provisionedDeviceId;
+  doc["user_id"] = provisionedUserId;
+  doc["pairing_token"] = pairingToken;
+  doc["battery_level"] = batteryLevel;
+  doc["firmware_version"] = FIRMWARE_VERSION;
+
+  JsonObject motion = doc.createNestedObject("motion");
+  motion["acc_x"] = accX;
+  motion["acc_y"] = accY;
+  motion["acc_z"] = accZ;
+  motion["gyro_x"] = gyroX;
+  motion["gyro_y"] = gyroY;
+  motion["gyro_z"] = gyroZ;
+  motion["temperature"] = bodyTemp;
+
+  JsonObject vitals = doc.createNestedObject("vitals");
+  vitals["heart_rate"] = heartRate;
+  vitals["oxygen_saturation"] = spo2;
+  vitals["body_temperature"] = bodyTemp;
+
+  serializeJson(doc, output, outputSize);
+}
+
+// ================= Connectivity =================
+bool connectToWiFi(bool forceReconnect = false) {
+  if (wifiSsid.isEmpty() || wifiPassword.isEmpty()) {
+    notifyStatus("ready_for_provisioning", false, "WiFi credentials not provisioned");
     return false;
   }
 
-  if (WiFi.status() == WL_CONNECTED) {
-    wifiConnected = true;
+  if (WiFi.status() == WL_CONNECTED && !forceReconnect) {
     return true;
   }
 
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
-  Serial.printf("Connecting to WiFi SSID: %s\n", wifiSsid.c_str());
+  if (forceReconnect) {
+    WiFi.disconnect(true, true);
+    delay(200);
+  }
 
-  unsigned long startedAt = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - startedAt < WIFI_CONNECT_TIMEOUT_MS) {
+  WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);
+  WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
+
+  Serial.printf("🔄 Connecting to WiFi SSID=%s\n", wifiSsid.c_str());
+
+  int retries = 0;
+  while (WiFi.status() != WL_CONNECTED && retries < 20) {
     delay(500);
     Serial.print(".");
+    retries++;
   }
   Serial.println();
 
-  wifiConnected = WiFi.status() == WL_CONNECTED;
-  if (wifiConnected) {
-    Serial.print("WiFi connected. IP: ");
-    Serial.println(WiFi.localIP());
-    notifyStatus("wifi_connected", true, "Connected to WiFi");
-  } else {
-    notifyStatus("wifi_failed", false, "Failed to connect to WiFi");
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.printf("✅ WiFi connected. IP=%s\n", WiFi.localIP().toString().c_str());
+    notifyStatus("wifi_connected", true, WiFi.localIP().toString());
+    updateDeviceInfoCharacteristic();
+    return true;
   }
 
-  return wifiConnected;
+  Serial.println("❌ WiFi connection failed");
+  notifyStatus("wifi_failed", false, "Failed to connect to WiFi");
+  updateDeviceInfoCharacteristic();
+  return false;
 }
 
 bool connectToMqtt() {
-  if (!wifiConnected || mqttHost.isEmpty()) {
-    mqttConnected = false;
+  if (mqttHost.isEmpty() || mqttTopic.isEmpty()) {
+    notifyStatus("mqtt_failed", false, "MQTT config missing");
     return false;
   }
 
+  if (mqttClient.connected()) {
+    return true;
+  }
+
   mqttClient.setServer(mqttHost.c_str(), mqttPort);
-  mqttClient.setBufferSize(512);
 
-  String clientId = String("esp32-") + deviceId;
-  mqttConnected = mqttClient.connect(clientId.c_str());
+  String clientId = String("fall-bracelet-") + provisionedDeviceId;
+  Serial.printf("🔄 Connecting to MQTT %s:%u topic=%s\n", mqttHost.c_str(), mqttPort, mqttTopic.c_str());
 
-  if (mqttConnected) {
-    notifyStatus("mqtt_connected", true, "Connected to MQTT broker");
-  } else {
-    notifyStatus("mqtt_failed", false, "Failed to connect to MQTT broker");
+  if (mqttClient.connect(clientId.c_str())) {
+    Serial.println("✅ MQTT connected");
+    notifyStatus("mqtt_connected", true, "MQTT connected");
+    updateDeviceInfoCharacteristic();
+    return true;
   }
 
-  return mqttConnected;
+  Serial.printf("❌ MQTT connect failed rc=%d\n", mqttClient.state());
+  notifyStatus("mqtt_failed", false, String("MQTT rc=") + mqttClient.state());
+  updateDeviceInfoCharacteristic();
+  return false;
 }
 
-void setupMpu6050() {
-  Serial.println("Initializing MPU6050...");
-
-  if (!imu.begin()) {
-    Serial.println("MPU6050 connection failed!");
-    while (true) {
-      delay(1000);
-    }
-  }
-
-  imu.setAccelerometerRange(MPU6050_RANGE_8_G);
-  imu.setGyroRange(MPU6050_RANGE_500_DEG);
-  imu.setFilterBandwidth(MPU6050_BAND_21_HZ);
-  Serial.println("MPU6050 connected successfully!");
-}
-
-void setupMax30102() {
-  Serial.println("Initializing MAX30102...");
-
-  if (!max30102.begin(Wire, I2C_SPEED_FAST)) {
-    Serial.println("MAX30102 connection failed! Vitals will be skipped.");
-    max301Ready = false;
+void publishTelemetry() {
+  if (!mqttClient.connected()) return;
+  if (provisionedDeviceId.isEmpty() || provisionedUserId <= 0) {
+    notifyStatus("mqtt_failed", false, "Device provisioning incomplete");
     return;
   }
 
-  max30102.setup();
-  max30102.setPulseAmplitudeRed(0x1F);
-  max30102.setPulseAmplitudeIR(0x1F);
-  max30102.setPulseAmplitudeGreen(0);
-  max301Ready = true;
-  Serial.println("MAX30102 connected successfully!");
-}
+  char payload[512];
+  buildTelemetryJson(payload, sizeof(payload));
 
-void updateHeartRate() {
-  if (!max301Ready) {
-    return;
-  }
-
-  long irValue = max30102.getIR();
-  lastIrValue = irValue;
-
-  if (irValue < FINGER_ON_SENSOR_THRESHOLD) {
-    beatsPerMinute = 0.0;
-    beatAvg = 0;
-    validRateCount = 0;
-    return;
-  }
-
-  if (checkForBeat(irValue)) {
-    long delta = millis() - lastBeat;
-    lastBeat = millis();
-
-    if (delta <= 0) {
-      return;
-    }
-
-    float bpm = 60.0 / (delta / 1000.0);
-    if (bpm > 20 && bpm < 255) {
-      beatsPerMinute = bpm;
-      rates[rateSpot] = (byte)bpm;
-      rateSpot = (rateSpot + 1) % RATE_SIZE;
-
-      if (validRateCount < RATE_SIZE) {
-        validRateCount++;
-      }
-
-      int sum = 0;
-      for (byte i = 0; i < validRateCount; i++) {
-        sum += rates[i];
-      }
-      beatAvg = sum / validRateCount;
-    }
-  }
-}
-
-String buildTelemetryPayload(float ax, float ay, float az, float gx, float gy, float gz) {
-  StaticJsonDocument<TELEMETRY_JSON_SIZE> doc;
-  doc["device_id"] = deviceId;
-
-  if (!pairingToken.isEmpty()) {
-    doc["pairing_token"] = pairingToken;
-  }
-
-  doc["firmware_version"] = FIRMWARE_VERSION;
-  doc["battery_level"] = 100;
-
-  JsonObject motion = doc.createNestedObject("motion");
-  motion["acc_x"] = ax;
-  motion["acc_y"] = ay;
-  motion["acc_z"] = az;
-  motion["gyro_x"] = gx;
-  motion["gyro_y"] = gy;
-  motion["gyro_z"] = gz;
-
-  if (max301Ready && validRateCount > 0 && beatAvg > 0) {
-    JsonObject vitals = doc.createNestedObject("vitals");
-    vitals["heart_rate"] = beatAvg;
-  }
-
-  String output;
-  serializeJson(doc, output);
-  return output;
-}
-
-void publishTelemetry(const String &payload) {
-  if (!mqttConnected) {
-    return;
-  }
-
-  bool published = mqttClient.publish(mqttTopic.c_str(), payload.c_str());
+  bool published = mqttClient.publish(mqttTopic.c_str(), payload);
   if (published) {
-    notifyStatus("streaming", true, "Publishing telemetry");
+    Serial.printf("📤 MQTT published: %s\n", payload);
+    notifyStatus("streaming", true, "Telemetry published");
   } else {
-    notifyStatus("mqtt_publish_failed", false, "Failed to publish telemetry");
+    Serial.println("❌ MQTT publish failed");
+    notifyStatus("mqtt_failed", false, "MQTT publish failed");
   }
+
+  updateDeviceInfoCharacteristic();
 }
+
+// ================= BLE Callbacks =================
+class ServerCallbacks : public BLEServerCallbacks {
+  void onConnect(BLEServer *server) override {
+    deviceConnected = true;
+    Serial.println("📱 BLE connected");
+  }
+
+  void onDisconnect(BLEServer *server) override {
+    deviceConnected = false;
+    Serial.println("📴 BLE disconnected");
+    if (BLEDevice::getInitialized()) {
+      delay(200);
+      server->getAdvertising()->start();
+      Serial.println("🔄 BLE advertising restarted");
+    }
+  }
+};
 
 class DeviceInfoCallbacks : public BLECharacteristicCallbacks {
   void onRead(BLECharacteristic *characteristic) override {
-    String info = buildDeviceInfoJson();
-    characteristic->setValue(info.c_str());
+    updateDeviceInfoCharacteristic();
   }
 };
 
-class ProvisioningCallbacks : public BLECharacteristicCallbacks {
+class WriteCallbacks : public BLECharacteristicCallbacks {
   void onWrite(BLECharacteristic *characteristic) override {
-    String rawValue = characteristic->getValue();
-    if (rawValue.isEmpty()) {
+    std::string rawValue = characteristic->getValue();
+    if (rawValue.empty()) {
+      notifyStatus("provisioning_received", false, "Empty provisioning payload");
       return;
     }
 
-    StaticJsonDocument<PROVISIONING_JSON_SIZE> doc;
-    DeserializationError error = deserializeJson(doc, rawValue);
-    if (error) {
-      notifyStatus("provisioning_received", false, "Invalid provisioning JSON");
+    String value = String(rawValue.c_str());
+    Serial.printf("📥 Provisioning payload bytes=%u\n", value.length());
+
+    StaticJsonDocument<768> doc;
+    DeserializationError err = deserializeJson(doc, value);
+    if (err) {
+      Serial.printf("❌ Provisioning JSON parse failed: %s\n", err.c_str());
+      notifyStatus("provisioning_received", false, String("Invalid JSON: ") + err.c_str());
       return;
     }
 
-    deviceId = doc["device_id"] | deviceId;
-    pairingToken = doc["pairing_token"] | pairingToken;
-    wifiSsid = doc["wifi"]["ssid"] | wifiSsid;
-    wifiPassword = doc["wifi"]["password"] | wifiPassword;
-    mqttHost = doc["mqtt"]["host"] | mqttHost;
-    mqttPort = doc["mqtt"]["port"] | mqttPort;
-    mqttTopic = doc["mqtt"]["topic"] | mqttTopic;
-    apiBaseUrl = doc["api"]["base_url"] | apiBaseUrl;
+    wifiSsid = doc["wifi"]["ssid"] | "";
+    wifiPassword = doc["wifi"]["password"] | "";
+    provisionedDeviceId = doc["device_id"] | fallbackDeviceId();
+    pairingToken = doc["pairing_token"] | "";
+    mqttHost = doc["mqtt"]["host"] | "";
+    mqttTopic = doc["mqtt"]["topic"] | "fall-detection/device-data";
+    mqttPort = doc["mqtt"]["port"] | 1883;
+    provisionedUserId = doc["user_id"] | 0;
 
-    persistProvisioning();
-    notifyStatus("provisioning_received", true, "Provisioning payload stored");
-
-    if (connectToWiFi()) {
-      connectToMqtt();
+    if (wifiSsid.isEmpty() || wifiPassword.isEmpty()) {
+      notifyStatus("provisioning_received", false, "WiFi SSID/password missing");
+      return;
     }
+
+    if (provisionedDeviceId.isEmpty() || provisionedUserId <= 0) {
+      notifyStatus("provisioning_received", false, "device_id or user_id missing");
+      return;
+    }
+
+    saveConfig();
+    updateDeviceInfoCharacteristic();
+    notifyStatus("provisioning_received", true, "Provisioning saved");
+    shouldApplyProvisioning = true;
   }
 };
 
-void startBleProvisioningServer() {
-  BLEDevice::init("FallDetectionBracelet");
+// ================= BLE Setup =================
+void startBleProvisioning() {
+  BLEDevice::init(DEVICE_NAME);
+  BLEDevice::setMTU(517);
+
   BLEServer *server = BLEDevice::createServer();
-  BLEService *service = server->createService(PROVISIONING_SERVICE_UUID);
+  server->setCallbacks(new ServerCallbacks());
 
-  deviceInfoCharacteristic = service->createCharacteristic(
-      DEVICE_INFO_CHARACTERISTIC_UUID,
-      BLECharacteristic::PROPERTY_READ);
-  deviceInfoCharacteristic->setCallbacks(new DeviceInfoCallbacks());
-  deviceInfoCharacteristic->setValue(buildDeviceInfoJson().c_str());
+  BLEService *service = server->createService(SERVICE_UUID);
 
-  provisioningCharacteristic = service->createCharacteristic(
-      PROVISIONING_CHARACTERISTIC_UUID,
-      BLECharacteristic::PROPERTY_WRITE);
-  provisioningCharacteristic->setCallbacks(new ProvisioningCallbacks());
+  deviceInfoChar = service->createCharacteristic(
+    DEVICE_INFO_UUID,
+    BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+  );
+  deviceInfoChar->addDescriptor(new BLE2902());
+  deviceInfoChar->setCallbacks(new DeviceInfoCallbacks());
 
-  statusCharacteristic = service->createCharacteristic(
-      STATUS_CHARACTERISTIC_UUID,
-      BLECharacteristic::PROPERTY_NOTIFY);
-  statusCharacteristic->addDescriptor(new BLE2902());
+  writeChar = service->createCharacteristic(
+    WRITE_UUID,
+    BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR
+  );
+  writeChar->setCallbacks(new WriteCallbacks());
+
+  statusChar = service->createCharacteristic(
+    STATUS_UUID,
+    BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+  );
+  statusChar->addDescriptor(new BLE2902());
+
+  updateDeviceInfoCharacteristic();
+  notifyStatus("ready_for_provisioning", true, "BLE provisioning ready");
 
   service->start();
-  BLEAdvertising *advertising = BLEDevice::getAdvertising();
-  advertising->addServiceUUID(PROVISIONING_SERVICE_UUID);
-  advertising->start();
 
-  Serial.println("BLE provisioning server started");
+  BLEAdvertising *adv = BLEDevice::getAdvertising();
+  adv->addServiceUUID(SERVICE_UUID);
+  adv->setScanResponse(true);
+  adv->setMinPreferred(0x06);
+  adv->setMinPreferred(0x12);
+  adv->start();
+
+  Serial.println("🚀 BLE provisioning ready");
 }
 
+// ================= Arduino Setup/Loop =================
 void setup() {
   Serial.begin(115200);
+  Serial.println("\n===== FALL DETECTION BRACELET START =====");
 
   disableClassicBluetooth();
-  Wire.begin(SDA_PIN, SCL_PIN);
+  Wire.begin(21, 22);
+  preferences.begin(PREF_NAMESPACE, false);
+  loadStoredConfig();
 
-  loadSavedConfig();
-  setupMpu6050();
-  setupMax30102();
-  startBleProvisioningServer();
+  startBleProvisioning();
 
   if (!wifiSsid.isEmpty()) {
-    connectToWiFi();
-    connectToMqtt();
+    Serial.println("📦 Found stored provisioning config");
+    shouldApplyProvisioning = true;
   }
 }
 
 void loop() {
-  updateHeartRate();
+  unsigned long now = millis();
+
+  if (shouldApplyProvisioning) {
+    shouldApplyProvisioning = false;
+    stopBleProvisioning();
+    connectToWiFi(true);
+  }
 
   if (WiFi.status() != WL_CONNECTED) {
-    wifiConnected = false;
-    if (!wifiSsid.isEmpty()) {
-      connectToWiFi();
+    if (now - lastWifiAttemptMs >= WIFI_RETRY_INTERVAL_MS) {
+      lastWifiAttemptMs = now;
+      connectToWiFi(false);
     }
-  } else {
-    wifiConnected = true;
+    delay(100);
+    return;
   }
 
-  if (wifiConnected && !mqttClient.connected() && millis() - lastMqttAttemptAt >= MQTT_RETRY_INTERVAL_MS) {
-    lastMqttAttemptAt = millis();
-    connectToMqtt();
+  if (!mqttClient.connected()) {
+    if (now - lastMqttAttemptMs >= MQTT_RETRY_INTERVAL_MS) {
+      lastMqttAttemptMs = now;
+      connectToMqtt();
+    }
+    delay(100);
+    return;
   }
 
-  mqttConnected = mqttClient.connected();
-  if (mqttConnected) {
-    mqttClient.loop();
-  }
+  mqttClient.loop();
 
-  if (millis() - lastSendAt >= SEND_INTERVAL_MS) {
-    lastSendAt = millis();
-
-    sensors_event_t accel;
-    sensors_event_t gyro;
-    sensors_event_t temp;
-    imu.getEvent(&accel, &gyro, &temp);
-
-    float ax = accel.acceleration.x / 9.80665;
-    float ay = accel.acceleration.y / 9.80665;
-    float az = accel.acceleration.z / 9.80665;
-    float gx = gyro.gyro.x * 57.2958;
-    float gy = gyro.gyro.y * 57.2958;
-    float gz = gyro.gyro.z * 57.2958;
-
-    String payload = buildTelemetryPayload(ax, ay, az, gx, gy, gz);
-
-    Serial.println("=== Sensor Data ===");
-    Serial.print("Accel (g) -> X: ");
-    Serial.print(ax, 3);
-    Serial.print(" Y: ");
-    Serial.print(ay, 3);
-    Serial.print(" Z: ");
-    Serial.println(az, 3);
-
-    Serial.print("Gyro (deg/s) -> X: ");
-    Serial.print(gx, 2);
-    Serial.print(" Y: ");
-    Serial.print(gy, 2);
-    Serial.print(" Z: ");
-    Serial.println(gz, 2);
-
-    if (max301Ready) {
-      Serial.print("MAX30102 IR: ");
-      Serial.println(lastIrValue);
-
-      if (validRateCount > 0 && beatAvg > 0) {
-        Serial.print("Heart Rate (BPM): ");
-        Serial.println(beatAvg);
-      } else {
-        Serial.println("Heart Rate (BPM): -- put finger correctly on MAX30102");
-      }
-    }
-
-    Serial.println("=== JSON to publish ===");
-    Serial.println(payload);
-
-    if (mqttConnected) {
-      publishTelemetry(payload);
-    }
+  if (now - lastPublishMs >= PUBLISH_INTERVAL_MS) {
+    lastPublishMs = now;
+    publishTelemetry();
   }
 
   delay(50);

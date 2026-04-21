@@ -201,7 +201,7 @@ class AuthService {
       // Validate with server (if we're not near expiry)
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3000);
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
         
         const response = await fetch(`${this.baseURL}/validate-token`, {
           method: 'POST',

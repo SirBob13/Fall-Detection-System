@@ -21,6 +21,44 @@ class ApiService {
     });
   }
 
+  private formatApiError(error: any, fallbackMessage: string): ApiResponse<any> {
+    const code = error?.code;
+    const status = error?.response?.status;
+    const rawMessage = error?.message || 'Unknown error';
+    const isTimeout = code === 'ECONNABORTED' || /timeout|aborted/i.test(rawMessage);
+    const isNetwork = error?.isAxiosError && !error?.response;
+
+    if (isTimeout) {
+      return {
+        success: false,
+        error: rawMessage,
+        message: 'انتهت مهلة الاتصال بالخادم. تحقق من الشبكة أو جرّب مرة أخرى.',
+      };
+    }
+
+    if (isNetwork) {
+      return {
+        success: false,
+        error: rawMessage,
+        message: `تعذر الوصول إلى الخادم ${API_CONFIG.BASE_URL}. تحقق من أن السيرفر يعمل وأن الهاتف يستطيع الوصول إليه.`,
+      };
+    }
+
+    if (status) {
+      return {
+        success: false,
+        error: rawMessage,
+        message: `${fallbackMessage} (HTTP ${status})`,
+      };
+    }
+
+    return {
+      success: false,
+      error: rawMessage,
+      message: fallbackMessage,
+    };
+  }
+
   private normalizeAlert(raw: any, userId?: number): Alert {
     const status = raw?.status === 'active' ? 'pending' : raw?.status;
 
@@ -130,11 +168,7 @@ class ApiService {
       return { success: payload?.success ?? true, data: alerts };
     } catch (error: any) {
       console.error('❌ Error getting alerts:', error.message);
-      return {
-        success: false,
-        error: error.message,
-        message: 'فشل تحميل الإنذارات'
-      };
+      return this.formatApiError(error, 'فشل تحميل الإنذارات');
     }
   }
 
@@ -199,11 +233,7 @@ class ApiService {
       return { success: payload?.success ?? true, data };
     } catch (error: any) {
       console.error('❌ Error getting report:', error.message);
-      return {
-        success: false,
-        error: error.message,
-        message: 'فشل تحميل التقرير'
-      };
+      return this.formatApiError(error, 'فشل تحميل التقرير');
     }
   }
 
@@ -261,11 +291,7 @@ class ApiService {
       return { success: payload?.success ?? true, data: devices };
     } catch (error: any) {
       console.error('❌ Error getting user devices:', error.message);
-      return {
-        success: false,
-        error: error.message,
-        message: 'فشل تحميل بيانات الأجهزة'
-      };
+      return this.formatApiError(error, 'فشل تحميل بيانات الأجهزة');
     }
   }
 
@@ -303,11 +329,7 @@ class ApiService {
       return { success: data?.success ?? true, data: device, message: data?.message };
     } catch (error: any) {
       console.error('❌ Error connecting device:', error.message);
-      return {
-        success: false,
-        error: error.message,
-        message: 'فشل ربط الجهاز'
-      };
+      return this.formatApiError(error, 'فشل ربط الجهاز');
     }
   }
 
@@ -392,11 +414,7 @@ class ApiService {
       return { success: payload?.success ?? true, data };
     } catch (error: any) {
       console.error('❌ Error getting predictions:', error.message);
-      return {
-        success: false,
-        error: error.message,
-        message: 'فشل تحميل التنبؤات'
-      };
+      return this.formatApiError(error, 'فشل تحميل التنبؤات');
     }
   }
 
@@ -408,11 +426,7 @@ class ApiService {
       return { success: payload?.success ?? true, data };
     } catch (error: any) {
       console.error('❌ Error getting vitals:', error.message);
-      return {
-        success: false,
-        error: error.message,
-        message: 'فشل تحميل المؤشرات الحيوية'
-      };
+      return this.formatApiError(error, 'فشل تحميل المؤشرات الحيوية');
     }
   }
 

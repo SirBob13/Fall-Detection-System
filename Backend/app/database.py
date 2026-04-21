@@ -162,6 +162,7 @@ def create_test_data():
     """
     Create test data for development
     """
+    db = None
     try:
         from . import crud, schemas, models
         from sqlalchemy.orm import Session
@@ -218,11 +219,13 @@ def create_test_data():
             print(f"   👤 Test user: test@example.com / test123")
             print(f"   📱 Device ID: TEST_DEVICE_001")
         
-        db.close()
-        
     except Exception as e:
         print(f"⚠️ Error creating test data: {e}")
-        db.rollback()
+        if db is not None:
+            db.rollback()
+    finally:
+        if db is not None:
+            db.close()
 
 # اختبار الاتصال بقاعدة البيانات
 def test_connection():

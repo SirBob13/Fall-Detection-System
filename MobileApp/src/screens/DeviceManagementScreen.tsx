@@ -15,6 +15,7 @@ import { authService } from '../services/auth.service';
 import { bluetoothService, ScannedDevice, isBluetoothSupported } from '../services/bluetooth.service';
 import { apiService } from '../services/api';
 import { deviceService } from '../services/device.service';
+import { deviceProvisioningService } from '../services/deviceProvisioning.service';
 import { Device, User } from '../types';
 import { realtimeService } from '../services/realtime.service';
 import { isDeviceOnline } from '../utils/deviceStatus';
@@ -25,6 +26,7 @@ export const DeviceManagementScreen: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
   const [scanResults, setScanResults] = useState<ScannedDevice[]>([]);
+  const [selectedBleDeviceId, setSelectedBleDeviceId] = useState<string | null>(null);
   const [manualDeviceId, setManualDeviceId] = useState('');
   const [wifiSsid, setWifiSsid] = useState('');
   const [wifiPassword, setWifiPassword] = useState('');
@@ -39,6 +41,7 @@ export const DeviceManagementScreen: React.FC = () => {
   const [archivedDevices, setArchivedDevices] = useState<Device[]>([]);
   const [isLoadingArchived, setIsLoadingArchived] = useState(false);
   const [restoringId, setRestoringId] = useState<string | null>(null);
+  const [hasScanned, setHasScanned] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -170,22 +173,103 @@ export const DeviceManagementScreen: React.FC = () => {
     return macPattern.test(value) || fallbackPattern.test(value);
   };
 
+  const verifyProvisioningCandidates = async (candidates: ScannedDevice[]): Promise<ScannedDevice[]> => {
+    const sortedCandidates = [...candidates].sort((left, right) => {
+      const leftRssi = typeof left.rssi === 'number' ? left.rssi : -999;
+      const rightRssi = typeof right.rssi === 'number' ? right.rssi : -999;
+      return rightRssi - leftRssi;
+    });
+
+    const strongestCandidates = sortedCandidates.slice(0, 6);
+    const verified = new Map<string, ScannedDevice>();
+
+    for (const candidate of strongestCandidates) {
+      try {
+        console.log('🧪 [BLE UI] Verifying candidate:', candidate);
+        const info = await Promise.race([
+          deviceProvisioningService.readDeviceInfo(candidate.id),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)),
+        ]);
+
+        if (!info?.device_id) {
+          continue;
+        }
+
+        verified.set(candidate.id, {
+          ...candidate,
+          name: `Bracelet ${info.device_id}`,
+        });
+        console.log('✅ [BLE UI] Verified bracelet candidate:', {
+          scanId: candidate.id,
+          deviceId: info.device_id,
+          firmwareVersion: info.firmware_version,
+        });
+      } catch (error) {
+        console.log('⚪ [BLE UI] Candidate is not the bracelet:', candidate.id);
+      } finally {
+        await deviceProvisioningService.disconnect();
+      }
+    }
+
+    if (verified.size === 0) {
+      return sortedCandidates;
+    }
+
+    return sortedCandidates.sort((left, right) => {
+      const leftVerified = verified.has(left.id) ? 1 : 0;
+      const rightVerified = verified.has(right.id) ? 1 : 0;
+      if (leftVerified !== rightVerified) {
+        return rightVerified - leftVerified;
+      }
+
+      const leftRssi = typeof left.rssi === 'number' ? left.rssi : -999;
+      const rightRssi = typeof right.rssi === 'number' ? right.rssi : -999;
+      return rightRssi - leftRssi;
+    }).map((device) => verified.get(device.id) || device);
+  };
+
   const handleScan = async () => {
+    console.log('🟦 [BLE UI] Scan button pressed');
     if (!isBluetoothSupported()) {
       Alert.alert(t('common.error'), t('system.bluetoothRequiresDevBuild'));
       return;
     }
     setIsScanning(true);
+    setHasScanned(true);
     try {
       let devices = await bluetoothService.scan(BLE_SCAN_TIMEOUT_MS, [BLE_CONFIG.PROVISIONING_SERVICE_UUID]);
+      console.log('🟦 [BLE UI] UUID scan results:', devices);
       if (devices.length === 0) {
         const broad = await bluetoothService.scan(BLE_SCAN_TIMEOUT_MS, null);
-        devices = broad.filter((d) => BLE_KNOWN_DEVICE_NAME_PATTERN.test(d.name));
+        console.log('🟦 [BLE UI] Broad scan results:', broad);
+        const namedMatches = broad.filter((d) => BLE_KNOWN_DEVICE_NAME_PATTERN.test(d.name));
+        devices = namedMatches.length > 0 ? namedMatches : broad;
       }
+
       setScanResults(devices);
+      setSelectedBleDeviceId((current) =>
+        current && devices.some((device) => device.id === current) ? current : null
+      );
+      console.log('🟦 [BLE UI] Initial devices to render:', devices);
+
       if (devices.length === 0) {
         Alert.alert(t('system.noDevicesFound'), t('system.tryManual'));
+      } else if (!devices.some((d) => BLE_KNOWN_DEVICE_NAME_PATTERN.test(d.name))) {
+        setProvisioningMessage('Nearby BLE devices found. If the bracelet name is missing, try the top result.');
       }
+
+      void (async () => {
+        const verifiedDevices = await verifyProvisioningCandidates(devices);
+        console.log('🟦 [BLE UI] Final devices to render:', verifiedDevices);
+        setScanResults(verifiedDevices);
+        setSelectedBleDeviceId((current) =>
+          current && verifiedDevices.some((device) => device.id === current) ? current : current
+        );
+
+        if (verifiedDevices.some((d) => d.name.startsWith('Bracelet '))) {
+          setProvisioningMessage('Bracelet verified. Choose the device that starts with Bracelet.');
+        }
+      })();
     } catch (error: any) {
       Alert.alert(t('common.error'), error?.message || t('errors.unknown'));
     } finally {
@@ -221,18 +305,20 @@ export const DeviceManagementScreen: React.FC = () => {
         },
       });
 
-      if (connected) {
-        await refreshDevices(user.id, connected, connected.device_id);
-        if (showArchived) {
-          await loadArchivedDevices(user.id);
+        if (connected) {
+          await refreshDevices(user.id, connected, connected.device_id);
+          if (showArchived) {
+            await loadArchivedDevices(user.id);
+          }
+          setManualDeviceId('');
+          setScanResults([]);
+          setSelectedBleDeviceId(null);
+          setWifiPassword('');
+          setWifiSsid('');
+          Alert.alert(t('success.connected'), t('system.deviceConnected'));
+        } else {
+          Alert.alert(t('common.error'), t('errors.unknown'));
         }
-        setManualDeviceId('');
-        setScanResults([]);
-        setWifiPassword('');
-        Alert.alert(t('success.connected'), t('system.deviceConnected'));
-      } else {
-        Alert.alert(t('common.error'), t('errors.unknown'));
-      }
     } catch (error: any) {
       Alert.alert(t('common.error'), error?.message || t('errors.unknown'));
     } finally {
@@ -501,25 +587,47 @@ export const DeviceManagementScreen: React.FC = () => {
           </View>
         </TouchableOpacity>
 
+        {hasScanned && (
+          <View className="mt-3 bg-gray-50 border border-lightGray rounded-xl p-3">
+            <Text className="text-xs text-dark font-semibold">
+              Nearby devices: {scanResults.length}
+            </Text>
+            <Text className="text-xs text-gray mt-1">
+              If nothing looks familiar, pick the top item after we verify the bracelet.
+            </Text>
+          </View>
+        )}
+
         {scanResults.length > 0 && (
           <View className="mt-3">
             {scanResults.map((item) => (
               <TouchableOpacity
                 key={item.id}
-                className="border border-lightGray rounded-xl p-3 mb-2"
-                onPress={() => handleConnect(item.id)}
+                className={`border rounded-xl p-3 mb-2 ${
+                  selectedBleDeviceId === item.id ? 'border-primary bg-blue-50' : 'border-lightGray'
+                }`}
+                onPress={() => setSelectedBleDeviceId(item.id)}
                 disabled={isConnecting}
               >
                 <Text className="text-sm font-semibold text-dark">
                   {item.name || t('system.unnamedDevice')}
                 </Text>
                 <Text className="text-xs text-gray mt-1">{item.id}</Text>
+                {selectedBleDeviceId === item.id ? (
+                  <Text className="text-xs text-primary mt-2 font-semibold">Selected</Text>
+                ) : null}
               </TouchableOpacity>
             ))}
           </View>
         )}
 
         <View className="mt-4 border-t border-lightGray pt-3">
+          <Text className="text-sm font-semibold text-dark mb-2">Step 2: Wi-Fi</Text>
+          <Text className="text-xs text-gray mb-2">
+            {selectedBleDeviceId
+              ? `Selected bracelet: ${selectedBleDeviceId}`
+              : 'Step 1: choose the bracelet from the Bluetooth list above.'}
+          </Text>
           <Text className="text-sm font-semibold text-dark mb-2">{t('system.wifiSetupTitle')}</Text>
           <Text className="text-xs text-gray mb-3">{t('system.provisioningHint')}</Text>
           <TextInput
@@ -542,6 +650,19 @@ export const DeviceManagementScreen: React.FC = () => {
           {provisioningMessage ? (
             <Text className="text-xs text-primary mt-3">{provisioningMessage}</Text>
           ) : null}
+          <TouchableOpacity
+            className={`mt-3 rounded-xl py-3 items-center ${
+              selectedBleDeviceId && wifiSsid.trim() && wifiPassword.trim() && !isConnecting
+                ? 'bg-primary'
+                : 'bg-gray-300'
+            }`}
+            onPress={() => selectedBleDeviceId && handleConnect(selectedBleDeviceId)}
+            disabled={!selectedBleDeviceId || !wifiSsid.trim() || !wifiPassword.trim() || isConnecting}
+          >
+            <Text className="text-white font-semibold">
+              {isConnecting ? t('system.connecting') : 'Step 3: Connect'}
+            </Text>
+          </TouchableOpacity>
         </View>
       </View>
 

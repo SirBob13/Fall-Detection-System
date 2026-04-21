@@ -1,4 +1,3 @@
-
 import Constants from 'expo-constants';
 
 const getDevHost = () => {
@@ -38,7 +37,7 @@ const RAW_BASE_URL = PUBLIC_BASE_URL || DEV_BASE_URL;
 
 export const API_CONFIG = {
   BASE_URL: normalizeBaseUrl(RAW_BASE_URL),
-  TIMEOUT: 15000,
+  TIMEOUT: 30000,
   RETRY_ATTEMPTS: 3,
   VERSION: '1.0.0',
 };
@@ -85,7 +84,8 @@ export const BLE_CONFIG = {
     '7A100001-8C6A-4F6D-A55B-000000000001',
   CHARACTERISTIC_UUID:
     process.env.EXPO_PUBLIC_BLE_CHARACTERISTIC_UUID ||
-    '7A100005-8C6A-4F6D-A55B-000000000001',
+    '7A100004-8C6A-4F6D-A55B-000000000001',
+  // ESP Status char (repurpose for telemetry until dedicated data char added)
   PROVISIONING_SERVICE_UUID:
     process.env.EXPO_PUBLIC_BLE_PROVISIONING_SERVICE_UUID ||
     '7A100001-8C6A-4F6D-A55B-000000000001',
