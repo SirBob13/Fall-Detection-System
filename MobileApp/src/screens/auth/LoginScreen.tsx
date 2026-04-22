@@ -92,6 +92,7 @@ export const LoginScreen: React.FC = () => {
   // Prevent duplicate actions
   const connectionCheckedRef = useRef(false);
   const loginAttemptRef = useRef(false);
+  const socialAuthAttemptRef = useRef(false);
 
   useEffect(() => {
     const resetStaleLoginState = async () => {
@@ -185,7 +186,8 @@ export const LoginScreen: React.FC = () => {
     token: string,
     userInfo: { id?: string; email?: string; name?: string; photo?: string }
   ) => {
-    if (loading) return;
+    if (loading || socialAuthAttemptRef.current) return;
+    socialAuthAttemptRef.current = true;
     setLoading(true);
     try {
       const response = await authService.socialLogin({
@@ -200,9 +202,6 @@ export const LoginScreen: React.FC = () => {
       });
 
       if (!response.success) {
-        await authService.clearSession();
-        authService.invalidateCache('load-session');
-        authService.invalidateCache('check-authentication');
         Alert.alert('Login Error', response.message || 'Social login failed');
         return;
       }
@@ -217,11 +216,18 @@ export const LoginScreen: React.FC = () => {
         console.log('🧾 [Social Login] Profile incomplete, waiting for root navigator to route to onboarding');
       }
     } catch (error: any) {
-      await authService.clearSession();
-      authService.invalidateCache('load-session');
-      authService.invalidateCache('check-authentication');
-      Alert.alert('Login Error', error?.message || 'Social login failed');
+      const isAbort = error?.name === 'AbortError' || String(error?.message || '').includes('Abort');
+      if (!isAbort) {
+        await authService.clearSession();
+        authService.invalidateCache('load-session');
+        authService.invalidateCache('check-authentication');
+      }
+      Alert.alert(
+        'Login Error',
+        isAbort ? 'Login request timed out or was interrupted. Please try again.' : (error?.message || 'Social login failed')
+      );
     } finally {
+      socialAuthAttemptRef.current = false;
       setLoading(false);
     }
   };
@@ -380,6 +386,7 @@ export const LoginScreen: React.FC = () => {
       }
 
       try {
+        authService.setInteractiveAuthInProgress(true);
         const credential = await AppleAuthentication.signInAsync({
           requestedScopes: [
             AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
@@ -408,6 +415,8 @@ export const LoginScreen: React.FC = () => {
       } catch (error: any) {
         if (error?.code === 'ERR_CANCELED') return;
         Alert.alert('Apple Login Error', error?.message || 'Apple login failed');
+      } finally {
+        authService.setInteractiveAuthInProgress(false);
       }
     }
   };

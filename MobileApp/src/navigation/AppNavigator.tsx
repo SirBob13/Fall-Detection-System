@@ -478,6 +478,12 @@ export const AppNavigator: React.FC = () => {
       appState.current.match(/inactive|background/) &&
       nextAppState === 'active'
     ) {
+      if (authService.isInteractiveAuthInProgress()) {
+        console.log('⏸️ [App State] Skipping auth refresh while interactive auth is in progress');
+        appState.current = nextAppState;
+        return;
+      }
+
       // App came to foreground - check authentication
       console.log('📱 [App State] App came to foreground, checking auth...');
       analyticsService.track('app_foreground');
@@ -715,7 +721,7 @@ export const AppNavigator: React.FC = () => {
           component={AuthNavigator}
           listeners={{
             focus: () => {
-              if (!isLoading) {
+              if (!isLoading && !authService.isInteractiveAuthInProgress()) {
                 checkAuthentication(true);
               }
             }

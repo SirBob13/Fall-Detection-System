@@ -140,6 +140,7 @@ class AuthService {
   private sessionMonitorInterval: ReturnType<typeof setInterval> | null = null;
   private sessionTimeoutListeners: Set<() => void> = new Set();
   private authStateListeners: Set<(isAuthenticated: boolean) => void> = new Set();
+  private interactiveAuthInProgress: boolean = false;
 
   private constructor() {
     this.baseURL = `${API_CONFIG.BASE_URL}/auth`;
@@ -357,6 +358,15 @@ class AuthService {
         console.warn('⚠️ [Auth State] Listener error:', error);
       }
     });
+  }
+
+  setInteractiveAuthInProgress(inProgress: boolean): void {
+    this.interactiveAuthInProgress = inProgress;
+    console.log(`🔐 [Auth Flow] Interactive auth in progress: ${inProgress}`);
+  }
+
+  isInteractiveAuthInProgress(): boolean {
+    return this.interactiveAuthInProgress;
   }
 
   /**
@@ -1007,7 +1017,7 @@ class AuthService {
       console.log(`🔐 [Social Login] Starting ${data.provider} login...`);
 
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      const timeoutId = setTimeout(() => controller.abort(), 20000);
 
       const response = await fetch(`${this.baseURL}/social-login`, {
         method: 'POST',
@@ -1094,6 +1104,15 @@ class AuthService {
         message: result.message || 'Social login failed',
       };
     } catch (error: any) {
+      const isAbort = error?.name === 'AbortError' || String(error?.message || '').includes('Abort');
+      if (isAbort) {
+        console.warn(`⚠️ [Social Login] ${data.provider} login request was interrupted or timed out`);
+        return {
+          success: false,
+          message: 'Login request timed out or was interrupted. Please try again.',
+        };
+      }
+
       console.error('❌ [Social Login] Error:', error);
       return {
         success: false,
