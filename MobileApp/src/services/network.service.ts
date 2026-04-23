@@ -1,4 +1,5 @@
 import NetInfo, { NetInfoState } from '@react-native-community/netinfo';
+import { API_CONFIG } from '../config/app.config';
 
 export interface NetworkStatus {
   isConnected: boolean;
@@ -42,7 +43,7 @@ export class NetworkService {
   async initialize(): Promise<NetworkStatus> {
     try {
       const state = await NetInfo.fetch();
-      this.updateStatus(state);
+      await this.updateStatus(state);
       this.setupListeners();
       this.startPeriodicCheck();
       return this.status;
@@ -52,11 +53,48 @@ export class NetworkService {
     }
   }
 
-  private updateStatus(state: NetInfoState): void {
+  private async probeBackendReachability(): Promise<boolean> {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), Math.min(this.config.timeout, 3500));
+
+      const response = await fetch(`${API_CONFIG.BASE_URL}/health`, {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+        },
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+      return response.ok;
+    } catch (error: any) {
+      const isAbort = error?.name === 'AbortError' || String(error?.message || '').includes('Abort');
+      if (!isAbort) {
+        console.warn('⚠️ [Network] Backend reachability probe failed:', error?.message || error);
+      }
+      return false;
+    }
+  }
+
+  private async resolveInternetReachability(state: NetInfoState): Promise<boolean> {
+    const isConnected = state.isConnected ?? false;
+    if (!isConnected) {
+      return false;
+    }
+
+    if (state.isInternetReachable === true) {
+      return true;
+    }
+
+    return await this.probeBackendReachability();
+  }
+
+  private async updateStatus(state: NetInfoState): Promise<void> {
     const newStatus: NetworkStatus = {
       isConnected: state.isConnected ?? false,
       type: state.type || 'unknown',
-      isInternetReachable: state.isInternetReachable ?? false,
+      isInternetReachable: await this.resolveInternetReachability(state),
       details: state.details,
     };
 
@@ -70,7 +108,7 @@ export class NetworkService {
 
   private setupListeners(): void {
     NetInfo.addEventListener(state => {
-      this.updateStatus(state);
+      void this.updateStatus(state);
     });
   }
 
@@ -82,7 +120,7 @@ export class NetworkService {
     this.checkInterval = setInterval(async () => {
       try {
         const state = await NetInfo.fetch();
-        this.updateStatus(state);
+        await this.updateStatus(state);
       } catch (error) {
         console.error('Periodic network check error:', error);
       }
@@ -92,7 +130,7 @@ export class NetworkService {
   async checkConnectivity(): Promise<boolean> {
     try {
       const state = await NetInfo.fetch();
-      this.updateStatus(state);
+      await this.updateStatus(state);
       return this.status.isConnected && this.status.isInternetReachable;
     } catch (error) {
       console.error('Connectivity check error:', error);

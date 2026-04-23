@@ -375,25 +375,49 @@ export const AppNavigator: React.FC = () => {
   const appState = useRef(AppState.currentState);
   const navigationRef = useRef<any>(null);
   const autoConnectRef = useRef(false);
+  const authCheckInFlightRef = useRef<Promise<void> | null>(null);
+  const lastAuthCheckRef = useRef(0);
 
   // Enhanced authentication check with session validation
   const checkAuthentication = async (backgroundCheck: boolean = false) => {
-    try {
-      console.log(`🔄 [Auth Check] ${backgroundCheck ? 'Background' : 'Initial'} check started`);
-      
-      const session = await authService.loadSession();
-      
-      if (session) {
-        // Check session validity with smart options
+    const minInterval = backgroundCheck ? 2000 : 500;
+    const now = Date.now();
+
+    if (authCheckInFlightRef.current) {
+      console.log('⏳ [Auth Check] Check already in progress');
+      return authCheckInFlightRef.current;
+    }
+
+    if (now - lastAuthCheckRef.current < minInterval) {
+      console.log('📦 [Auth Check] Skipping duplicate auth check');
+      if (!backgroundCheck) {
+        setIsLoading(false);
+      }
+      return;
+    }
+
+    const run = (async () => {
+      try {
+        console.log(`🔄 [Auth Check] ${backgroundCheck ? 'Background' : 'Initial'} check started`);
+
+        const session = await authService.loadSession();
+
+        if (!session) {
+          console.log('❌ [Auth Check] No session found');
+          setIsAuthenticated(false);
+          setNeedsProfileCompletion(false);
+          realtimeService.disconnect();
+          return;
+        }
+
         const validation = await authService.validateSession({
-          skipServerCheck: backgroundCheck, // Skip server check in background
-          autoRefresh: true // Auto-refresh if needed
+          skipServerCheck: backgroundCheck,
+          autoRefresh: true,
         });
-        
+
         if (validation.isValid) {
           console.log('✅ [Auth Check] Valid session found');
 
-          // Update user in analytics
           analyticsService.setUserId(session.user.id);
           if (typeof analyticsService.setUserProperties === 'function') {
             analyticsService.setUserProperties({
@@ -401,73 +425,65 @@ export const AppNavigator: React.FC = () => {
               isAuthenticated: true,
             });
           }
-          
+
           setIsAuthenticated(true);
           const completion = authService.getProfileCompletion(session.user);
           setNeedsProfileCompletion(!completion.complete);
 
-          if (session?.token) {
+          if (session.token) {
             realtimeService.connect(session.token);
           }
-          
-          // Start session monitoring if not already started
+
           if (!backgroundCheck) {
             authService.startSessionMonitor();
           }
-        } else {
-          console.log(`❌ [Auth Check] Session invalid: ${validation.reason}`);
-          
-          // Track session expiration
-          analyticsService.track('session_expired', {
-            reason: validation.reason,
-            wasInBackground: backgroundCheck,
-          });
-          
-          // Clear session data
-          await authService.clearSession();
-          setIsAuthenticated(false);
-          setNeedsProfileCompletion(false);
-          realtimeService.disconnect();
-          
-          // Show alert only if not in background and not initial load
-          if (!backgroundCheck && !isLoading) {
-            Alert.alert(
-              'Session Expired',
-              'Your session has expired. Please login again.',
-              [{ 
-                text: 'OK', 
-                onPress: () => {
-                  // Navigate to login if possible
-                  if (navigationRef.current) {
-                    navigationRef.current.navigate('Auth');
-                  }
-                }
-              }]
-            );
-          }
+          return;
         }
-      } else {
-        console.log('❌ [Auth Check] No session found');
+
+        console.log(`❌ [Auth Check] Session invalid: ${validation.reason}`);
+        analyticsService.track('session_expired', {
+          reason: validation.reason,
+          wasInBackground: backgroundCheck,
+        });
+
+        await authService.clearSession();
         setIsAuthenticated(false);
         setNeedsProfileCompletion(false);
+        realtimeService.disconnect();
+
+        if (!backgroundCheck && !isLoading) {
+          Alert.alert(
+            'Session Expired',
+            'Your session has expired. Please login again.',
+            [{
+              text: 'OK',
+              onPress: () => {
+                if (navigationRef.current) {
+                  navigationRef.current.navigate('Auth');
+                }
+              }
+            }]
+          );
+        }
+      } catch (error) {
+        console.error('❌ [Auth Check] Error:', error);
+        analyticsService.track('authentication_error', {
+          error: error instanceof Error ? error.message : 'Unknown',
+          backgroundCheck,
+        });
+        setIsAuthenticated(false);
+        setNeedsProfileCompletion(false);
+      } finally {
+        lastAuthCheckRef.current = Date.now();
+        authCheckInFlightRef.current = null;
+        if (!backgroundCheck) {
+          setIsLoading(false);
+        }
       }
-    } catch (error) {
-      console.error('❌ [Auth Check] Error:', error);
-      
-      // Track authentication error
-      analyticsService.track('authentication_error', {
-        error: error instanceof Error ? error.message : 'Unknown',
-        backgroundCheck,
-      });
-      
-      // On error, assume not authenticated to be safe
-      setIsAuthenticated(false);
-      setNeedsProfileCompletion(false);
-    } finally {
-      if (!backgroundCheck) {
-        setIsLoading(false);
-      }
-    }
+    })();
+
+    authCheckInFlightRef.current = run;
+    return run;
   };
 
   // App state change handler
@@ -484,10 +500,16 @@ export const AppNavigator: React.FC = () => {
         return;
       }
 
-      // App came to foreground - check authentication
+      // App came to foreground - check authentication only when a session exists.
       console.log('📱 [App State] App came to foreground, checking auth...');
       analyticsService.track('app_foreground');
-      checkAuthentication(true);
+      authService.loadSession().then((session) => {
+        if (session) {
+          checkAuthentication(true);
+        } else {
+          console.log('⏭️ [App State] No session, skipping foreground auth check');
+        }
+      });
     } else if (
       appState.current === 'active' &&
       nextAppState.match(/inactive|background/)
@@ -719,13 +741,6 @@ export const AppNavigator: React.FC = () => {
         <RootStack.Screen 
           name="Auth" 
           component={AuthNavigator}
-          listeners={{
-            focus: () => {
-              if (!isLoading && !authService.isInteractiveAuthInProgress()) {
-                checkAuthentication(true);
-              }
-            }
-          }}
         />
         <RootStack.Screen
           name="CompleteProfile"

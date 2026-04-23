@@ -20,7 +20,7 @@ npm install
 cp .env.example .env
 ```
 
-عدّل `EXPO_PUBLIC_API_URL` و `API_URL` ليطابقا عنوان الـ Backend (مثلاً `http://IP:8000`).
+عدّل `EXPO_PUBLIC_API_URL` و `API_URL` ليطابقا عنوان الـ Backend (مثلاً `https://fall-detection.ddns.net`).
 
 ## التشغيل أثناء التطوير
 

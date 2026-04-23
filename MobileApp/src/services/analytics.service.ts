@@ -43,6 +43,7 @@ export class AnalyticsService {
   private flushInterval: ReturnType<typeof setInterval> | null = null;
   private readonly STORAGE_KEY = '@analytics_queue';
   private deviceId: string = `device_${Platform.OS}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  private hasWarnedMissingServerUrl = false;
 
   static getInstance(): AnalyticsService {
     if (!AnalyticsService.instance) {
@@ -162,8 +163,9 @@ export class AnalyticsService {
         !this.config.serverUrl ||
         this.config.serverUrl.includes('analytics.example.com')
       ) {
-        if (this.config.debug) {
+        if (!__DEV__ && !this.hasWarnedMissingServerUrl) {
           console.warn('📊 [Analytics] Server URL not configured, skipping flush');
+          this.hasWarnedMissingServerUrl = true;
         }
         // Re-queue events to avoid losing data
         this.queue = [...eventsToSend, ...this.queue];

@@ -12,7 +12,7 @@ const NAV_ITEMS = [
   { href: "/admin/devices", label: "Devices" },
   { href: "/admin/users", label: "Users" },
   { href: "/admin/reports", label: "Reports" },
-  { href: "http://138.2.183.9:8000/docs", label: "API Docs", external: true },
+  { href: "https://fall-detection.ddns.net/docs", label: "API Docs", external: true },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {

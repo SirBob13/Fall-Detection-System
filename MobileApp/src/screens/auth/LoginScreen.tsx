@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  AppState,
 } from 'react-native';
 import { useRoute, RouteProp, useNavigation } from '@react-navigation/native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -20,6 +21,7 @@ import * as AppleAuthentication from 'expo-apple-authentication';
 import { jwtDecode } from 'jwt-decode';
 
 import { authService } from '../../services/auth.service';
+import { LoadingScreen } from '../../components/LoadingScreen';
 import { UserCredentials } from '../../types/auth';
 
 type AuthStackParamList = {
@@ -73,18 +75,80 @@ const getGoogleSigninModule = (): GoogleSigninModule | null => {
   }
 };
 
+let authCacheRefreshedForLogin = false;
+let cachedAppleAvailability: boolean | null = null;
+let appleAvailabilityPromise: Promise<boolean> | null = null;
+let cachedLoginConnectionStatus: 'connected' | 'disconnected' | null = null;
+let loginConnectionPromise: Promise<boolean> | null = null;
+let initialLoginConnectionCheckStarted = false;
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const waitForAppToBeActive = async (settleMs: number = 700, timeoutMs: number = 6000) => {
+  const isActive = () => AppState.currentState === 'active';
+
+  if (isActive()) {
+    await wait(settleMs);
+    if (isActive()) {
+      return;
+    }
+  }
+
+  await new Promise<void>((resolve) => {
+    let resolved = false;
+    let activationTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const finish = () => {
+      if (resolved) return;
+      resolved = true;
+      if (activationTimer) {
+        clearTimeout(activationTimer);
+      }
+      subscription.remove();
+      clearTimeout(timeoutId);
+      resolve();
+    };
+
+    const handleStateChange = (nextState: string) => {
+      if (nextState !== 'active') {
+        if (activationTimer) {
+          clearTimeout(activationTimer);
+          activationTimer = null;
+        }
+        return;
+      }
+
+      if (activationTimer) {
+        clearTimeout(activationTimer);
+      }
+
+      activationTimer = setTimeout(() => {
+        if (isActive()) {
+          finish();
+        }
+      }, settleMs);
+    };
+
+    const subscription = AppState.addEventListener('change', handleStateChange);
+    const timeoutId = setTimeout(finish, timeoutMs);
+
+    handleStateChange(AppState.currentState);
+  });
+};
+
 export const LoginScreen: React.FC = () => {
   const route = useRoute<LoginScreenRouteProp>();
   const navigation = useNavigation<LoginScreenNavigationProp>();
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState('Please wait...');
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [biometricLabel, setBiometricLabel] = useState('Login with Biometrics');
   const [biometricIcon, setBiometricIcon] = useState<'fingerprint' | 'face-recognition' | 'shield-check'>('fingerprint');
   const [appleAvailable, setAppleAvailable] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const prefilledEmail = route.params?.prefilledEmail || '';
-  const [databaseStatus, setDatabaseStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
+  const [databaseStatus, setDatabaseStatus] = useState<'idle' | 'checking' | 'connected' | 'disconnected'>('idle');
   const [isCheckingConnection, setIsCheckingConnection] = useState(false);
 
   const googleAuthConfig = Constants.expoConfig?.extra?.googleAuth || {};
@@ -93,9 +157,25 @@ export const LoginScreen: React.FC = () => {
   const connectionCheckedRef = useRef(false);
   const loginAttemptRef = useRef(false);
   const socialAuthAttemptRef = useRef(false);
+  const appStateRef = useRef(AppState.currentState);
+  const loadingRef = useRef(false);
+  const isCheckingConnectionRef = useRef(false);
+  const lastForegroundRetryRef = useRef(0);
+
+  useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
+
+  useEffect(() => {
+    isCheckingConnectionRef.current = isCheckingConnection;
+  }, [isCheckingConnection]);
 
   useEffect(() => {
     const resetStaleLoginState = async () => {
+      if (authCacheRefreshedForLogin) {
+        return;
+      }
+      authCacheRefreshedForLogin = true;
       authService.invalidateCache('load-session');
       authService.invalidateCache('check-authentication');
     };
@@ -113,35 +193,90 @@ export const LoginScreen: React.FC = () => {
     });
 
     if (!connectionCheckedRef.current) {
-      checkDatabaseStatus();
       connectionCheckedRef.current = true;
+      if (!initialLoginConnectionCheckStarted) {
+        initialLoginConnectionCheckStarted = true;
+        void checkDatabaseStatus({ silent: true });
+      }
     }
 
     checkBiometricSupport();
     checkAppleAvailability();
   }, []);
 
-  const checkDatabaseStatus = async () => {
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      const returningToForeground =
+        appStateRef.current.match(/inactive|background/) && nextAppState === 'active';
+
+      appStateRef.current = nextAppState;
+
+      if (!returningToForeground) {
+        return;
+      }
+
+      const now = Date.now();
+      if (now - lastForegroundRetryRef.current < 2500) {
+        return;
+      }
+
+      if (
+        !loadingRef.current &&
+        !isCheckingConnectionRef.current &&
+        cachedLoginConnectionStatus !== 'connected'
+      ) {
+        lastForegroundRetryRef.current = now;
+        console.log('🔄 [Login] App returned to foreground, retrying connection check...');
+        void checkDatabaseStatus({ silent: true });
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+
+  const checkDatabaseStatus = async (options?: { silent?: boolean; force?: boolean }) => {
+    const silent = options?.silent ?? false;
+    const force = options?.force ?? false;
+
     if (isCheckingConnection) return;
-    
+
+    if (!force && cachedLoginConnectionStatus) {
+      setDatabaseStatus(cachedLoginConnectionStatus);
+      return;
+    }
+
     setIsCheckingConnection(true);
     try {
       console.log('🔍 [Login] Single database connection check...');
-      setDatabaseStatus('checking');
-      
-      const isConnected = await authService.testDatabaseConnection();
-      
-      if (isConnected) {
-        setDatabaseStatus('connected');
-        console.log('✅ [Login] Database connected');
+      if (!silent) {
+        setDatabaseStatus('checking');
+      }
+
+      loginConnectionPromise ??= authService.testDatabaseConnection();
+      const isConnected = await loginConnectionPromise;
+
+      cachedLoginConnectionStatus = isConnected ? 'connected' : 'disconnected';
+      setDatabaseStatus(cachedLoginConnectionStatus);
+      console.log(`✅ [Login] Database ${cachedLoginConnectionStatus}`);
+    } catch (error: any) {
+      const isAbort = error?.name === 'AbortError' || String(error?.message || '').includes('Abort');
+      if (isAbort) {
+        console.log('⏸️ [Login] Connection check aborted, keeping previous status');
+        setDatabaseStatus((prev) => {
+          if (prev === 'checking') {
+            return cachedLoginConnectionStatus ?? 'idle';
+          }
+          return prev;
+        });
       } else {
+        cachedLoginConnectionStatus = 'disconnected';
         setDatabaseStatus('disconnected');
         console.log('⚠️ [Login] Database disconnected');
       }
-    } catch (error) {
-      setDatabaseStatus('disconnected');
-      console.log('⚠️ [Login] Connection check failed');
     } finally {
+      loginConnectionPromise = null;
       setIsCheckingConnection(false);
     }
   };
@@ -162,22 +297,32 @@ export const LoginScreen: React.FC = () => {
   };
 
   const checkAppleAvailability = async () => {
-    console.log('🔍 [Apple Login] Checking availability...');
-    console.log('📱 Platform:', Platform.OS);
-
     if (Platform.OS !== 'ios') {
       console.log('⚠️ [Apple Login] Not iOS, disabling Apple Sign-In');
       setAppleAvailable(false);
       return;
     }
 
+    if (cachedAppleAvailability !== null) {
+      setAppleAvailable(cachedAppleAvailability);
+      return;
+    }
+
+    console.log('🔍 [Apple Login] Checking availability...');
+    console.log('📱 Platform:', Platform.OS);
+
     try {
-      const available = await AppleAuthentication.isAvailableAsync();
+      appleAvailabilityPromise ??= AppleAuthentication.isAvailableAsync();
+      const available = await appleAvailabilityPromise;
+      cachedAppleAvailability = available;
       console.log('✅ [Apple Login] Apple Sign-In available:', available);
       setAppleAvailable(available);
     } catch (error) {
       console.log('❌ [Apple Login] Error checking availability:', error);
+      cachedAppleAvailability = false;
       setAppleAvailable(false);
+    } finally {
+      appleAvailabilityPromise = null;
     }
   };
 
@@ -188,8 +333,12 @@ export const LoginScreen: React.FC = () => {
   ) => {
     if (loading || socialAuthAttemptRef.current) return;
     socialAuthAttemptRef.current = true;
+    setLoadingMessage(provider === 'google' ? 'Signing in with Google...' : 'Signing in with Apple...');
     setLoading(true);
     try {
+      await waitForAppToBeActive(500, 4000);
+      console.log('📱 [Social Login] App is active, sending backend auth request...');
+
       const response = await authService.socialLogin({
         provider,
         token,
@@ -237,6 +386,7 @@ export const LoginScreen: React.FC = () => {
     if (loginAttemptRef.current || loading) return;
     
     loginAttemptRef.current = true;
+    setLoadingMessage('Signing you in...');
     setLoading(true);
     
     try {
@@ -298,6 +448,7 @@ export const LoginScreen: React.FC = () => {
 
   const handleBiometricLogin = async () => {
     try {
+      setLoadingMessage('Authenticating securely...');
       setLoading(true);
       const response = await authService.authenticateWithBiometrics();
       
@@ -334,6 +485,7 @@ export const LoginScreen: React.FC = () => {
 
       const { GoogleSignin, isErrorWithCode, isSuccessResponse, statusCodes } = googleModule;
 
+      authService.setInteractiveAuthInProgress(true);
       try {
         if (Platform.OS === 'android') {
           await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
@@ -375,6 +527,8 @@ export const LoginScreen: React.FC = () => {
         }
 
         Alert.alert('Google Login Error', error?.message || 'Google login failed');
+      } finally {
+        authService.setInteractiveAuthInProgress(false);
       }
       return;
     }
@@ -440,6 +594,30 @@ export const LoginScreen: React.FC = () => {
     biometric: biometricLabel,
   };
 
+  const googleConfigured = Boolean(
+    googleAuthConfig?.iosClientId ||
+    googleAuthConfig?.webClientId ||
+    googleAuthConfig?.expoClientId
+  );
+
+  const networkStatusForLoading =
+    databaseStatus === 'connected'
+      ? 'connected'
+      : databaseStatus === 'disconnected'
+        ? 'disconnected'
+        : 'checking';
+
+  if (loading) {
+    return (
+      <LoadingScreen
+        initializing={false}
+        networkStatus={networkStatusForLoading}
+        currentLanguage="en"
+        loadingText={loadingMessage}
+      />
+    );
+  }
+
   return (
     <KeyboardAvoidingView
       className="flex-1 bg-white"
@@ -465,24 +643,17 @@ export const LoginScreen: React.FC = () => {
         </View>
 
         {/* Connection Status */}
-        {databaseStatus === 'checking' ? (
-          <View className="flex-row items-center justify-center bg-blue-50 p-4 rounded-xl mb-6">
-            <ActivityIndicator size="small" color="#2196F3" />
-            <Text className="text-sm text-primary ml-3">
-              Checking connection...
-            </Text>
-          </View>
-        ) : databaseStatus === 'disconnected' && (
+        {databaseStatus === 'disconnected' && (
           <View className="flex-row items-center bg-orange-50 border border-orange-200 p-4 rounded-xl mb-6">
             <MaterialCommunityIcons name="wifi-off" size={20} color="#FF9800" />
             <View className="ml-3 flex-1">
               <Text className="text-sm font-medium text-dark">Limited Connection</Text>
               <Text className="text-xs text-gray mt-1">
-                You can login later
+                You can still try logging in, or retry the connection check.
               </Text>
             </View>
             <TouchableOpacity 
-              onPress={checkDatabaseStatus} 
+              onPress={() => checkDatabaseStatus({ force: true })} 
               className="p-2 bg-white rounded-full"
               activeOpacity={0.7}
             >
@@ -654,46 +825,62 @@ export const LoginScreen: React.FC = () => {
         </Formik>
 
         {/* Divider */}
-        {databaseStatus === 'connected' && (
-          <>
-            <View className="flex-row items-center my-6">
-              <View className="flex-1 h-px bg-lightGray" />
-              <Text className="text-sm text-gray mx-4">{texts.or}</Text>
-              <View className="flex-1 h-px bg-lightGray" />
-            </View>
+        <>
+          <View className="flex-row items-center my-6">
+            <View className="flex-1 h-px bg-lightGray" />
+            <Text className="text-sm text-gray mx-4">{texts.or}</Text>
+            <View className="flex-1 h-px bg-lightGray" />
+          </View>
 
-            {/* Social Media Login */}
-            <View className="mb-8">
-              <Text className="text-sm text-gray text-center mb-4">
-                {texts.continueWith}
-              </Text>
-              
-              <View className="flex-row justify-center">
+          {/* Social Media Login */}
+          <View className="mb-8">
+            <Text className="text-sm text-gray text-center mb-4">
+              {texts.continueWith}
+            </Text>
+
+            <View className="gap-3">
+              <TouchableOpacity
+                className={`flex-row items-center justify-center bg-red-500 rounded-xl py-4 px-6 ${!googleConfigured ? 'opacity-60' : ''}`}
+                onPress={() => handleSocialLogin('google')}
+                disabled={loading}
+                activeOpacity={0.7}
+              >
+                <MaterialCommunityIcons name="google" size={20} color="#FFF" />
+                <Text className="text-white font-semibold ml-2">Continue with Google</Text>
+              </TouchableOpacity>
+
+              {Platform.OS === 'ios' && (
                 <TouchableOpacity
-                  className="flex-row items-center justify-center bg-red-500 rounded-xl py-3 px-6 mx-2"
-                  onPress={() => handleSocialLogin('google')}
-                  disabled={loading || (!googleAuthConfig?.iosClientId && !googleAuthConfig?.webClientId && !googleAuthConfig?.expoClientId)}
+                  className={`flex-row items-center justify-center bg-black rounded-xl py-4 px-6 ${!appleAvailable ? 'opacity-60' : ''}`}
+                  onPress={() => handleSocialLogin('apple')}
+                  disabled={loading}
                   activeOpacity={0.7}
                 >
-                  <MaterialCommunityIcons name="google" size={20} color="#FFF" />
-                  <Text className="text-white font-semibold ml-2">Google</Text>
+                  <MaterialCommunityIcons name="apple" size={20} color="#FFF" />
+                  <Text className="text-white font-semibold ml-2">Continue with Apple</Text>
                 </TouchableOpacity>
-
-                {Platform.OS === 'ios' && appleAvailable && (
-                  <TouchableOpacity
-                    className="flex-row items-center justify-center bg-black rounded-xl py-3 px-6 mx-2"
-                    onPress={() => handleSocialLogin('apple')}
-                    disabled={loading}
-                    activeOpacity={0.7}
-                  >
-                    <MaterialCommunityIcons name="apple" size={20} color="#FFF" />
-                    <Text className="text-white font-semibold ml-2">Apple</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
+              )}
             </View>
-          </>
-        )}
+
+            {!googleConfigured && (
+              <Text className="text-xs text-gray text-center mt-3">
+                Google Sign-In is visible, but it still needs the configured client IDs to complete.
+              </Text>
+            )}
+
+            {Platform.OS === 'ios' && !appleAvailable && (
+              <Text className="text-xs text-gray text-center mt-2">
+                Apple Sign-In is shown here and will work as soon as iOS confirms availability.
+              </Text>
+            )}
+
+            {databaseStatus === 'disconnected' && (
+              <Text className="text-xs text-orange-700 text-center mt-3">
+                Connection is limited, but you can still try Google or Apple sign-in.
+              </Text>
+            )}
+          </View>
+        </>
 
         {/* Registration Link */}
         <View className="flex-row justify-center items-center py-6 border-t border-lightGray">

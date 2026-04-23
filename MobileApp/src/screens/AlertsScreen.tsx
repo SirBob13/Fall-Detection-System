@@ -5,7 +5,6 @@ import {
   ScrollView,
   RefreshControl,
   Alert as RNAlert,
-  SafeAreaView,
   TouchableOpacity,
 } from 'react-native';
 import { AlertCard } from '../components/AlertCard';
@@ -13,7 +12,7 @@ import { apiService } from '../services/api';
 import { authService } from '../services/auth.service';
 import { storageService } from '../services/storage';
 import { Alert as AlertType, CareLink, User } from '../types';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLanguage } from '../components/LanguageProvider';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { realtimeService } from '../services/realtime.service';

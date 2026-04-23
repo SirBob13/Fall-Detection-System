@@ -127,7 +127,15 @@ async function boot() {
   try {
     const overview = await api('/admin/overview');
     renderOverview(overview.data);
-    await Promise.all([
+
+    loginSection.classList.add('hidden');
+    dashboardSection.classList.remove('hidden');
+    docsSection.classList.add('hidden');
+    if (navTabs) navTabs.classList.remove('hidden');
+    logoutBtn.classList.remove('hidden');
+    setActiveTab(activeTab || 'dashboard');
+
+    const results = await Promise.allSettled([
       loadAlerts(),
       loadVitals(),
       loadDevices(),
@@ -135,11 +143,18 @@ async function boot() {
       loadReports('weekly')
     ]);
 
-    loginSection.classList.add('hidden');
-    if (navTabs) navTabs.classList.remove('hidden');
-    logoutBtn.classList.remove('hidden');
-    setActiveTab(activeTab || 'dashboard');
+    const failed = results
+      .map((result, index) => ({ result, index }))
+      .filter(({ result }) => result.status === 'rejected');
+
+    if (failed.length) {
+      console.warn('Some dashboard widgets failed to load', failed);
+      setStatus('Logged in. Some dashboard sections failed to load.', false);
+    } else {
+      setStatus('');
+    }
   } catch (err) {
+    console.error('Admin boot failed', err);
     clearToken();
     loginSection.classList.remove('hidden');
     dashboardSection.classList.add('hidden');
@@ -236,6 +251,11 @@ async function loadReports(period) {
 }
 
 function renderCharts(series) {
+  if (typeof Chart === 'undefined') {
+    console.warn('Chart.js is unavailable; skipping dashboard charts.');
+    return;
+  }
+
   const labels = (series.alerts || []).map(i => i.date);
   const alertCounts = (series.alerts || []).map(i => i.count);
   const vitalCounts = (series.vitals || []).map(i => i.count);

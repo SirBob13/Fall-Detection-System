@@ -5,8 +5,8 @@ import {
   Text,
   ActivityIndicator,
   StyleSheet,
-  SafeAreaView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 interface LoadingScreenProps {
@@ -14,6 +14,7 @@ interface LoadingScreenProps {
   error?: string | null;
   networkStatus?: 'checking' | 'connected' | 'disconnected';
   currentLanguage?: string;
+  loadingText?: string;
 }
 
 export const LoadingScreen: React.FC<LoadingScreenProps> = ({
@@ -21,6 +22,7 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
   error = null,
   networkStatus = 'checking',
   currentLanguage = 'ar',
+  loadingText,
 }) => {
 
   return (
@@ -45,7 +47,7 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#2196F3" />
           <Text style={styles.loadingText}>
-            {initializing ? 'Initializing System...' : 'Loading Data...'}
+            {loadingText || (initializing ? 'Initializing System...' : 'Loading Data...')}
           </Text>
         </View>
         

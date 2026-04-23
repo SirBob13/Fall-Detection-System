@@ -1,15 +1,5 @@
 import Constants from 'expo-constants';
 
-const getDevHost = () => {
-  const hostUri =
-    Constants.expoConfig?.hostUri ||
-    (Constants as any).manifest?.debuggerHost ||
-    Constants.manifest2?.extra?.expoClient?.hostUri;
-
-  if (!hostUri) return null;
-  return hostUri.split(':')[0];
-};
-
 const CONFIG_BASE_URL =
   Constants.expoConfig?.extra?.apiUrl ||
   Constants.expoConfig?.extra?.apiBaseUrl ||
@@ -30,10 +20,8 @@ const normalizeBaseUrl = (url: string) => {
   return trimmed;
 };
 
-const DEFAULT_BASE_URL = 'http://141.147.32.182:8000/api/v1';
-const DEV_HOST = getDevHost();
-const DEV_BASE_URL = DEV_HOST ? `http://${DEV_HOST}:8000/api/v1` : DEFAULT_BASE_URL;
-const RAW_BASE_URL = PUBLIC_BASE_URL || DEV_BASE_URL;
+const DEFAULT_BASE_URL = 'https://fall-detection.ddns.net/api/v1';
+const RAW_BASE_URL = PUBLIC_BASE_URL || DEFAULT_BASE_URL;
 
 export const API_CONFIG = {
   BASE_URL: normalizeBaseUrl(RAW_BASE_URL),

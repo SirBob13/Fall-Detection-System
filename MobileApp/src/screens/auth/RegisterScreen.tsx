@@ -9,8 +9,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
-  SafeAreaView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Formik } from 'formik';
 import * as Yup from 'yup';
@@ -18,6 +18,7 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp as StackNavigationProp } from '@react-navigation/native-stack';
 
 import { authService } from '../../services/auth.service';
+import { LoadingScreen } from '../../components/LoadingScreen';
 import { RegisterData } from '../../types/auth';
 import { transliterateArabic } from '../../utils/transliteration';
 
@@ -92,6 +93,28 @@ const normalizePhoneInput = (value: string): string => {
   return normalized;
 };
 
+const getReadableAuthMessage = (message: unknown): string => {
+  if (typeof message === 'string') {
+    return message;
+  }
+
+  if (message && typeof message === 'object') {
+    const record = message as Record<string, unknown>;
+    const nested = record.error ?? record.message ?? record.detail;
+    if (typeof nested === 'string') {
+      return nested;
+    }
+
+    try {
+      return JSON.stringify(message);
+    } catch {
+      return '';
+    }
+  }
+
+  return '';
+};
+
 // Egyptian phone number validation function
 const validateEgyptianPhone = (phone: string): boolean => {
   if (!phone) return false;
@@ -114,34 +137,34 @@ const RegisterSchema = Yup.object().shape({
       'egyptian-phone',
       'Please enter a valid Egyptian phone number',
       (value) => !value || validateEgyptianPhone(value)
-    )
-    .required('Phone number is required'),
+    ),
   age: Yup.string()
-    .required('Age is required')
     .test('age-number', 'Age must be a number', (value) => {
+      if (!value) return true;
       const normalized = normalizeNumericInput(value || '');
       return normalized.length > 0;
     })
-    .test('age-min', 'Age must be at least 18 years', (value) => {
+    .test('age-min', 'Age cannot be negative', (value) => {
+      if (!value) return true;
       const normalized = normalizeNumericInput(value || '');
       if (!normalized) return false;
       const numericAge = Number(normalized);
-      return Number.isFinite(numericAge) && numericAge >= 18;
+      return Number.isFinite(numericAge) && numericAge >= 0;
     })
     .test('age-max', 'Invalid age', (value) => {
+      if (!value) return true;
       const normalized = normalizeNumericInput(value || '');
       if (!normalized) return false;
       const numericAge = Number(normalized);
       return Number.isFinite(numericAge) && numericAge <= 120;
     }),
   gender: Yup.string()
-    .oneOf(['male', 'female'], 'Must select male or female')
-    .required('Gender is required'),
+    .oneOf(['', 'male', 'female'], 'Must select male or female'),
   password: Yup.string()
     .min(8, 'Password must be at least 8 characters')
     .matches(
-      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/,
-      'Must contain uppercase, lowercase, and number'
+      /^(?=.*[A-Za-z])(?=.*\d)/,
+      'Must contain letters and numbers'
     )
     .required('Password is required'),
   confirm_password: Yup.string()
@@ -171,17 +194,19 @@ export const RegisterScreen: React.FC = () => {
         ...values,
         name: normalizeTextInput(values.name || '').trim(),
         email: normalizeToEnglishDigits(values.email || '').trim().toLowerCase(),
-        phone: normalizePhoneInput(values.phone || ''),
+        phone: values.phone ? normalizePhoneInput(values.phone) : undefined,
         age: values.age ? Number(normalizeNumericInput(String(values.age))) : undefined,
         gender: values.gender || undefined,
         weight: values.weight ? Number(normalizeNumericInput(String(values.weight))) : undefined,
         height: values.height ? Number(normalizeNumericInput(String(values.height))) : undefined,
-        medical_conditions: normalizeTextInput(values.medical_conditions || '').trim(),
-        emergency_contact: normalizePhoneInput(values.emergency_contact || ''),
+        medical_conditions: values.medical_conditions ? normalizeTextInput(values.medical_conditions).trim() : undefined,
+        emergency_contact: values.emergency_contact ? normalizePhoneInput(values.emergency_contact) : undefined,
       };
       
       // Attempt registration
       const response = await authService.register(normalizedValues);
+      const responseMessage = getReadableAuthMessage(response.message);
+      const responseMessageLower = responseMessage.toLowerCase();
       
       if (response.success) {
         Alert.alert(
@@ -193,17 +218,24 @@ export const RegisterScreen: React.FC = () => {
         }]
       );
       } else {
-        // User-friendly messages
-        let userMessage = 'An error occurred during registration. Please try again.';
+        let userMessage = responseMessage || 'An error occurred during registration. Please try again.';
         const shouldRedirectToLogin =
           (response as any)?.shouldRedirectToLogin === true ||
-          response.message?.includes('already registered');
+          responseMessageLower.includes('already registered');
         
-        if (response.message?.includes('already registered')) {
+        if (responseMessageLower.includes('already registered')) {
           userMessage = 'Email is already registered. You can login instead.';
-        } else if (response.message?.includes('password')) {
-          userMessage = 'Please use a stronger password (at least 8 characters, containing letters and numbers)';
-        } else if (response.message?.includes('connection')) {
+        } else if (responseMessageLower.includes('passwords do not match')) {
+          userMessage = 'Passwords do not match. Please review both password fields.';
+        } else if (responseMessageLower.includes('invalid email')) {
+          userMessage = 'Please enter a valid email address.';
+        } else if (responseMessageLower.includes('password')) {
+          userMessage = 'Please use a stronger password (at least 8 characters and containing letters and numbers).';
+        } else if (
+          responseMessageLower.includes('connection error') ||
+          responseMessageLower.includes('timed out') ||
+          responseMessageLower.includes('unable to connect')
+        ) {
           userMessage = 'Unable to connect to server. Please check internet connection and try again.';
         }
 
@@ -212,7 +244,7 @@ export const RegisterScreen: React.FC = () => {
           userMessage,
           [
             {
-              text: 'OK',
+              text: shouldRedirectToLogin ? 'Go to Login' : 'OK',
               onPress: shouldRedirectToLogin
                 ? () => navigation.navigate('Login', { prefilledEmail: normalizedValues.email })
                 : undefined,
@@ -256,6 +288,17 @@ export const RegisterScreen: React.FC = () => {
     );
   };
 
+  if (loading) {
+    return (
+      <LoadingScreen
+        initializing={false}
+        networkStatus="checking"
+        currentLanguage="en"
+        loadingText="Creating your account..."
+      />
+    );
+  }
+
   return (
     <SafeAreaView className="flex-1 bg-white">
       <KeyboardAvoidingView
@@ -290,6 +333,12 @@ export const RegisterScreen: React.FC = () => {
               </Text>
               
               {/* Benefits Badges */}
+              <View className="bg-white border border-blue-100 px-4 py-3 rounded-2xl mb-5 w-full max-w-md">
+                <Text className="text-sm text-blue-800 text-center leading-5">
+                  You can create your account with only name, email, password, and password confirmation. Any additional information is optional and can be completed later.
+                </Text>
+              </View>
+
               <View className="flex-row flex-wrap justify-center gap-2">
                 <View className="flex-row items-center bg-white px-4 py-2 rounded-full shadow-sm">
                   <MaterialIcons name="security" size={16} color="#4CAF50" />
@@ -379,7 +428,7 @@ export const RegisterScreen: React.FC = () => {
 
                   {/* Phone Field */}
                   <View className="mb-5">
-                    <Text className="input-label">Phone Number</Text>
+                    <Text className="input-label">Phone Number (Optional)</Text>
                     <TextInput
                       className={`input-field ${errors.phone && touched.phone ? 'border-danger' : ''}`}
                       placeholder="01012345678"
@@ -401,7 +450,7 @@ export const RegisterScreen: React.FC = () => {
 
                   {/* Age Field */}
                   <View className="mb-5">
-                    <Text className="input-label">Age</Text>
+                    <Text className="input-label">Age (Optional)</Text>
                     <TextInput
                       className={`input-field ${errors.age && touched.age ? 'border-danger' : ''}`}
                       placeholder="30"
@@ -420,7 +469,7 @@ export const RegisterScreen: React.FC = () => {
 
                   {/* Gender Field */}
                   <View className="mb-5">
-                    <Text className="input-label">Gender</Text>
+                    <Text className="input-label">Gender (Optional)</Text>
                     <View className="flex-row">
                       {genderOptions.map((gender) => (
                         <TouchableOpacity
@@ -430,7 +479,7 @@ export const RegisterScreen: React.FC = () => {
                               ? 'bg-primary border-primary'
                               : 'bg-light border-lightGray'
                           }`}
-                          onPress={() => setFieldValue('gender', gender.value)}
+                          onPress={() => setFieldValue('gender', values.gender === gender.value ? '' : gender.value)}
                           disabled={loading}
                           activeOpacity={0.7}
                         >
@@ -489,7 +538,7 @@ export const RegisterScreen: React.FC = () => {
                       <Text className="error-text">{errors.password}</Text>
                     )}
                     <Text className="text-xs text-gray mt-2">
-                      🔒 Must contain 8+ characters, uppercase, lowercase and number
+                      🔒 Use at least 8 characters and include letters and numbers
                     </Text>
                   </View>
 
@@ -591,7 +640,7 @@ export const RegisterScreen: React.FC = () => {
                   
                   {/* Emergency Contact */}
                   <View className="mb-5">
-                    <Text className="input-label">Emergency Contact</Text>
+                    <Text className="input-label">Emergency Contact (Optional)</Text>
                     <TextInput
                       className="input-field"
                       placeholder="Emergency phone number"
@@ -609,7 +658,7 @@ export const RegisterScreen: React.FC = () => {
                   
                   {/* Medical Conditions */}
                   <View className="mb-2">
-                    <Text className="input-label">Medical Conditions</Text>
+                    <Text className="input-label">Medical Conditions (Optional)</Text>
                     <TextInput
                       className="input-field h-28 text-align-top"
                       placeholder="High blood pressure, diabetes, etc..."

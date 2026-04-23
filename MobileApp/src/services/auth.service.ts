@@ -137,6 +137,7 @@ class AuthService {
   private lastConnectionCheck: number = 0;
   private readonly CONNECTION_CACHE_DURATION = 60000; // 1 minute
   private connectionCheckInProgress: boolean = false;
+  private lastKnownConnectionStatus: boolean | null = null;
   private sessionMonitorInterval: ReturnType<typeof setInterval> | null = null;
   private sessionTimeoutListeners: Set<() => void> = new Set();
   private authStateListeners: Set<(isAuthenticated: boolean) => void> = new Set();
@@ -640,63 +641,76 @@ class AuthService {
 
   async testDatabaseConnection(): Promise<boolean> {
     const now = Date.now();
-    
-    // Use cache to avoid repeated checks
-    if (now - this.lastConnectionCheck < this.CONNECTION_CACHE_DURATION) {
+
+    // Use the last known result when it is still fresh.
+    if (
+      this.lastKnownConnectionStatus !== null &&
+      now - this.lastConnectionCheck < this.CONNECTION_CACHE_DURATION
+    ) {
       console.log('📦 [Cache] Using cached connection status');
-      return true; // Assume connection is good to not block user
+      return this.lastKnownConnectionStatus;
     }
 
-    // Prevent multiple concurrent connection checks
+    // Prevent multiple concurrent connection checks.
     if (this.connectionCheckInProgress) {
       console.log('⏳ [Queue] Connection check already in progress');
-      return true; // Return success to not block operation
+      return this.lastKnownConnectionStatus ?? false;
     }
 
     this.connectionCheckInProgress = true;
 
     try {
       console.log('🔍 [Connection] Checking database connection...');
-      
+
       const controller = new AbortController();
-      const timeoutMs = Math.max(API_CONFIG.TIMEOUT, 8000);
+      // Health checks should fail fast so the login screen does not feel stalled.
+      const timeoutMs = Math.max(2500, Math.min(API_CONFIG.TIMEOUT, 4000));
       const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
       const healthBase = API_CONFIG.BASE_URL.replace(/\/auth$/, '');
-      
+
       const response = await fetch(`${healthBase}/health`, {
         method: 'GET',
         headers: {
-          'Accept': 'application/json',
+          Accept: 'application/json',
         },
-        signal: controller.signal
+        signal: controller.signal,
       });
-      
+
       clearTimeout(timeoutId);
-      
+
       if (!response.ok) {
         console.error('❌ Connection check HTTP error:', response.status);
+        this.lastKnownConnectionStatus = false;
+        this.lastConnectionCheck = Date.now();
         return false;
       }
-      
+
       const data = await response.json();
       console.log('📊 [Connection] Response:', data);
-      
-      const isConnected = data.status === 'healthy';
-      
-      if (isConnected) {
-        this.lastConnectionCheck = Date.now();
-      }
-      
+
+      const isConnected = data.status === 'healthy' || data.status === 'degraded';
+      this.lastKnownConnectionStatus = isConnected;
+      this.lastConnectionCheck = Date.now();
+
       return isConnected;
-      
     } catch (error: any) {
       const message = error?.message || '';
       const isAbort = error?.name === 'AbortError' || message.includes('Abort');
-      if (isAbort && this.lastConnectionCheck > 0) {
-        console.warn('⚠️ [Connection] Health check timed out, using last known status');
-        return true;
+
+      if (isAbort) {
+        console.warn('⚠️ [Connection] Health check aborted, keeping previous connection status');
+        if (this.lastKnownConnectionStatus !== null) {
+          return this.lastKnownConnectionStatus;
+        }
+
+        const abortError = new Error('Health check aborted');
+        abortError.name = 'AbortError';
+        throw abortError;
       }
+
       console.error('❌ Connection check failed:', error);
+      this.lastKnownConnectionStatus = false;
+      this.lastConnectionCheck = Date.now();
       return false;
     } finally {
       this.connectionCheckInProgress = false;
@@ -789,24 +803,47 @@ class AuthService {
       }
 
       console.log('📤 [Register] Sending registration request...');
-      
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
-      
-      const response = await fetch(`${this.baseURL}/register`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: JSON.stringify(registerPayload),
-        signal: controller.signal
-      });
-      
-      clearTimeout(timeoutId);
-      
-      console.log('📡 [Register] Response status:', response.status);
-      
+
+      const maxAttempts = 2;
+      const timeoutMs = 15000;
+      let response: Response | null = null;
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+        const startedAt = Date.now();
+
+        try {
+          console.log(`🚀 [Register] Attempt ${attempt}/${maxAttempts}`);
+          response = await fetch(`${this.baseURL}/register`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+            },
+            body: JSON.stringify(registerPayload),
+            signal: controller.signal
+          });
+
+          console.log(`📡 [Register] Response status: ${response.status} (${Date.now() - startedAt}ms)`);
+          break;
+        } catch (error: any) {
+          const isAbort = error?.name === 'AbortError' || String(error?.message || '').includes('Abort');
+          if (isAbort && attempt < maxAttempts) {
+            console.warn(`⚠️ [Register] Attempt ${attempt} timed out. Retrying once...`);
+            await new Promise((resolve) => setTimeout(resolve, 1200));
+            continue;
+          }
+          throw error;
+        } finally {
+          clearTimeout(timeoutId);
+        }
+      }
+
+      if (!response) {
+        throw new Error('No response received from registration request');
+      }
+
       if (!response.ok) {
         const errorText = await response.text();
         console.error('❌ [Register] Failed:', errorText);
@@ -814,7 +851,12 @@ class AuthService {
         let errorMessage = 'Failed to create account in database';
         try {
           const errorData = JSON.parse(errorText);
-          errorMessage = errorData.detail || errorData.message || errorMessage;
+          const detail = errorData.detail ?? errorData.message ?? errorData.error;
+          if (typeof detail === 'string') {
+            errorMessage = detail;
+          } else if (detail && typeof detail === 'object') {
+            errorMessage = detail.error || detail.message || JSON.stringify(detail);
+          }
         } catch {
           errorMessage = `HTTP ${response.status}: ${errorText.substring(0, 100)}`;
         }
@@ -1016,26 +1058,51 @@ class AuthService {
     try {
       console.log(`🔐 [Social Login] Starting ${data.provider} login...`);
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 20000);
+      const maxAttempts = 2;
+      const timeoutMs = 45000;
+      let response: Response | null = null;
 
-      const response = await fetch(`${this.baseURL}/social-login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: JSON.stringify({
-          provider: data.provider,
-          token: data.token,
-          user_info: data.user_info,
-        }),
-        signal: controller.signal
-      });
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+        const startedAt = Date.now();
 
-      clearTimeout(timeoutId);
+        try {
+          console.log(`🚀 [Social Login] Attempt ${attempt}/${maxAttempts} for ${data.provider}`);
 
-      console.log('📡 [Social Login] Response status:', response.status);
+          response = await fetch(`${this.baseURL}/social-login`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+            },
+            body: JSON.stringify({
+              provider: data.provider,
+              token: data.token,
+              user_info: data.user_info,
+            }),
+            signal: controller.signal
+          });
+
+          console.log(`📡 [Social Login] Response status: ${response.status} (${Date.now() - startedAt}ms)`);
+          break;
+        } catch (error: any) {
+          const isAbort = error?.name === 'AbortError' || String(error?.message || '').includes('Abort');
+          if (isAbort && attempt < maxAttempts) {
+            console.warn(`⚠️ [Social Login] ${data.provider} attempt ${attempt} timed out or was interrupted. Retrying once...`);
+            await new Promise((resolve) => setTimeout(resolve, 1200));
+            continue;
+          }
+
+          throw error;
+        } finally {
+          clearTimeout(timeoutId);
+        }
+      }
+
+      if (!response) {
+        throw new Error('No response received from social login request');
+      }
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -1106,10 +1173,10 @@ class AuthService {
     } catch (error: any) {
       const isAbort = error?.name === 'AbortError' || String(error?.message || '').includes('Abort');
       if (isAbort) {
-        console.warn(`⚠️ [Social Login] ${data.provider} login request was interrupted or timed out`);
+        console.warn(`⚠️ [Social Login] ${data.provider} login request still timed out after retry`);
         return {
           success: false,
-          message: 'Login request timed out or was interrupted. Please try again.',
+          message: 'Login request timed out. Please try again in a moment.',
         };
       }
 
@@ -1719,9 +1786,8 @@ class AuthService {
 
   // Initialize session monitoring on service creation
   async initialize(): Promise<void> {
-    // Start session monitoring if user is authenticated
-    const isAuth = await this.isAuthenticated();
-    if (isAuth) {
+    const session = await this.loadSession();
+    if (session && this.isSessionValid(session)) {
       this.startSessionMonitor();
     }
   }

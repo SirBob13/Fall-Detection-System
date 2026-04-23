@@ -51,10 +51,14 @@ LogBox.ignoreLogs([
   'new NativeEventEmitter',
   'SplashScreen.show is deprecated',
   'Cannot connect to the Metro server',
+  'SafeAreaView has been deprecated and will be removed in a future release.',
 ]);
 
 // منع إخفاء شاشة البداية تلقائياً
 SplashScreen.preventAutoHideAsync();
+
+let fontLoadPromise: Promise<void> | null = null;
+let appInitializationPromise: Promise<void> | null = null;
 
 export default function App() {
   const [appIsReady, setAppIsReady] = useState(false);
@@ -64,52 +68,47 @@ export default function App() {
   const [appState, setAppState] = useState(AppState.currentState);
   const appStateRef = useRef(AppState.currentState);
   const lastBackPress = useRef<number>(0);
-  const isInitializedRef = useRef(false);
 
   // تحميل الخطوط
   const loadFonts = useCallback(async () => {
-    try {
-      console.log('🔤 [App] Loading custom fonts...');
-      
-      // إذا كان لديك خطوط مخصصة
-      if (Object.keys(customFonts).length > 0) {
-        await Font.loadAsync(customFonts);
-      }
-      
-      // تحميل خطوط النظام (اختياري)
-      await Font.loadAsync({
-        // يمكنك تحميل خطوط أيقونات إذا كنت بحاجة إليها
-        // 'MaterialIcons': require('@expo/vector-icons/fonts/MaterialIcons.ttf'),
-      });
-      
-      console.log('✅ [App] Fonts loaded successfully');
-    } catch (error) {
-      console.warn('⚠️ [App] Error loading fonts:', error);
+    if (!fontLoadPromise) {
+      fontLoadPromise = (async () => {
+        try {
+          console.log('🔤 [App] Loading custom fonts...');
+
+          // إذا كان لديك خطوط مخصصة
+          if (Object.keys(customFonts).length > 0) {
+            await Font.loadAsync(customFonts);
+          }
+
+          // تحميل خطوط النظام (اختياري)
+          await Font.loadAsync({
+            // يمكنك تحميل خطوط أيقونات إذا كنت بحاجة إليها
+            // 'MaterialIcons': require('@expo/vector-icons/fonts/MaterialIcons.ttf'),
+          });
+
+          console.log('✅ [App] Fonts loaded successfully');
+        } catch (error) {
+          fontLoadPromise = null;
+          console.warn('⚠️ [App] Error loading fonts:', error);
+          throw error;
+        }
+      })();
     }
+
+    await fontLoadPromise;
   }, []);
 
   // التعامل مع تغييرات حالة التطبيق
   const handleAppStateChange = useCallback((nextAppState: any) => {
-    console.log(`📱 [App] State changed: ${appStateRef.current} -> ${nextAppState}`);
-    
     if (appStateRef.current.match(/inactive|background/) && nextAppState === 'active') {
-      // التطبيق عاد للمقدمة
-      console.log('📱 [App] App returned to foreground');
-      analyticsService.track('app_foreground');
-      
-      // تحديث نشاط المستخدم
+      // Update user activity and refresh network state after returning to foreground.
       authService.updateLastActivity();
-      
-      // تحديث حالة الشبكة
       networkService.checkConnectivity().then((isConnected) => {
         setNetworkStatus(isConnected ? 'connected' : 'disconnected');
       });
-    } else if (appStateRef.current === 'active' && nextAppState.match(/inactive|background/)) {
-      // التطبيق يذهب للخلفية
-      console.log('📱 [App] App going to background');
-      analyticsService.track('app_background');
     }
-    
+
     appStateRef.current = nextAppState;
     setAppState(nextAppState);
   }, []);
@@ -154,90 +153,87 @@ export default function App() {
 
   // تهيئة التطبيق
   const initializeApp = useCallback(async () => {
-    if (isInitializedRef.current) return;
-    isInitializedRef.current = true;
+    if (!appInitializationPromise) {
+      appInitializationPromise = (async () => {
+        console.log('🚀 [App] Starting application initialization...');
+
+        // 1. تهيئة الترجمة
+        console.log('🌐 [App] Initializing i18n...');
+        await initI18n();
+        const lang = getCurrentLanguage();
+
+        // تكوين RTL/LTR بناءً على اللغة
+        const isRTL = isArabic();
+        I18nManager.forceRTL(isRTL);
+        I18nManager.allowRTL(true);
+
+        if (Platform.OS === 'android') {
+          I18nManager.swapLeftAndRightInRTL(isRTL);
+        }
+
+        console.log(`🌐 [App] Language set to: ${lang}, RTL: ${isRTL}`);
+
+        // 3. تهيئة خدمة الشبكة
+        console.log('📡 [App] Initializing network service...');
+        const networkStatus = await networkService.initialize();
+        setNetworkStatus(
+          networkStatus.isConnected && networkStatus.isInternetReachable
+            ? 'connected'
+            : 'disconnected'
+        );
+
+        // 4. تهيئة التحليلات
+        console.log('📊 [App] Initializing analytics...');
+        // 4.1 تهيئة طابور الإرسال بدون إنترنت
+        await offlineQueueService.initialize();
+
+        // 4. التحقق من جلسة المستخدم وتحميلها (عملية في الخلفية)
+        console.log('🔐 [App] Checking user session...');
+        authService.loadSession().then(async (session) => {
+          if (session?.user?.id) {
+            analyticsService.setUserId(session.user.id);
+            analyticsService.setUserProperties({
+              email: session.user.email,
+              language: lang,
+            });
+
+            console.log(`✅ [App] User session loaded: ${session.user.email}`);
+          }
+        }).catch((error) => {
+          console.warn('⚠️ [App] Session loading warning:', error);
+        });
+
+        // 5. إعداد الإشعارات
+        console.log('🔔 [App] Setting up notifications...');
+        const notificationPermission = await notificationService.requestPermissions();
+        analyticsService.track('notification_permission_requested', {
+          granted: notificationPermission,
+          platform: Platform.OS,
+        });
+
+        // 6. تهيئة خدمة الطوارئ
+        console.log('🚨 [App] Initializing emergency service...');
+        await emergencyService.getEmergencySettings();
+        await emergencyService.getEmergencyContacts();
+
+        // 7. تتبع تهيئة التطبيق
+        analyticsService.track('app_initialized', {
+          platform: Platform.OS,
+          version: API_CONFIG.VERSION,
+          buildNumber: API_CONFIG.BUILD_NUMBER,
+          language: lang,
+          rtl: isRTL,
+          networkStatus: networkStatus,
+        });
+
+        console.log('✅ [App] Initialization completed successfully');
+      })();
+    }
 
     try {
-      console.log('🚀 [App] Starting application initialization...');
-
-      // 1. تهيئة الخطوط أولاً
-      await loadFonts();
-
-      // 2. تهيئة الترجمة
-      console.log('🌐 [App] Initializing i18n...');
-      await initI18n();
-      const lang = getCurrentLanguage();
-      
-      // تكوين RTL/LTR بناءً على اللغة
-      const isRTL = isArabic();
-      I18nManager.forceRTL(isRTL);
-      I18nManager.allowRTL(true);
-      
-      if (Platform.OS === 'android') {
-        I18nManager.swapLeftAndRightInRTL(isRTL);
-      }
-
-      console.log(`🌐 [App] Language set to: ${lang}, RTL: ${isRTL}`);
-
-      // 3. تهيئة خدمة الشبكة
-      console.log('📡 [App] Initializing network service...');
-      const networkStatus = await networkService.initialize();
-      setNetworkStatus(
-        networkStatus.isConnected && networkStatus.isInternetReachable
-          ? 'connected'
-          : 'disconnected'
-      );
-
-      // 4. تهيئة التحليلات
-      console.log('📊 [App] Initializing analytics...');
-      // 4.1 تهيئة طابور الإرسال بدون إنترنت
-      await offlineQueueService.initialize();
-
-      // 5. التحقق من جلسة المستخدم وتحميلها (عملية في الخلفية)
-      console.log('🔐 [App] Checking user session...');
-      authService.loadSession().then(async (session) => {
-        if (session?.user?.id) {
-          analyticsService.setUserId(session.user.id);
-          analyticsService.setUserProperties({
-            email: session.user.email,
-            language: lang,
-          });
-          
-          // بدء مراقبة الجلسة
-          authService.startSessionMonitor();
-          
-          console.log(`✅ [App] User session loaded: ${session.user.email}`);
-        }
-      }).catch((error) => {
-        console.warn('⚠️ [App] Session loading warning:', error);
-      });
-
-      // 6. إعداد الإشعارات
-      console.log('🔔 [App] Setting up notifications...');
-      const notificationPermission = await notificationService.requestPermissions();
-      analyticsService.track('notification_permission_requested', { 
-        granted: notificationPermission,
-        platform: Platform.OS,
-      });
-
-      // 7. تهيئة خدمة الطوارئ
-      console.log('🚨 [App] Initializing emergency service...');
-      await emergencyService.getEmergencySettings();
-      await emergencyService.getEmergencyContacts();
-
-      // 8. تتبع تهيئة التطبيق
-      analyticsService.track('app_initialized', {
-        platform: Platform.OS,
-        version: API_CONFIG.VERSION,
-        buildNumber: API_CONFIG.BUILD_NUMBER,
-        language: lang,
-        rtl: isRTL,
-        networkStatus: networkStatus,
-      });
-
-      console.log('✅ [App] Initialization completed successfully');
-
+      await appInitializationPromise;
     } catch (error) {
+      appInitializationPromise = null;
       console.error('❌ [App] Initialization error:', error);
       setInitializationError(error instanceof Error ? error.message : 'Unknown initialization error');
       analyticsService.track('app_initialization_error', {
@@ -246,7 +242,7 @@ export default function App() {
     } finally {
       setInitializing(false);
     }
-  }, [loadFonts]);
+  }, []);
 
   // التعامل مع انتهاء الجلسة
   const handleSessionTimeout = useCallback(async () => {
@@ -351,47 +347,6 @@ export default function App() {
     );
   }
 
-  const AppContent: React.FC = () => {
-    return (
-      <>
-        <StatusBar
-          barStyle={'dark-content'}
-          backgroundColor={'#2196F3'}
-          translucent={Platform.OS === 'android'}
-        />
-
-        {/* شريط حالة الشبكة */}
-        <NetworkStatusBar />
-
-        {/* مؤشر عدم الاتصال */}
-        {networkStatus === 'disconnected' && <OfflineIndicator />}
-
-        {/* معالج انتهاء الجلسة */}
-        <SessionTimeout timeoutMinutes={30} onTimeout={handleSessionTimeout} />
-
-        {/* التنقل الرئيسي للتطبيق */}
-        <View className="flex-1 bg-light" style={{ flex: 1, backgroundColor: '#F5F5F5' }}>
-          <AppNavigator />
-        </View>
-
-        {/* عرض الأخطاء العام (اختياري) */}
-        {initializationError && (
-          <View className="absolute bottom-6 left-4 right-4 bg-danger/90 p-3 rounded-lg shadow-lg">
-            <Text className="text-white text-sm text-center">Warning: {initializationError}</Text>
-          </View>
-        )}
-
-        {/* مؤشر حالة التطبيق (للتنمية فقط) */}
-        {__DEV__ && (
-          <View className="absolute bottom-4 left-4 z-40">
-            <View className="bg-dark/70 px-2 py-1 rounded-full">
-              <Text className="text-white text-xs font-mono">{appState.toUpperCase()}</Text>
-            </View>
-          </View>
-        )}
-      </>
-    );
-  };
 
   // المكون الرئيسي للتطبيق
   return (
@@ -409,7 +364,43 @@ export default function App() {
             <SafeAreaProvider>
               <LanguageProvider>
                 <SettingsProvider>
-                  <AppContent />
+                  <>
+                    <StatusBar
+                      barStyle={'dark-content'}
+                      backgroundColor={'#2196F3'}
+                      translucent={Platform.OS === 'android'}
+                    />
+
+                    {/* شريط حالة الشبكة */}
+                    <NetworkStatusBar />
+
+                    {/* مؤشر عدم الاتصال */}
+                    {networkStatus === 'disconnected' && <OfflineIndicator />}
+
+                    {/* معالج انتهاء الجلسة */}
+                    <SessionTimeout timeoutMinutes={30} onTimeout={handleSessionTimeout} />
+
+                    {/* التنقل الرئيسي للتطبيق */}
+                    <View className="flex-1 bg-light" style={{ flex: 1, backgroundColor: '#F5F5F5' }}>
+                      <AppNavigator />
+                    </View>
+
+                    {/* عرض الأخطاء العام (اختياري) */}
+                    {initializationError && (
+                      <View className="absolute bottom-6 left-4 right-4 bg-danger/90 p-3 rounded-lg shadow-lg">
+                        <Text className="text-white text-sm text-center">Warning: {initializationError}</Text>
+                      </View>
+                    )}
+
+                    {/* مؤشر حالة التطبيق (للتنمية فقط) */}
+                    {__DEV__ && (
+                      <View className="absolute bottom-4 left-4 z-40">
+                        <View className="bg-dark/70 px-2 py-1 rounded-full">
+                          <Text className="text-white text-xs font-mono">{appState.toUpperCase()}</Text>
+                        </View>
+                      </View>
+                    )}
+                  </>
                 </SettingsProvider>
               </LanguageProvider>
             </SafeAreaProvider>

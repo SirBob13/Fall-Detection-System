@@ -1,2 +1,115 @@
-{"expo":{"name":"Fall Detection","slug":"fall-detection-app","version":"1.0.0","scheme":"fall-detection","orientation":"portrait","icon":"./assets/icon.png","userInterfaceStyle":"light","splash":{"image":"./assets/splash-icon.png","resizeMode":"contain","backgroundColor":"#ffffff"},"assetBundlePatterns":["**/*"],"ios":{"supportsTablet":true,"bundleIdentifier":"com.falldetection.app","usesAppleSignIn":true,"infoPlist":{"NSAppTransportSecurity":{"NSAllowsArbitraryLoads":true},"NSContactsUsageDescription":"يحتاج التطبيق للوصول إلى جهات الاتصال لاستيراد جهات الاتصال الطارئة.","NSLocationWhenInUseUsageDescription":"يحتاج التطبيق للوصول إلى موقعك لإرسال الموقع في حالات الطوارئ.","NSLocationAlwaysAndWhenInUseUsageDescription":"يحتاج التطبيق للوصول إلى موقعك باستمرار لمراقبة حالة السقوط.","UIBackgroundModes":["location","fetch","remote-notification"],"NSCameraUsageDescription":"يحتاج التطبيق للوصول إلى الكاميرا لمسح الرمز الشريطي للجهاز.","NSMicrophoneUsageDescription":"يحتاج التطبيق للوصول إلى الميكروفون لإجراء مكالمات الفيديو.","NSSpeechRecognitionUsageDescription":"يحتاج التطبيق إلى التعرف على الصوت لتشغيل الأوامر الصوتية.","NSFaceIDUsageDescription":"يحتاج التطبيق إلى Face ID للمصادقة البيومترية.","NSBluetoothAlwaysUsageDescription":"يحتاج التطبيق إلى البلوتوث لربط جهاز الاستشعار.","NSBluetoothPeripheralUsageDescription":"يحتاج التطبيق إلى البلوتوث للاتصال بجهاز الاستشعار.","ITSAppUsesNonExemptEncryption":false}},"android":{"adaptiveIcon":{"foregroundImage":"./assets/adaptive-icon.png","backgroundColor":"#ffffff"},"package":"com.falldetection.app","permissions":["android.permission.INTERNET","android.permission.ACCESS_NETWORK_STATE","android.permission.ACCESS_COARSE_LOCATION","android.permission.ACCESS_FINE_LOCATION","android.permission.READ_CONTACTS","android.permission.CALL_PHONE","android.permission.SEND_SMS","android.permission.VIBRATE","android.permission.WRITE_CONTACTS","android.permission.CAMERA","android.permission.RECORD_AUDIO","android.permission.BLUETOOTH","android.permission.BLUETOOTH_ADMIN","android.permission.BLUETOOTH_CONNECT","android.permission.BLUETOOTH_SCAN"]},"plugins":["expo-font","expo-location","expo-contacts","expo-notifications","expo-apple-authentication",["expo-camera",{"cameraPermission":"يحتاج التطبيق للوصول إلى الكاميرا لمسح الرمز الشريطي للجهاز."}],"expo-web-browser"],"extra":{"eas":{"projectId":"d33adc67-9b40-45a7-ba77-c1f3907a62ab"},"apiUrl":"http://138.2.183.9:8000","EXPO_PUBLIC_BLE_SERVICE_UUID":"7A100001-8C6A-4F6D-A55B-000000000001","EXPO_PUBLIC_BLE_CHARACTERISTIC_UUID":"7A100004-8C6A-4F6D-A55B-000000000001","EXPO_PUBLIC_BLE_PROVISIONING_SERVICE_UUID":"7A100001-8C6A-4F6D-A55B-000000000001","EXPO_PUBLIC_BLE_DEVICE_INFO_CHARACTERISTIC_UUID":"7A100002-8C6A-4F6D-A55B-000000000001","EXPO_PUBLIC_BLE_PROVISIONING_CHARACTERISTIC_UUID":"7A100003-8C6A-4F6D-A55B-000000000001","EXPO_PUBLIC_BLE_STATUS_CHARACTERISTIC_UUID":"7A100004-8C6A-4F6D-A55B-000000000001","googleAuth":{"expoClientId":"967093516556-bhrjudajc066pv4paajmgv3h8ii8n091.apps.googleusercontent.com","iosClientId":"967093516556-5onccjasolmtq8lhhs15v1onhau68lau.apps.googleusercontent.com","androidClientId":"967093516556-k36474nr0kmuccoaaudln9nbgbgk13db.apps.googleusercontent.com","webClientId":"967093516556-bhrjudajc066pv4paajmgv3h8ii8n091.apps.googleusercontent.com"},"agoraAppId":"d99738322bcd42269098412553842add","appleAuth":{"clientId":""}},"runtimeVersion":{"policy":"sdkVersion"},"updates":{"url":"https://u.expo.dev/d33adc67-9b40-45a7-ba77-c1f3907a62ab"},"newArchEnabled":true,"owner":"aysha-kassems-organization"}}
-
+{
+  "expo": {
+    "name": "Fall Detection",
+    "slug": "fall-detection-app",
+    "version": "1.0.0",
+    "scheme": "fall-detection",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.aysha.falldetection.app",
+      "usesAppleSignIn": true,
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        },
+        "NSContactsUsageDescription": "يحتاج التطبيق للوصول إلى جهات الاتصال لاستيراد جهات الاتصال الطارئة.",
+        "NSLocationWhenInUseUsageDescription": "يحتاج التطبيق للوصول إلى موقعك لإرسال الموقع في حالات الطوارئ.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "يحتاج التطبيق للوصول إلى موقعك باستمرار لمراقبة حالة السقوط.",
+        "UIBackgroundModes": [
+          "location",
+          "fetch",
+          "remote-notification"
+        ],
+        "NSCameraUsageDescription": "يحتاج التطبيق للوصول إلى الكاميرا لمسح الرمز الشريطي للجهاز.",
+        "NSMicrophoneUsageDescription": "يحتاج التطبيق للوصول إلى الميكروفون لإجراء مكالمات الفيديو.",
+        "NSSpeechRecognitionUsageDescription": "يحتاج التطبيق إلى التعرف على الصوت لتشغيل الأوامر الصوتية.",
+        "NSFaceIDUsageDescription": "يحتاج التطبيق إلى Face ID للمصادقة البيومترية.",
+        "NSBluetoothAlwaysUsageDescription": "يحتاج التطبيق إلى البلوتوث لربط جهاز الاستشعار.",
+        "NSBluetoothPeripheralUsageDescription": "يحتاج التطبيق إلى البلوتوث للاتصال بجهاز الاستشعار.",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "associatedDomains": [
+        "applinks:fall-detection.ddns.net"
+      ]
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.falldetection.app",
+      "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.READ_CONTACTS",
+        "android.permission.CALL_PHONE",
+        "android.permission.SEND_SMS",
+        "android.permission.VIBRATE",
+        "android.permission.WRITE_CONTACTS",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.BLUETOOTH_SCAN"
+      ]
+    },
+    "plugins": [
+      "expo-font",
+      "expo-location",
+      "expo-contacts",
+      "expo-notifications",
+      "expo-apple-authentication",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "يحتاج التطبيق للوصول إلى الكاميرا لمسح الرمز الشريطي للجهاز."
+        }
+      ],
+      "expo-web-browser"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "d33adc67-9b40-45a7-ba77-c1f3907a62ab"
+      },
+      "apiUrl": "https://fall-detection.ddns.net",
+      "EXPO_PUBLIC_BLE_SERVICE_UUID": "7A100001-8C6A-4F6D-A55B-000000000001",
+      "EXPO_PUBLIC_BLE_CHARACTERISTIC_UUID": "7A100004-8C6A-4F6D-A55B-000000000001",
+      "EXPO_PUBLIC_BLE_PROVISIONING_SERVICE_UUID": "7A100001-8C6A-4F6D-A55B-000000000001",
+      "EXPO_PUBLIC_BLE_DEVICE_INFO_CHARACTERISTIC_UUID": "7A100002-8C6A-4F6D-A55B-000000000001",
+      "EXPO_PUBLIC_BLE_PROVISIONING_CHARACTERISTIC_UUID": "7A100003-8C6A-4F6D-A55B-000000000001",
+      "EXPO_PUBLIC_BLE_STATUS_CHARACTERISTIC_UUID": "7A100004-8C6A-4F6D-A55B-000000000001",
+      "googleAuth": {
+        "expoClientId": "967093516556-bhrjudajc066pv4paajmgv3h8ii8n091.apps.googleusercontent.com",
+        "iosClientId": "967093516556-5onccjasolmtq8lhhs15v1onhau68lau.apps.googleusercontent.com",
+        "androidClientId": "967093516556-k36474nr0kmuccoaaudln9nbgbgk13db.apps.googleusercontent.com",
+        "webClientId": "967093516556-bhrjudajc066pv4paajmgv3h8ii8n091.apps.googleusercontent.com"
+      },
+      "agoraAppId": "d99738322bcd42269098412553842add",
+      "appleAuth": {
+        "clientId": ""
+      }
+    },
+    "runtimeVersion": {
+      "policy": "sdkVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/d33adc67-9b40-45a7-ba77-c1f3907a62ab"
+    },
+    "newArchEnabled": true,
+    "owner": "aysha-kassems-organization"
+  }
+}
