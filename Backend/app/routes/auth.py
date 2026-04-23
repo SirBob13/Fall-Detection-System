@@ -472,7 +472,7 @@ async def social_login(
         # Verify token (or decode unverified in dev)
         token_data: Dict[str, Any] = {}
         if provider == "google":
-            if GOOGLE_CLIENT_ID or not ALLOW_UNVERIFIED_SOCIAL_LOGIN:
+            if GOOGLE_CLIENT_ID or GOOGLE_CLIENT_IDS or not ALLOW_UNVERIFIED_SOCIAL_LOGIN:
                 token_data = await verify_google_id_token(data.token)
             else:
                 token_data = jwt.decode(data.token, options={"verify_signature": False})

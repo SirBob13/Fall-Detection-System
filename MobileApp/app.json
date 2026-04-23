@@ -17,7 +17,7 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.aysha.falldetection.app",
+      "bundleIdentifier": "com.falldetection.app",
       "usesAppleSignIn": true,
       "infoPlist": {
         "NSAppTransportSecurity": {
@@ -100,7 +100,7 @@
       },
       "agoraAppId": "d99738322bcd42269098412553842add",
       "appleAuth": {
-        "clientId": ""
+        "clientId": "com.falldetection.app"
       }
     },
     "runtimeVersion": {

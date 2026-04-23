@@ -75,6 +75,17 @@ const getGoogleSigninModule = (): GoogleSigninModule | null => {
   }
 };
 
+const getSocialAuthEnvironment = () => {
+  const isExpoGo =
+    Constants.executionEnvironment === 'storeClient' ||
+    Constants.appOwnership === 'expo';
+
+  return {
+    isExpoGo,
+    executionEnvironment: Constants.executionEnvironment || 'unknown',
+  };
+};
+
 let authCacheRefreshedForLogin = false;
 let cachedAppleAvailability: boolean | null = null;
 let appleAvailabilityPromise: Promise<boolean> | null = null;
@@ -152,6 +163,7 @@ export const LoginScreen: React.FC = () => {
   const [isCheckingConnection, setIsCheckingConnection] = useState(false);
 
   const googleAuthConfig = Constants.expoConfig?.extra?.googleAuth || {};
+  const socialAuthEnvironment = getSocialAuthEnvironment();
   
   // Prevent duplicate actions
   const connectionCheckedRef = useRef(false);
@@ -190,6 +202,13 @@ export const LoginScreen: React.FC = () => {
       webClientId: googleAuthConfig.webClientId || googleAuthConfig.expoClientId || undefined,
       offlineAccess: false,
       scopes: ['openid', 'profile', 'email'],
+    });
+    console.log('🔐 [Social Login] Environment:', socialAuthEnvironment.executionEnvironment);
+    console.log('🔐 [Social Login] Google configuration detected:', {
+      hasIosClientId: Boolean(googleAuthConfig.iosClientId),
+      hasWebClientId: Boolean(googleAuthConfig.webClientId),
+      hasExpoClientId: Boolean(googleAuthConfig.expoClientId),
+      isExpoGo: socialAuthEnvironment.isExpoGo,
     });
 
     if (!connectionCheckedRef.current) {
@@ -473,7 +492,7 @@ export const LoginScreen: React.FC = () => {
       if (!googleModule) {
         Alert.alert(
           'Google Login',
-          'Google login requires the development build, not Expo Go.'
+          'Google login needs a development build or production build. Expo Go does not load the native Google Sign-In module.'
         );
         return;
       }
@@ -487,6 +506,13 @@ export const LoginScreen: React.FC = () => {
 
       authService.setInteractiveAuthInProgress(true);
       try {
+        GoogleSignin.configure({
+          iosClientId: googleAuthConfig.iosClientId || undefined,
+          webClientId: googleAuthConfig.webClientId || googleAuthConfig.expoClientId || undefined,
+          offlineAccess: false,
+          scopes: ['openid', 'profile', 'email'],
+        });
+
         if (Platform.OS === 'android') {
           await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
         }
@@ -535,7 +561,10 @@ export const LoginScreen: React.FC = () => {
 
     if (provider === 'apple') {
       if (!appleAvailable) {
-        Alert.alert('Apple Login', 'Apple Sign In is not available on this device.');
+        Alert.alert(
+          'Apple Login',
+          'Apple Sign In is only available on a real iPhone/iPad with Apple Sign In enabled for this app build.'
+        );
         return;
       }
 
@@ -599,6 +628,7 @@ export const LoginScreen: React.FC = () => {
     googleAuthConfig?.webClientId ||
     googleAuthConfig?.expoClientId
   );
+  const googleButtonDisabled = loading || !googleConfigured || socialAuthEnvironment.isExpoGo;
 
   const networkStatusForLoading =
     databaseStatus === 'connected'
@@ -840,9 +870,9 @@ export const LoginScreen: React.FC = () => {
 
             <View className="gap-3">
               <TouchableOpacity
-                className={`flex-row items-center justify-center bg-red-500 rounded-xl py-4 px-6 ${!googleConfigured ? 'opacity-60' : ''}`}
+                className={`flex-row items-center justify-center bg-red-500 rounded-xl py-4 px-6 ${googleButtonDisabled ? 'opacity-60' : ''}`}
                 onPress={() => handleSocialLogin('google')}
-                disabled={loading}
+                disabled={googleButtonDisabled}
                 activeOpacity={0.7}
               >
                 <MaterialCommunityIcons name="google" size={20} color="#FFF" />
@@ -865,6 +895,12 @@ export const LoginScreen: React.FC = () => {
             {!googleConfigured && (
               <Text className="text-xs text-gray text-center mt-3">
                 Google Sign-In is visible, but it still needs the configured client IDs to complete.
+              </Text>
+            )}
+
+            {socialAuthEnvironment.isExpoGo && (
+              <Text className="text-xs text-gray text-center mt-2">
+                Google Sign-In needs a dev build or production build. Expo Go cannot run the native Google Sign-In flow.
               </Text>
             )}
 
