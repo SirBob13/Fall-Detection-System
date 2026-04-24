@@ -182,6 +182,7 @@ export interface DevicePairingTokenResponse {
 
 export interface DeviceProvisioningPayload {
   device_id: string;
+  user_id: number;
   pairing_token: string;
   wifi: {
     ssid: string;

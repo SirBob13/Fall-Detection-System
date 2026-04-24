@@ -28,7 +28,20 @@ export default function LoginPage() {
       if (!res.ok || !data?.access_token) {
         throw new Error(data?.error || data?.detail?.error || "Login failed");
       }
-      setToken(data.access_token);
+      const token = data.access_token as string;
+      const profileRes = await fetch(`${API_V1}/auth/profile`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const profileData = await profileRes.json().catch(() => ({}));
+      if (!profileRes.ok) {
+        throw new Error(
+          profileData?.error || profileData?.detail?.error || "Unable to verify account role",
+        );
+      }
+      if (!profileData?.user?.is_admin) {
+        throw new Error("This account is valid, but it is not allowed in the admin dashboard");
+      }
+      setToken(token);
       router.replace("/admin/overview");
     } catch (err: any) {
       setError(err.message || "Login failed");

@@ -46,20 +46,18 @@ class DeviceService {
     if (shouldProvision) {
       try {
         await bluetoothService.requestPermissions();
-        await deviceProvisioningService.monitorProvisioningStatus(deviceId, (status) => {
-          onProvisioningStatus?.(status);
-        });
-
         const { deviceInfo, pairing } = await deviceProvisioningService.provisionDevice({
           deviceId,
           ssid: wifiSsid!.trim(),
           password: wifiPassword!.trim(),
+          onStatus: onProvisioningStatus,
         });
 
         targetDeviceId = pairing.device_id || deviceInfo?.device_id || deviceId;
         firmwareVersion = deviceInfo?.firmware_version;
       } catch (error) {
-        console.warn('Provisioning failed, continuing with standard connect fallback:', error);
+        console.warn('Provisioning failed:', error);
+        throw error;
       }
     }
 

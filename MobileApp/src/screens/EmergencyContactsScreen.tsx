@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   Linking,
   Platform,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { emergencyService } from '../services/emergency.service';
@@ -510,153 +511,164 @@ export const EmergencyContactsScreen: React.FC = () => {
         visible={modalVisible}
         onRequestClose={() => setModalVisible(false)}
       >
-        <View className="flex-1 justify-center items-center bg-black/50">
-          <View className="bg-white rounded-2xl w-11/12 max-w-md p-6">
-            <View className="items-center mb-6">
-              <View className="w-16 h-16 rounded-full bg-blue-50 justify-center items-center mb-3">
-                <MaterialCommunityIcons 
-                  name={editingContact ? "account-edit" : "account-plus"} 
-                  size={30} 
-                  color="#2196F3" 
+        <KeyboardAvoidingView
+          className="flex-1"
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
+        >
+          <View className="flex-1 justify-center items-center bg-black/50 px-4">
+            <View className="bg-white rounded-2xl w-full max-w-md max-h-[88%]">
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={{ padding: 24 }}
+              >
+                <View className="items-center mb-6">
+                  <View className="w-16 h-16 rounded-full bg-blue-50 justify-center items-center mb-3">
+                    <MaterialCommunityIcons 
+                      name={editingContact ? "account-edit" : "account-plus"} 
+                      size={30} 
+                      color="#2196F3" 
+                    />
+                  </View>
+                  <Text className="text-xl font-bold text-dark">
+                    {editingContact ? 'Edit Contact' : 'Add New Contact'}
+                  </Text>
+                </View>
+
+                <TextInput
+                  className="input-field mb-4"
+                  placeholder="Full Name"
+                  value={formData.name}
+                  onChangeText={text => setFormData({ ...formData, name: text })}
+                  placeholderTextColor="#BDBDBD"
+                  returnKeyType="next"
                 />
-              </View>
-              <Text className="text-xl font-bold text-dark">
-                {editingContact ? 'Edit Contact' : 'Add New Contact'}
-              </Text>
-            </View>
 
-            <TextInput
-              className="input-field mb-4"
-              placeholder="Full Name"
-              value={formData.name}
-              onChangeText={text => setFormData({ ...formData, name: text })}
-              placeholderTextColor="#BDBDBD"
-            />
+                <TextInput
+                  className="input-field mb-4"
+                  placeholder="Phone Number (e.g., +201234567890)"
+                  value={formData.phone}
+                  onChangeText={text => setFormData({ ...formData, phone: text })}
+                  keyboardType="phone-pad"
+                  placeholderTextColor="#BDBDBD"
+                />
 
-            <TextInput
-              className="input-field mb-4"
-              placeholder="Phone Number (e.g., +201234567890)"
-              value={formData.phone}
-              onChangeText={text => setFormData({ ...formData, phone: text })}
-              keyboardType="phone-pad"
-              placeholderTextColor="#BDBDBD"
-            />
+                {/* Priority Selection */}
+                <View className="mb-6">
+                  <Text className="text-base font-medium text-dark mb-3">Priority Level</Text>
+                  <View className="flex-row justify-between">
+                    {[
+                      { value: 1, label: 'High', color: 'bg-danger', textColor: 'text-danger' },
+                      { value: 2, label: 'Medium', color: 'bg-warning', textColor: 'text-warning' },
+                      { value: 3, label: 'Low', color: 'bg-success', textColor: 'text-success' },
+                    ].map((priority) => (
+                      <TouchableOpacity
+                        key={priority.value}
+                        className={`flex-1 items-center py-3 rounded-lg mx-1 border ${
+                          formData.priority === priority.value
+                            ? `${priority.color} border-transparent`
+                            : 'bg-white border-lightGray'
+                        }`}
+                        onPress={() => setFormData({ ...formData, priority: priority.value })}
+                        activeOpacity={0.7}
+                      >
+                        <Text className={`
+                          font-semibold
+                          ${formData.priority === priority.value 
+                            ? 'text-white' 
+                            : priority.textColor
+                          }
+                        `}>
+                          {priority.label}
+                        </Text>
+                        {formData.priority === priority.value && (
+                          <MaterialCommunityIcons 
+                            name="check" 
+                            size={16} 
+                            color="#FFFFFF" 
+                            className="mt-1"
+                          />
+                        )}
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  
+                  <Text className="text-xs text-gray mt-2">
+                    {formData.priority === 1 && 'High: Called first in emergencies'}
+                    {formData.priority === 2 && 'Medium: Called if high priority fails'}
+                    {formData.priority === 3 && 'Low: Called as last resort'}
+                  </Text>
+                </View>
 
-            {/* Priority Selection */}
-            <View className="mb-6">
-              <Text className="text-base font-medium text-dark mb-3">Priority Level</Text>
-              <View className="flex-row justify-between">
-                {[
-                  { value: 1, label: 'High', color: 'bg-danger', textColor: 'text-danger' },
-                  { value: 2, label: 'Medium', color: 'bg-warning', textColor: 'text-warning' },
-                  { value: 3, label: 'Low', color: 'bg-success', textColor: 'text-success' },
-                ].map((priority) => (
+                {/* Relationship Selection */}
+                <View className="mb-6">
+                  <Text className="text-base font-medium text-dark mb-3">Relationship</Text>
+                  <View className="flex-row flex-wrap justify-between">
+                    {[
+                      { value: 'family', label: 'Family', icon: 'account-group' },
+                      { value: 'doctor', label: 'Doctor', icon: 'doctor' },
+                      { value: 'friend', label: 'Friend', icon: 'account' },
+                      { value: 'neighbor', label: 'Neighbor', icon: 'home' },
+                    ].map((rel) => (
+                      <TouchableOpacity
+                        key={rel.value}
+                        className={`w-[48%] p-3 mb-2 flex-row items-center rounded-lg ${
+                          formData.relationship === rel.value
+                            ? 'bg-blue-50 border border-primary'
+                            : 'bg-lightGray/20 border border-lightGray'
+                        }`}
+                        onPress={() => setFormData({ ...formData, relationship: rel.value })}
+                        activeOpacity={0.7}
+                      >
+                        <MaterialCommunityIcons 
+                          name={rel.icon as React.ComponentProps<typeof MaterialCommunityIcons>['name']} 
+                          size={20} 
+                          color={formData.relationship === rel.value ? "#2196F3" : "#757575"} 
+                        />
+                        <Text className={`ml-2 ${
+                          formData.relationship === rel.value
+                            ? 'text-primary font-semibold'
+                            : 'text-gray'
+                        }`}>
+                          {rel.label}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+
+                {/* Action Buttons */}
+                <View className="flex-row justify-between">
                   <TouchableOpacity
-                    key={priority.value}
-                    className={`flex-1 items-center py-3 rounded-lg mx-1 border ${
-                      formData.priority === priority.value
-                        ? `${priority.color} border-transparent`
-                        : 'bg-white border-lightGray'
-                    }`}
-                    onPress={() => setFormData({ ...formData, priority: priority.value })}
+                    className="flex-1 bg-lightGray py-3 rounded-lg mr-2 items-center"
+                    onPress={() => setModalVisible(false)}
                     activeOpacity={0.7}
                   >
-                    <Text className={`
-                      font-semibold
-                      ${formData.priority === priority.value 
-                        ? 'text-white' 
-                        : priority.textColor
-                      }
-                    `}>
-                      {priority.label}
-                    </Text>
-                    {formData.priority === priority.value && (
-                      <MaterialCommunityIcons 
-                        name="check" 
-                        size={16} 
-                        color="#FFFFFF" 
-                        className="mt-1"
-                      />
-                    )}
+                    <Text className="text-dark font-semibold">Cancel</Text>
                   </TouchableOpacity>
-                ))}
-              </View>
-              
-              {/* Priority Description */}
-              <Text className="text-xs text-gray mt-2">
-                {formData.priority === 1 && 'High: Called first in emergencies'}
-                {formData.priority === 2 && 'Medium: Called if high priority fails'}
-                {formData.priority === 3 && 'Low: Called as last resort'}
-              </Text>
-            </View>
-
-            {/* Relationship Selection */}
-            <View className="mb-6">
-              <Text className="text-base font-medium text-dark mb-3">Relationship</Text>
-              <View className="flex-row flex-wrap justify-between">
-                {[
-                  { value: 'family', label: 'Family', icon: 'account-group' },
-                  { value: 'doctor', label: 'Doctor', icon: 'doctor' },
-                  { value: 'friend', label: 'Friend', icon: 'account' },
-                  { value: 'neighbor', label: 'Neighbor', icon: 'home' },
-                ].map((rel) => (
+                  
                   <TouchableOpacity
-                    key={rel.value}
-                    className={`w-1/2 p-3 mb-2 flex-row items-center rounded-lg ${
-                      formData.relationship === rel.value
-                        ? 'bg-blue-50 border border-primary'
-                        : 'bg-lightGray/20 border border-lightGray'
-                    }`}
-                    onPress={() => setFormData({ ...formData, relationship: rel.value })}
+                    className="flex-1 bg-primary py-3 rounded-lg ml-2 flex-row items-center justify-center"
+                    onPress={handleSaveContact}
                     activeOpacity={0.7}
                   >
                     <MaterialCommunityIcons 
-                      name={rel.icon as React.ComponentProps<typeof MaterialCommunityIcons>['name']} 
+                      name="content-save" 
                       size={20} 
-                      color={formData.relationship === rel.value ? "#2196F3" : "#757575"} 
+                      color="#FFFFFF" 
                     />
-                    <Text className={`ml-2 ${
-                      formData.relationship === rel.value
-                        ? 'text-primary font-semibold'
-                        : 'text-gray'
-                    }`}>
-                      {rel.label}
-                    </Text>
+                    <Text className="text-white font-bold ml-2">Save</Text>
                   </TouchableOpacity>
-                ))}
-              </View>
+                </View>
+                
+                <Text className="text-xs text-center text-gray mt-4">
+                  This contact will be notified during emergency situations
+                </Text>
+              </ScrollView>
             </View>
-
-            {/* Action Buttons */}
-            <View className="flex-row justify-between">
-              <TouchableOpacity
-                className="flex-1 bg-lightGray py-3 rounded-lg mr-2 items-center"
-                onPress={() => setModalVisible(false)}
-                activeOpacity={0.7}
-              >
-                <Text className="text-dark font-semibold">Cancel</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity
-                className="flex-1 bg-primary py-3 rounded-lg ml-2 flex-row items-center justify-center"
-                onPress={handleSaveContact}
-                activeOpacity={0.7}
-              >
-                <MaterialCommunityIcons 
-                  name="content-save" 
-                  size={20} 
-                  color="#FFFFFF" 
-                />
-                <Text className="text-white font-bold ml-2">Save</Text>
-              </TouchableOpacity>
-            </View>
-            
-            {/* Footer Note */}
-            <Text className="text-xs text-center text-gray mt-4">
-              This contact will be notified during emergency situations
-            </Text>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Modal for importing phone contacts */}
@@ -666,90 +678,99 @@ export const EmergencyContactsScreen: React.FC = () => {
         visible={importModalVisible}
         onRequestClose={() => setImportModalVisible(false)}
       >
-        <View className="flex-1 justify-center items-center bg-black/50">
-          <View className="bg-white rounded-2xl w-11/12 max-w-md p-6 max-h-[80%]">
-            <View className="flex-row items-center justify-between mb-4">
-              <Text className="text-lg font-bold text-dark">Import a contact</Text>
-              <TouchableOpacity onPress={() => setImportModalVisible(false)}>
-                <MaterialCommunityIcons name="close" size={22} color="#757575" />
-              </TouchableOpacity>
-            </View>
+        <KeyboardAvoidingView
+          className="flex-1"
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
+        >
+          <View className="flex-1 justify-center items-center bg-black/50 px-4">
+            <View className="bg-white rounded-2xl w-full max-w-md max-h-[88%] p-6">
+              <View className="flex-row items-center justify-between mb-4">
+                <Text className="text-lg font-bold text-dark">Import a contact</Text>
+                <TouchableOpacity onPress={() => setImportModalVisible(false)}>
+                  <MaterialCommunityIcons name="close" size={22} color="#757575" />
+                </TouchableOpacity>
+              </View>
 
-            <View className="mb-3">
-              <TextInput
-                className="input-field"
-                placeholder="Search contacts"
-                value={contactSearch}
-                onChangeText={setContactSearch}
-                placeholderTextColor="#BDBDBD"
-              />
-            </View>
+              <View className="mb-3">
+                <TextInput
+                  className="input-field"
+                  placeholder="Search contacts"
+                  value={contactSearch}
+                  onChangeText={setContactSearch}
+                  placeholderTextColor="#BDBDBD"
+                />
+              </View>
 
-            <ScrollView showsVerticalScrollIndicator={false}>
-              {phoneContacts
-                .filter((contact) => {
-                  if (!contactSearch.trim()) return true;
-                  const term = contactSearch.toLowerCase();
-                  return (
-                    (contact.name || '').toLowerCase().includes(term) ||
-                    (editablePhones[contact.id] || contact.phone || '').toLowerCase().includes(term)
-                  );
-                })
-                .map((contact) => {
-                  const isSelected = selectedContactIds.has(contact.id);
-                  return (
-                    <View
-                      key={`${contact.id}-${contact.phone}`}
-                      className="py-3 border-b border-lightGray"
-                    >
-                      <TouchableOpacity
-                        className="flex-row items-center"
-                        onPress={() => handleToggleSelect(contact.id)}
-                        activeOpacity={0.7}
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+              >
+                {phoneContacts
+                  .filter((contact) => {
+                    if (!contactSearch.trim()) return true;
+                    const term = contactSearch.toLowerCase();
+                    return (
+                      (contact.name || '').toLowerCase().includes(term) ||
+                      (editablePhones[contact.id] || contact.phone || '').toLowerCase().includes(term)
+                    );
+                  })
+                  .map((contact) => {
+                    const isSelected = selectedContactIds.has(contact.id);
+                    return (
+                      <View
+                        key={`${contact.id}-${contact.phone}`}
+                        className="py-3 border-b border-lightGray"
                       >
-                        <MaterialCommunityIcons
-                          name={isSelected ? 'checkbox-marked' : 'checkbox-blank-outline'}
-                          size={22}
-                          color={isSelected ? '#2196F3' : '#9E9E9E'}
+                        <TouchableOpacity
+                          className="flex-row items-center"
+                          onPress={() => handleToggleSelect(contact.id)}
+                          activeOpacity={0.7}
+                        >
+                          <MaterialCommunityIcons
+                            name={isSelected ? 'checkbox-marked' : 'checkbox-blank-outline'}
+                            size={22}
+                            color={isSelected ? '#2196F3' : '#9E9E9E'}
+                          />
+                          <Text className="text-base font-medium text-dark ml-3 flex-1">
+                            {contact.name}
+                          </Text>
+                        </TouchableOpacity>
+
+                        <TextInput
+                          className="input-field mt-2"
+                          value={editablePhones[contact.id] ?? contact.phone ?? ''}
+                          onChangeText={(text) =>
+                            setEditablePhones((prev) => ({ ...prev, [contact.id]: text }))
+                          }
+                          placeholder="Phone Number"
+                          keyboardType="phone-pad"
+                          placeholderTextColor="#BDBDBD"
                         />
-                        <Text className="text-base font-medium text-dark ml-3 flex-1">
-                          {contact.name}
-                        </Text>
-                      </TouchableOpacity>
+                      </View>
+                    );
+                  })}
+              </ScrollView>
 
-                      <TextInput
-                        className="input-field mt-2"
-                        value={editablePhones[contact.id] ?? contact.phone ?? ''}
-                        onChangeText={(text) =>
-                          setEditablePhones((prev) => ({ ...prev, [contact.id]: text }))
-                        }
-                        placeholder="Phone Number"
-                        keyboardType="phone-pad"
-                        placeholderTextColor="#BDBDBD"
-                      />
-                    </View>
-                  );
-                })}
-            </ScrollView>
-
-            <View className="flex-row justify-between mt-4">
-              <TouchableOpacity
-                className="flex-1 bg-lightGray py-3 rounded-lg mr-2 items-center"
-                onPress={() => setImportModalVisible(false)}
-                activeOpacity={0.7}
-              >
-                <Text className="text-dark font-semibold">Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                className="flex-1 bg-primary py-3 rounded-lg ml-2 items-center"
-                onPress={handleSaveSelectedContacts}
-                activeOpacity={0.7}
-              >
-                <Text className="text-white font-bold">Add Selected</Text>
-              </TouchableOpacity>
+              <View className="flex-row justify-between mt-4">
+                <TouchableOpacity
+                  className="flex-1 bg-lightGray py-3 rounded-lg mr-2 items-center"
+                  onPress={() => setImportModalVisible(false)}
+                  activeOpacity={0.7}
+                >
+                  <Text className="text-dark font-semibold">Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  className="flex-1 bg-primary py-3 rounded-lg ml-2 items-center"
+                  onPress={handleSaveSelectedContacts}
+                  activeOpacity={0.7}
+                >
+                  <Text className="text-white font-bold">Add Selected</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );

@@ -41,9 +41,35 @@ const encodeBase64 = (value: string): string => {
   return Buffer.from(value, 'utf-8').toString('base64');
 };
 
+const buildProvisioningWritePayload = (payload: DeviceProvisioningPayload): string => {
+  // Keep the BLE write payload compact so it fits within common ESP32/Android MTU limits.
+  const mqttPayload: { h: string; o?: number; t?: string } = {
+    h: payload.mqtt.host,
+  };
+
+  if (payload.mqtt.port !== 1883) {
+    mqttPayload.o = payload.mqtt.port;
+  }
+
+  if (payload.mqtt.topic !== 'fall-detection/device-data') {
+    mqttPayload.t = payload.mqtt.topic;
+  }
+
+  return JSON.stringify({
+    d: payload.device_id,
+    u: payload.user_id,
+    w: {
+      s: payload.wifi.ssid,
+      p: payload.wifi.password,
+    },
+    m: mqttPayload,
+  });
+};
+
 class DeviceProvisioningService {
   private device: BleDevice | null = null;
   private statusSubscription: { remove?: () => void } | null = null;
+  private readonly provisioningTimeoutMs = 40000;
 
   private async settleDevice(device: BleDevice, delayMs: number = 1000): Promise<void> {
     // Some ESP32 firmware builds need a small pause after discovery before reads/writes stabilize.
@@ -137,13 +163,21 @@ class DeviceProvisioningService {
     payload: DeviceProvisioningPayload
   ): Promise<void> {
     const device = await this.ensureReadyDevice(deviceId);
-    const rawPayload = JSON.stringify(payload);
+    const rawPayload = buildProvisioningWritePayload(payload);
     const encoded = encodeBase64(rawPayload);
+    const maxWriteBytes = 180;
+
+    if (rawPayload.length > maxWriteBytes) {
+      throw new Error(
+        `Provisioning payload is too large for the current BLE firmware (${rawPayload.length} bytes > ${maxWriteBytes}).`
+      );
+    }
 
     console.log('📤 [BLE Provisioning] Writing payload to bracelet...', {
       deviceId,
       rawBytes: rawPayload.length,
       base64Bytes: encoded.length,
+      compact: true,
     });
 
     try {
@@ -159,7 +193,7 @@ class DeviceProvisioningService {
   async monitorProvisioningStatus(
     deviceId: string,
     onStatus: (status: DeviceProvisioningStatus) => void
-  ): Promise<void> {
+  ): Promise<() => void> {
     const device = await this.ensureReadyDevice(deviceId);
 
     this.statusSubscription?.remove?.();
@@ -183,16 +217,80 @@ class DeviceProvisioningService {
         }
       }
     );
+
+    return () => {
+      this.statusSubscription?.remove?.();
+      this.statusSubscription = null;
+    };
+  }
+
+  private async waitForProvisioningCompletion(
+    deviceId: string,
+    onStatus?: (status: DeviceProvisioningStatus) => void
+  ): Promise<DeviceProvisioningStatus> {
+    return new Promise<DeviceProvisioningStatus>(async (resolve, reject) => {
+      let settled = false;
+      let cleanup: () => void = () => undefined;
+
+      const finish = (callback: () => void) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        callback();
+      };
+
+      const timeout = setTimeout(() => {
+        finish(() => {
+          reject(
+            new Error(
+              'Timed out while waiting for the bracelet to finish Wi-Fi/MQTT setup. Check the bracelet serial monitor.'
+            )
+          );
+        });
+      }, this.provisioningTimeoutMs);
+
+      try {
+        cleanup = await this.monitorProvisioningStatus(deviceId, (status) => {
+          onStatus?.(status);
+
+          const isFailure =
+            status.success === false ||
+            status.stage === 'wifi_failed' ||
+            status.stage === 'mqtt_failed';
+          const isSuccess =
+            status.success === true &&
+            (status.stage === 'mqtt_connected' || status.stage === 'streaming');
+
+          if (isFailure) {
+            clearTimeout(timeout);
+            finish(() => {
+              reject(new Error(status.message || `Provisioning failed at stage: ${status.stage}`));
+            });
+            return;
+          }
+
+          if (isSuccess) {
+            clearTimeout(timeout);
+            finish(() => resolve(status));
+          }
+        });
+      } catch (error) {
+        clearTimeout(timeout);
+        finish(() => reject(error instanceof Error ? error : new Error('Failed to monitor provisioning status')));
+      }
+    });
   }
 
   async provisionDevice(params: {
     deviceId: string;
     ssid: string;
     password: string;
+    onStatus?: (status: DeviceProvisioningStatus) => void;
   }): Promise<{
     deviceInfo: DeviceProvisioningDeviceInfo | null;
     pairing: DevicePairingTokenResponse;
     payload: DeviceProvisioningPayload;
+    finalStatus: DeviceProvisioningStatus;
   }> {
     const deviceInfo = await this.readDeviceInfo(params.deviceId);
     const pairing = await this.requestPairingToken(
@@ -203,6 +301,7 @@ class DeviceProvisioningService {
 
     const payload: DeviceProvisioningPayload = {
       device_id: pairing.device_id,
+      user_id: pairing.user_id,
       pairing_token: pairing.pairing_token,
       wifi: {
         ssid: params.ssid,
@@ -212,12 +311,15 @@ class DeviceProvisioningService {
       api: pairing.api,
     };
 
+    const statusPromise = this.waitForProvisioningCompletion(params.deviceId, params.onStatus);
     await this.writeProvisioningPayload(params.deviceId, payload);
+    const finalStatus = await statusPromise;
 
     return {
       deviceInfo,
       pairing,
       payload,
+      finalStatus,
     };
   }
 

@@ -1,4 +1,6 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
+import { AUTH_CONFIG } from '../constants/auth';
 import { API_CONFIG } from '../utils/constants';
 import { 
   User, Device, VitalData, 
@@ -18,6 +20,34 @@ class ApiService {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
       },
+    });
+
+    this.client.interceptors.request.use(async (config) => {
+      const existingAuthHeader =
+        config.headers?.Authorization || config.headers?.authorization;
+
+      if (existingAuthHeader) {
+        return config;
+      }
+
+      try {
+        const sessionString = await AsyncStorage.getItem(AUTH_CONFIG.STORAGE_KEYS.USER_SESSION);
+        if (!sessionString) {
+          return config;
+        }
+
+        const session = JSON.parse(sessionString) as { token?: string } | null;
+        const token = session?.token?.trim();
+
+        if (token) {
+          config.headers = config.headers || {};
+          config.headers.Authorization = `Bearer ${token}`;
+        }
+      } catch (error) {
+        console.warn('⚠️ [API] Failed to load auth session for request:', error);
+      }
+
+      return config;
     });
   }
 
@@ -216,6 +246,15 @@ class ApiService {
       return { success: payload?.success ?? true, data };
     } catch (error: any) {
       const status = error?.response?.status;
+      if (status === 404) {
+        console.log(`ℹ️ No last location available for user ${userId}`);
+        return {
+          success: true,
+          data: null,
+          message: 'لا توجد بيانات موقع متاحة حاليًا'
+        };
+      }
+
       console.error(`❌ Error getting last location (${userId}):`, status ?? '', error.message);
       return {
         success: false,
@@ -346,11 +385,17 @@ class ApiService {
       };
     } catch (error: any) {
       console.error('❌ Error requesting pairing token:', error.message);
-      return {
-        success: false,
-        error: error.message,
-        message: 'فشل إنشاء رمز ربط الجهاز'
-      };
+      const status = error?.response?.status;
+
+      if (status === 401 || status === 403) {
+        return {
+          success: false,
+          error: error.message,
+          message: 'انتهت الجلسة أو لم يتم إرسال صلاحية الدخول. سجّل الدخول مرة أخرى ثم أعد محاولة ربط الجهاز.',
+        };
+      }
+
+      return this.formatApiError(error, 'فشل إنشاء رمز ربط الجهاز');
     }
   }
 

@@ -27,6 +27,7 @@ If those values do not match, the bracelet may publish successfully while the ba
 - Provide Wi-Fi SSID and password
 - Let the app request a pairing token from `/api/v1/devices/request-pairing-token`
 - Let the app write the provisioning payload over BLE
+- Confirm the payload includes both `device_id` and `user_id`; without `user_id`, the current firmware will reject provisioning
 
 ## Step 2: Watch the Bracelet Serial Monitor
 Open the serial monitor at `115200` baud and look for logs similar to:

@@ -7,6 +7,7 @@ import re
 import io
 import json
 import os
+import jwt
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional, Tuple
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Query, Header, Request
@@ -20,8 +21,9 @@ from ..database import get_db
 from ..services.ai_model import load_model_and_scaler, predict_from_sample
 from .. import crud, schemas, models
 from ..services.auth_service import AuthService
-from ..models import User, Alert, Prediction, Device, CareLink, VitalSensorData, EmergencyLog, UserPushToken
+from ..models import User, UserAuth, Alert, Prediction, Device, CareLink, VitalSensorData, EmergencyLog, UserPushToken
 from ..device_auth import device_auth
+from ..config import SECRET_KEY, ALGORITHM
 from ..double_verification import DoubleVerificationSystem
 from ..services.notification_service import NotificationService
 from ..realtime import notify_user, notify_users, notify_admins
@@ -327,14 +329,39 @@ def _require_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={"success": False, "error": "Authorization token required"}
         )
+
     auth = AuthService(db)
     session = auth.verify_token(token)
-    if not session or not session.get("user"):
+    if session and session.get("user"):
+        return session
+
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = int(payload.get("sub"))
+    except Exception as exc:
+        logger.warning(f"JWT fallback verification failed: {exc}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={"success": False, "error": "Invalid or expired token"}
         )
-    return session
+
+    user = db.query(User).filter(User.id == user_id).first()
+    user_auth = db.query(UserAuth).filter(UserAuth.user_id == user_id).first()
+    if not user or not user_auth:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"success": False, "error": "Invalid or expired token"}
+        )
+
+    return {
+        "user": {
+            "id": user.id,
+            "name": user.name,
+            "email": user_auth.email,
+        },
+        "token": token,
+        "auth_mode": "jwt_fallback",
+    }
 
 
 def _build_report_data(

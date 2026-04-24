@@ -148,6 +148,18 @@ float wave(unsigned long t, float speed, float amplitude, float offset) {
   return sin((float)t / speed) * amplitude + offset;
 }
 
+bool isValidHeartRate(float heartRate) {
+  return heartRate > 0.0f && heartRate < 300.0f;
+}
+
+bool isValidOxygenSaturation(float spo2) {
+  return spo2 >= 0.0f && spo2 <= 100.0f;
+}
+
+bool isValidBodyTemperature(float bodyTemp) {
+  return bodyTemp > 20.0f && bodyTemp < 45.0f;
+}
+
 void buildTelemetryJson(char *output, size_t outputSize) {
   unsigned long now = millis();
 
@@ -180,10 +192,23 @@ void buildTelemetryJson(char *output, size_t outputSize) {
   motion["gyro_z"] = gyroZ;
   motion["temperature"] = bodyTemp;
 
-  JsonObject vitals = doc.createNestedObject("vitals");
-  vitals["heart_rate"] = heartRate;
-  vitals["oxygen_saturation"] = spo2;
-  vitals["body_temperature"] = bodyTemp;
+  const bool hasValidVitals =
+    isValidHeartRate(heartRate) ||
+    isValidOxygenSaturation(spo2) ||
+    isValidBodyTemperature(bodyTemp);
+
+  if (hasValidVitals) {
+    JsonObject vitals = doc.createNestedObject("vitals");
+    if (isValidHeartRate(heartRate)) {
+      vitals["heart_rate"] = heartRate;
+    }
+    if (isValidOxygenSaturation(spo2)) {
+      vitals["oxygen_saturation"] = spo2;
+    }
+    if (isValidBodyTemperature(bodyTemp)) {
+      vitals["body_temperature"] = bodyTemp;
+    }
+  }
 
   serializeJson(doc, output, outputSize);
 }
@@ -324,14 +349,17 @@ class WriteCallbacks : public BLECharacteristicCallbacks {
       return;
     }
 
-    wifiSsid = doc["wifi"]["ssid"] | "";
-    wifiPassword = doc["wifi"]["password"] | "";
-    provisionedDeviceId = doc["device_id"] | fallbackDeviceId();
-    pairingToken = doc["pairing_token"] | "";
-    mqttHost = doc["mqtt"]["host"] | "";
-    mqttTopic = doc["mqtt"]["topic"] | "fall-detection/device-data";
-    mqttPort = doc["mqtt"]["port"] | 1883;
-    provisionedUserId = doc["user_id"] | 0;
+    JsonObject wifi = doc["wifi"].is<JsonObject>() ? doc["wifi"].as<JsonObject>() : doc["w"].as<JsonObject>();
+    JsonObject mqtt = doc["mqtt"].is<JsonObject>() ? doc["mqtt"].as<JsonObject>() : doc["m"].as<JsonObject>();
+
+    wifiSsid = wifi["ssid"] | wifi["s"] | "";
+    wifiPassword = wifi["password"] | wifi["p"] | "";
+    provisionedDeviceId = doc["device_id"] | doc["d"] | fallbackDeviceId();
+    pairingToken = doc["pairing_token"] | doc["pt"] | "";
+    mqttHost = mqtt["host"] | mqtt["h"] | "";
+    mqttTopic = mqtt["topic"] | mqtt["t"] | "fall-detection/device-data";
+    mqttPort = mqtt["port"] | mqtt["o"] | 1883;
+    provisionedUserId = doc["user_id"] | doc["u"] | 0;
 
     if (wifiSsid.isEmpty() || wifiPassword.isEmpty()) {
       notifyStatus("provisioning_received", false, "WiFi SSID/password missing");

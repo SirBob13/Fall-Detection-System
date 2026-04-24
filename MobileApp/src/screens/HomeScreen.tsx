@@ -294,6 +294,19 @@ export const HomeScreen: React.FC = () => {
     }
 
     try {
+      const contacts = await emergencyService.getEmergencyContacts();
+      const hasUsableContacts = contacts.some(
+        (contact) => Boolean(contact.phone && contact.phone.trim().length > 0)
+      );
+
+      if (!hasUsableContacts) {
+        RNAlert.alert(
+          '⚠️ No Emergency Contacts',
+          'Please add emergency contacts in settings before triggering an emergency.'
+        );
+        return;
+      }
+
       RNAlert.alert(
         t('emergency.sosButton'),
         `${t('emergency.sosSending')}?`,
@@ -313,8 +326,6 @@ export const HomeScreen: React.FC = () => {
                   );
                   Vibration.vibrate([500, 500, 500]);
                   loadData();
-                } else {
-                  RNAlert.alert(t('common.error'), t('errors.unknown'));
                 }
               } catch (error) {
                 RNAlert.alert(t('common.error'), t('errors.unknown'));

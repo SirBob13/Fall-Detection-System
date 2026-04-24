@@ -765,10 +765,19 @@ class AuthService {
     try {
       console.log('📝 [Register] Starting registration process...');
       
-      // Quick connection check (without long wait)
-      const isConnected = await this.testDatabaseConnection();
-      if (!isConnected) {
-        console.warn('⚠️ [Register] Connection check failed, attempting registration anyway');
+      // Best-effort connection check. Registration should still proceed if the preflight health probe aborts.
+      try {
+        const isConnected = await this.testDatabaseConnection();
+        if (!isConnected) {
+          console.warn('⚠️ [Register] Connection check failed, attempting registration anyway');
+        }
+      } catch (error: any) {
+        const isAbort = error?.name === 'AbortError' || String(error?.message || '').includes('Abort');
+        if (isAbort) {
+          console.warn('⚠️ [Register] Health preflight aborted, continuing with registration request');
+        } else {
+          console.warn('⚠️ [Register] Health preflight failed unexpectedly, continuing anyway:', error);
+        }
       }
 
       // Quick email existence check
@@ -1058,51 +1067,22 @@ class AuthService {
     try {
       console.log(`🔐 [Social Login] Starting ${data.provider} login...`);
 
-      const maxAttempts = 2;
-      const timeoutMs = 45000;
-      let response: Response | null = null;
+      const startedAt = Date.now();
+      const response = await fetch(`${this.baseURL}/social-login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({
+          provider: data.provider,
+          token: data.token,
+          user_info: data.user_info,
+        }),
+      });
 
-      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-        const startedAt = Date.now();
+      console.log(`📡 [Social Login] Response status: ${response.status} (${Date.now() - startedAt}ms)`);
 
-        try {
-          console.log(`🚀 [Social Login] Attempt ${attempt}/${maxAttempts} for ${data.provider}`);
-
-          response = await fetch(`${this.baseURL}/social-login`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-            },
-            body: JSON.stringify({
-              provider: data.provider,
-              token: data.token,
-              user_info: data.user_info,
-            }),
-            signal: controller.signal
-          });
-
-          console.log(`📡 [Social Login] Response status: ${response.status} (${Date.now() - startedAt}ms)`);
-          break;
-        } catch (error: any) {
-          const isAbort = error?.name === 'AbortError' || String(error?.message || '').includes('Abort');
-          if (isAbort && attempt < maxAttempts) {
-            console.warn(`⚠️ [Social Login] ${data.provider} attempt ${attempt} timed out or was interrupted. Retrying once...`);
-            await new Promise((resolve) => setTimeout(resolve, 1200));
-            continue;
-          }
-
-          throw error;
-        } finally {
-          clearTimeout(timeoutId);
-        }
-      }
-
-      if (!response) {
-        throw new Error('No response received from social login request');
-      }
 
       if (!response.ok) {
         const errorText = await response.text();

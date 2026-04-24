@@ -115,7 +115,19 @@ async function login() {
       throw new Error(data?.error || 'Login failed');
     }
 
-    setToken(data.access_token);
+    const token = data.access_token;
+    const profileRes = await fetch(`${API_BASE}/auth/profile`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    const profileData = await profileRes.json().catch(() => ({}));
+    if (!profileRes.ok) {
+      throw new Error(profileData?.error || profileData?.detail?.error || 'Unable to verify account role');
+    }
+    if (!profileData?.user?.is_admin) {
+      throw new Error('This account is valid, but it is not allowed in the admin dashboard');
+    }
+
+    setToken(token);
     setStatus('Login successful', true);
     await boot();
   } catch (err) {

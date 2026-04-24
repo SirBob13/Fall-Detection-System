@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView, TextInput, TouchableOpacity, Alert, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, TextInput, TouchableOpacity, Alert, StyleSheet, ActivityIndicator, Keyboard, TouchableWithoutFeedback, KeyboardAvoidingView, Platform, InputAccessoryView } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -24,6 +24,8 @@ const normalizePhoneInput = (value: string): string => {
   if (normalized.includes('+')) normalized = normalized.replace(/(?!^)\+/g, '');
   return normalized;
 };
+
+const IOS_KEYBOARD_ACCESSORY_ID = 'personal-info-keyboard-accessory';
 
 export const PersonalInfoScreen: React.FC = () => {
   const { t } = useLanguage();
@@ -62,21 +64,46 @@ export const PersonalInfoScreen: React.FC = () => {
     if (!user) return;
     setSaving(true);
     try {
-      const payload = {
-        ...form,
+      const payload: Partial<User> = {
+        name: form.name,
+        phone: form.phone || undefined,
         age: form.age ? Number(form.age) : undefined,
-        weight: form.weight ? Number(form.weight) : undefined,
+        gender: form.gender || undefined,
         height: form.height ? Number(form.height) : undefined,
+        weight: form.weight ? Number(form.weight) : undefined,
+        emergency_contact: form.emergency_contact || undefined,
+        medical_conditions: form.medical_conditions || undefined,
       };
       const response = await apiService.updateUser(user.id, payload);
-      if (response.success) {
-        await storageService.saveUser(response.data);
+      if (response.success && response.data) {
+        const updatedUser = response.data;
+        setUser(updatedUser);
+
+        setForm({
+          name: updatedUser.name || '',
+          phone: updatedUser.phone || '',
+          age: updatedUser.age ? String(updatedUser.age) : '',
+          gender: updatedUser.gender || '',
+          weight: updatedUser.weight ? String(updatedUser.weight) : '',
+          height: updatedUser.height ? String(updatedUser.height) : '',
+          emergency_contact: updatedUser.emergency_contact || '',
+          medical_conditions: updatedUser.medical_conditions || '',
+        });
+
+        await storageService.saveUser(updatedUser);
+        await authService.updateCurrentUser({
+          ...updatedUser,
+          id: String(updatedUser.id),
+        });
+
         if (isOnboarding) {
           navigation.reset({ index: 0, routes: [{ name: 'MainTabs' as any }] });
         } else {
           Alert.alert(t('success.updated'), t('success.saved'));
           navigation.goBack();
         }
+      } else {
+        Alert.alert(t('common.error'), response.message || t('errors.unknown'));
       }
     } catch (e) {
       Alert.alert(t('common.error'), t('errors.unknown'));
@@ -86,113 +113,176 @@ export const PersonalInfoScreen: React.FC = () => {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ padding: 20 }} showsVerticalScrollIndicator={false}>
-      <View style={styles.card}>
-        <Text style={styles.title}>
-          {isOnboarding ? t('auth.completeProfile.title') : t('settings.personalInfo')}
-        </Text>
-        
-        <Label>{t('auth.register.name')}</Label>
-        <TextInput
-          style={styles.input}
-          value={form.name}
-          onChangeText={(v) => setForm({...form, name: normalizeTextInput(v)})}
-          placeholder="John Doe"
-          placeholderTextColor="#9CA3AF"
-        />
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
+    >
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+        <ScrollView
+          style={styles.container}
+          contentContainerStyle={{ padding: 20 }}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.card}>
+            <Text style={styles.title}>
+              {isOnboarding ? t('auth.completeProfile.title') : t('settings.personalInfo')}
+            </Text>
+            
+            <Label>{t('auth.register.name')}</Label>
+            <TextInput
+              style={styles.input}
+              value={form.name}
+              onChangeText={(v) => setForm({...form, name: normalizeTextInput(v)})}
+              placeholder="John Doe"
+              placeholderTextColor="#9CA3AF"
+              returnKeyType="done"
+              onSubmitEditing={Keyboard.dismiss}
+            />
 
-        <Label>{t('auth.register.phone')}</Label>
-        <TextInput
-          style={styles.input}
-          value={form.phone}
-          onChangeText={(v) => setForm({...form, phone: normalizePhoneInput(v)})}
-          keyboardType="phone-pad"
-          placeholder="+201234567890"
-          placeholderTextColor="#9CA3AF"
-        />
+            <Label>{t('auth.register.phone')}</Label>
+            <TextInput
+              style={styles.input}
+              value={form.phone}
+              onChangeText={(v) => setForm({...form, phone: normalizePhoneInput(v)})}
+              keyboardType="phone-pad"
+              inputAccessoryViewID={Platform.OS === 'ios' ? IOS_KEYBOARD_ACCESSORY_ID : undefined}
+              placeholder="+201234567890"
+              placeholderTextColor="#9CA3AF"
+              returnKeyType="done"
+              onSubmitEditing={Keyboard.dismiss}
+            />
 
-        <View className="flex-row mb-4">
+            <View className="flex-row mb-4">
+              <View className="flex-1 mr-2">
+                  <Label>{t('settings.age')}</Label>
+                  <TextInput
+                  style={styles.input}
+                  value={form.age}
+                  onChangeText={(v) => setForm({...form, age: normalizeNumericInput(v)})}
+                  keyboardType="number-pad"
+                  inputAccessoryViewID={Platform.OS === 'ios' ? IOS_KEYBOARD_ACCESSORY_ID : undefined}
+                  maxLength={3}
+                  returnKeyType="done"
+                  onSubmitEditing={Keyboard.dismiss}
+                  />
+              </View>
+              <View className="flex-1 ml-2">
+                  <Label>{t('settings.gender')}</Label>
+                  <View className="flex-row h-[50px]">
+                      {['male', 'female'].map((g) => (
+                          <TouchableOpacity
+                              key={g}
+                              onPress={() => {
+                                Keyboard.dismiss();
+                                setForm({...form, gender: g as any});
+                              }}
+                              style={[styles.genderBtn, form.gender === g && styles.genderBtnActive]}
+                              className="flex-1 flex-row items-center justify-center mx-1 rounded-xl"
+                          >
+                              <MaterialCommunityIcons 
+                                  name={g === 'male' ? 'gender-male' : 'gender-female'} 
+                                  size={18} 
+                                  color={form.gender === g ? '#FFF' : '#6B7280'} 
+                              />
+                          </TouchableOpacity>
+                      ))}
+                  </View>
+              </View>
+          </View>
+
+          <View className="flex-row mb-4">
             <View className="flex-1 mr-2">
-                <Label>{t('settings.age')}</Label>
-                <TextInput
+              <Label>{t('settings.height')} (cm)</Label>
+              <TextInput
                 style={styles.input}
-                value={form.age}
-                onChangeText={(v) => setForm({...form, age: normalizeNumericInput(v)})}
-                keyboardType="number-pad"
-                maxLength={3}
-                />
+                value={form.height}
+                keyboardType="numeric"
+                inputAccessoryViewID={Platform.OS === 'ios' ? IOS_KEYBOARD_ACCESSORY_ID : undefined}
+                onChangeText={(v) => setForm({...form, height: normalizeNumericInput(v)})}
+                returnKeyType="done"
+                onSubmitEditing={Keyboard.dismiss}
+              />
             </View>
             <View className="flex-1 ml-2">
-                <Label>{t('settings.gender')}</Label>
-                <View className="flex-row h-[50px]">
-                    {['male', 'female'].map((g) => (
-                        <TouchableOpacity
-                            key={g}
-                            onPress={() => setForm({...form, gender: g as any})}
-                            style={[styles.genderBtn, form.gender === g && styles.genderBtnActive]}
-                            className="flex-1 flex-row items-center justify-center mx-1 rounded-xl"
-                        >
-                            <MaterialCommunityIcons 
-                                name={g === 'male' ? 'gender-male' : 'gender-female'} 
-                                size={18} 
-                                color={form.gender === g ? '#FFF' : '#6B7280'} 
-                            />
-                        </TouchableOpacity>
-                    ))}
-                </View>
+              <Label>{t('settings.weight')} (kg)</Label>
+              <TextInput
+                style={styles.input}
+                value={form.weight}
+                keyboardType="numeric"
+                inputAccessoryViewID={Platform.OS === 'ios' ? IOS_KEYBOARD_ACCESSORY_ID : undefined}
+                onChangeText={(v) => setForm({...form, weight: normalizeNumericInput(v)})}
+                returnKeyType="done"
+                onSubmitEditing={Keyboard.dismiss}
+              />
             </View>
+          </View>
+
+          <Label>{t('settings.emergencyContact')}</Label>
+          <TextInput
+            style={styles.input}
+            value={form.emergency_contact}
+            onChangeText={(v) => setForm({...form, emergency_contact: normalizePhoneInput(v)})}
+            keyboardType="phone-pad"
+            inputAccessoryViewID={Platform.OS === 'ios' ? IOS_KEYBOARD_ACCESSORY_ID : undefined}
+            returnKeyType="done"
+            onSubmitEditing={Keyboard.dismiss}
+          />
+
+          <Label>{t('settings.medicalConditions')}</Label>
+          <TextInput
+            style={[styles.input, { height: 100, textAlignVertical: 'top' }]}
+            value={form.medical_conditions}
+            multiline
+            onChangeText={(v) => setForm({...form, medical_conditions: v})}
+            returnKeyType="done"
+            blurOnSubmit
+            onSubmitEditing={Keyboard.dismiss}
+          />
         </View>
 
-        <View className="flex-row mb-4">
-          <View className="flex-1 mr-2">
-            <Label>{t('settings.height')} (cm)</Label>
-            <TextInput style={styles.input} value={form.height} keyboardType="numeric" onChangeText={(v) => setForm({...form, height: v})} />
-          </View>
-          <View className="flex-1 ml-2">
-            <Label>{t('settings.weight')} (kg)</Label>
-            <TextInput style={styles.input} value={form.weight} keyboardType="numeric" onChangeText={(v) => setForm({...form, weight: v})} />
-          </View>
-        </View>
-
-        <Label>{t('settings.emergencyContact')}</Label>
-        <TextInput
-          style={styles.input}
-          value={form.emergency_contact}
-          onChangeText={(v) => setForm({...form, emergency_contact: normalizePhoneInput(v)})}
-          keyboardType="phone-pad"
-        />
-
-        <Label>{t('settings.medicalConditions')}</Label>
-        <TextInput
-          style={[styles.input, { height: 100, textAlignVertical: 'top' }]}
-          value={form.medical_conditions}
-          multiline
-          onChangeText={(v) => setForm({...form, medical_conditions: v})}
-        />
-      </View>
-
-      <TouchableOpacity 
-        style={styles.saveBtn} 
-        onPress={handleSave} 
-        disabled={saving}
-      >
-        {saving ? <ActivityIndicator color="#FFF" /> : <Text style={styles.saveBtnText}>{t('common.save')}</Text>}
-      </TouchableOpacity>
-
-      {!isOnboarding && (
         <TouchableOpacity 
-            style={styles.passwordBtn}
-            onPress={() => navigation.navigate('ChangePassword' as any)}
+          style={styles.saveBtn} 
+          onPress={() => {
+            Keyboard.dismiss();
+            handleSave();
+          }}
+          disabled={saving}
         >
-          <Text style={styles.passwordBtnText}>{t('settings.changePassword')}</Text>
+          {saving ? <ActivityIndicator color="#FFF" /> : <Text style={styles.saveBtnText}>{t('common.save')}</Text>}
         </TouchableOpacity>
-      )}
-    </ScrollView>
+
+        {!isOnboarding && (
+          <TouchableOpacity 
+              style={styles.passwordBtn}
+              onPress={() => {
+                Keyboard.dismiss();
+                navigation.navigate('ChangePassword' as any);
+              }}
+          >
+            <Text style={styles.passwordBtnText}>{t('settings.changePassword')}</Text>
+          </TouchableOpacity>
+        )}
+
+        {Platform.OS === 'ios' && (
+          <InputAccessoryView nativeID={IOS_KEYBOARD_ACCESSORY_ID}>
+            <View style={styles.keyboardAccessory}>
+              <View style={styles.keyboardAccessorySpacer} />
+              <TouchableOpacity onPress={Keyboard.dismiss} style={styles.keyboardDoneButton}>
+                <Text style={styles.keyboardDoneText}>Done</Text>
+              </TouchableOpacity>
+            </View>
+          </InputAccessoryView>
+        )}
+      </ScrollView>
+    </TouchableWithoutFeedback>
+  </KeyboardAvoidingView>
   );
 };
 
 // مكون صغير للعنوان (Label)
-const Label = ({ children }: { children: string }) => (
+const Label = ({ children }: { children: React.ReactNode }) => (
   <Text style={{ fontSize: 13, fontWeight: '700', color: '#4B5563', marginBottom: 8, marginLeft: 4 }}>{children}</Text>
 );
 
@@ -269,7 +359,29 @@ const styles = StyleSheet.create({
     color: '#4B5563',
     fontSize: 15,
     fontWeight: '600',
-  }
+  },
+  keyboardAccessory: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+    backgroundColor: '#F9FAFB',
+  },
+  keyboardAccessorySpacer: {
+    flex: 1,
+  },
+  keyboardDoneButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  keyboardDoneText: {
+    color: '#2196F3',
+    fontSize: 16,
+    fontWeight: '700',
+  },
 });
 
 export default PersonalInfoScreen;

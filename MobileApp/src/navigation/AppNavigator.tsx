@@ -31,8 +31,6 @@ import { DeviceManagementScreen } from '../screens/DeviceManagementScreen';
 import { PersonalInfoScreen } from '../screens/PersonalInfoScreen';
 import { CareManagementScreen } from '../screens/CareManagementScreen';
 import { CaregiverDashboardScreen } from '../screens/CaregiverDashboardScreen';
-import { ChatScreen } from '../screens/ChatScreen';
-import { VideoCallScreen } from '../screens/VideoCallScreen';
 import { ReportsScreen } from '../screens/ReportsScreen';
 import { PrivacyPolicyScreen } from '../screens/PrivacyPolicyScreen';
 
@@ -64,8 +62,6 @@ export type SettingsStackParamList = {
   CareManagement: undefined;
   CareDashboard: undefined;
   Reports: undefined;
-  Chat: { patientId: number; patientName?: string };
-  VideoCall: { channel: string; title?: string };
   EmergencyContacts: undefined;
   EmergencySettings: undefined;
   LanguageSettings: undefined;
@@ -194,16 +190,6 @@ const SettingsNavigator = () => {
         name="Reports"
         component={ReportsScreen}
         options={{ title: t('reports.title') }}
-      />
-      <SettingsStack.Screen
-        name="Chat"
-        component={ChatScreen}
-        options={{ title: t('chat.title') }}
-      />
-      <SettingsStack.Screen
-        name="VideoCall"
-        component={VideoCallScreen}
-        options={{ title: t('video.title') }}
       />
       <SettingsStack.Screen 
         name="EmergencyContacts" 

@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Fall Detection",
+    "name": "Fall Detection System",
     "slug": "fall-detection-app",
     "version": "1.0.0",
     "scheme": "fall-detection",

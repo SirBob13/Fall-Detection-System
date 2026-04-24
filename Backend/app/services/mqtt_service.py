@@ -17,7 +17,7 @@ import paho.mqtt.client as mqtt
 logger = logging.getLogger(__name__)
 
 MQTT_ENABLED = os.getenv("MQTT_ENABLED", "false").lower() == "true"
-MQTT_BROKER = os.getenv("MQTT_BROKER", "127.0.0.1")
+MQTT_BROKER = os.getenv("MQTT_BROKER", "broker.hivemq.com")
 MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
 MQTT_USERNAME = os.getenv("MQTT_USERNAME", "")
 MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", "")

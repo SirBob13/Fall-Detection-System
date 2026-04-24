@@ -9,7 +9,6 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
 import { useLanguage } from '../components/LanguageProvider';
 import { authService } from '../services/auth.service';
 import { apiService } from '../services/api';
@@ -22,7 +21,6 @@ const phoneDigitsRegex = /^\+?[0-9]{6,15}$/;
 
 export const CareManagementScreen: React.FC = () => {
   const { t } = useLanguage();
-  const navigation = useNavigation<any>();
   const [user, setUser] = useState<User | null>(null);
   const [links, setLinks] = useState<CareLink[]>([]);
   const [incomingRequests, setIncomingRequests] = useState<CareLinkRequest[]>([]);
@@ -254,14 +252,6 @@ export const CareManagementScreen: React.FC = () => {
     setMonitoredUser(link.patient);
   };
 
-  const handleChat = (link: CareLink) => {
-    if (!link.patient) return;
-    navigation.navigate('Chat', {
-      patientId: link.patient.id,
-      patientName: link.patient.name,
-    });
-  };
-
   const handleSwitchBack = async () => {
     await storageService.saveMonitoredUser(null);
     setMonitoredUser(null);
@@ -487,12 +477,6 @@ export const CareManagementScreen: React.FC = () => {
                     onPress={() => handleSelect(link)}
                   >
                     <Text className="text-xs text-primary">{t('care.select')}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    className="px-3 py-2 rounded-lg bg-primary/10 mr-2"
-                    onPress={() => handleChat(link)}
-                  >
-                    <Text className="text-xs text-primary">{t('chat.open')}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     className="px-3 py-2 rounded-lg bg-red-50"

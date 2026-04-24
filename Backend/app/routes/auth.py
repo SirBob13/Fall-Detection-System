@@ -145,7 +145,18 @@ async def verify_apple_id_token(id_token: str) -> Dict[str, Any]:
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Apple token verification failed: {e}")
+        try:
+            unverified = jwt.decode(id_token, options={"verify_signature": False})
+            logger.error(
+                "Apple token verification failed: %s | aud=%s iss=%s sub=%s expected_aud=%s",
+                e,
+                unverified.get("aud"),
+                unverified.get("iss"),
+                unverified.get("sub"),
+                APPLE_CLIENT_ID or "<empty>",
+            )
+        except Exception:
+            logger.error(f"Apple token verification failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid Apple token"
