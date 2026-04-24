@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -42,9 +42,22 @@ export const DeviceManagementScreen: React.FC = () => {
   const [isLoadingArchived, setIsLoadingArchived] = useState(false);
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [hasScanned, setHasScanned] = useState(false);
+  const verificationRunIdRef = useRef(0);
+
+  const cancelCandidateVerification = () => {
+    verificationRunIdRef.current += 1;
+  };
 
   useEffect(() => {
     loadData();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      cancelCandidateVerification();
+      void deviceProvisioningService.disconnect();
+      bluetoothService.stopScan();
+    };
   }, []);
 
   const loadData = async () => {
@@ -173,60 +186,19 @@ export const DeviceManagementScreen: React.FC = () => {
     return macPattern.test(value) || fallbackPattern.test(value);
   };
 
-  const verifyProvisioningCandidates = async (candidates: ScannedDevice[]): Promise<ScannedDevice[]> => {
-    const sortedCandidates = [...candidates].sort((left, right) => {
+  const sortProvisioningCandidates = (candidates: ScannedDevice[]): ScannedDevice[] =>
+    [...candidates].sort((left, right) => {
+      const leftKnown = BLE_KNOWN_DEVICE_NAME_PATTERN.test(left.name) ? 1 : 0;
+      const rightKnown = BLE_KNOWN_DEVICE_NAME_PATTERN.test(right.name) ? 1 : 0;
+
+      if (leftKnown !== rightKnown) {
+        return rightKnown - leftKnown;
+      }
+
       const leftRssi = typeof left.rssi === 'number' ? left.rssi : -999;
       const rightRssi = typeof right.rssi === 'number' ? right.rssi : -999;
       return rightRssi - leftRssi;
     });
-
-    const strongestCandidates = sortedCandidates.slice(0, 6);
-    const verified = new Map<string, ScannedDevice>();
-
-    for (const candidate of strongestCandidates) {
-      try {
-        console.log('🧪 [BLE UI] Verifying candidate:', candidate);
-        const info = await Promise.race([
-          deviceProvisioningService.readDeviceInfo(candidate.id),
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)),
-        ]);
-
-        if (!info?.device_id) {
-          continue;
-        }
-
-        verified.set(candidate.id, {
-          ...candidate,
-          name: `Bracelet ${info.device_id}`,
-        });
-        console.log('✅ [BLE UI] Verified bracelet candidate:', {
-          scanId: candidate.id,
-          deviceId: info.device_id,
-          firmwareVersion: info.firmware_version,
-        });
-      } catch (error) {
-        console.log('⚪ [BLE UI] Candidate is not the bracelet:', candidate.id);
-      } finally {
-        await deviceProvisioningService.disconnect();
-      }
-    }
-
-    if (verified.size === 0) {
-      return sortedCandidates;
-    }
-
-    return sortedCandidates.sort((left, right) => {
-      const leftVerified = verified.has(left.id) ? 1 : 0;
-      const rightVerified = verified.has(right.id) ? 1 : 0;
-      if (leftVerified !== rightVerified) {
-        return rightVerified - leftVerified;
-      }
-
-      const leftRssi = typeof left.rssi === 'number' ? left.rssi : -999;
-      const rightRssi = typeof right.rssi === 'number' ? right.rssi : -999;
-      return rightRssi - leftRssi;
-    }).map((device) => verified.get(device.id) || device);
-  };
 
   const handleScan = async () => {
     console.log('🟦 [BLE UI] Scan button pressed');
@@ -236,6 +208,7 @@ export const DeviceManagementScreen: React.FC = () => {
     }
     setIsScanning(true);
     setHasScanned(true);
+    cancelCandidateVerification();
     try {
       let devices = await bluetoothService.scan(BLE_SCAN_TIMEOUT_MS, [BLE_CONFIG.PROVISIONING_SERVICE_UUID]);
       console.log('🟦 [BLE UI] UUID scan results:', devices);
@@ -258,18 +231,16 @@ export const DeviceManagementScreen: React.FC = () => {
         setProvisioningMessage('Nearby BLE devices found. If the bracelet name is missing, try the top result.');
       }
 
-      void (async () => {
-        const verifiedDevices = await verifyProvisioningCandidates(devices);
-        console.log('🟦 [BLE UI] Final devices to render:', verifiedDevices);
-        setScanResults(verifiedDevices);
-        setSelectedBleDeviceId((current) =>
-          current && verifiedDevices.some((device) => device.id === current) ? current : current
-        );
+      const sortedDevices = sortProvisioningCandidates(devices);
+      console.log('🟦 [BLE UI] Final devices to render:', sortedDevices);
+      setScanResults(sortedDevices);
+      setSelectedBleDeviceId((current) =>
+        current && sortedDevices.some((device) => device.id === current) ? current : current
+      );
 
-        if (verifiedDevices.some((d) => d.name.startsWith('Bracelet '))) {
-          setProvisioningMessage('Bracelet verified. Choose the device that starts with Bracelet.');
-        }
-      })();
+      if (sortedDevices.some((d) => BLE_KNOWN_DEVICE_NAME_PATTERN.test(d.name))) {
+        setProvisioningMessage('Choose the bracelet from the Bluetooth list, then continue with Wi-Fi setup.');
+      }
     } catch (error: any) {
       Alert.alert(t('common.error'), error?.message || t('errors.unknown'));
     } finally {
@@ -293,6 +264,9 @@ export const DeviceManagementScreen: React.FC = () => {
 
     setIsConnecting(true);
     setProvisioningMessage(null);
+    cancelCandidateVerification();
+    bluetoothService.stopScan();
+    await deviceProvisioningService.disconnect();
     try {
       const connected = await deviceService.connectDeviceToUser({
         userId: user.id,

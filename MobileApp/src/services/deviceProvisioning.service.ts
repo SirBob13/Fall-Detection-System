@@ -1,5 +1,5 @@
 import type { Device as BleDevice } from 'react-native-ble-plx';
-import { bluetoothService } from './bluetooth.service';
+import { bluetoothService, describeBleError } from './bluetooth.service';
 import { apiService } from './api';
 import { BLE_CONFIG } from '../utils/constants';
 import type {
@@ -124,22 +124,22 @@ class DeviceProvisioningService {
   }
 
   async readDeviceInfo(deviceId: string): Promise<DeviceProvisioningDeviceInfo | null> {
-    const device = await this.ensureReadyDevice(deviceId);
-    await this.settleDevice(device, 600);
-    const characteristic = await device.readCharacteristicForService(
-      BLE_CONFIG.PROVISIONING_SERVICE_UUID,
-      BLE_CONFIG.DEVICE_INFO_CHARACTERISTIC_UUID
-    );
-
-    const raw = characteristic?.value ? decodeBase64(characteristic.value) : null;
-    if (!raw) {
-      return null;
-    }
-
     try {
+      const device = await this.ensureReadyDevice(deviceId);
+      await this.settleDevice(device, 600);
+      const characteristic = await device.readCharacteristicForService(
+        BLE_CONFIG.PROVISIONING_SERVICE_UUID,
+        BLE_CONFIG.DEVICE_INFO_CHARACTERISTIC_UUID
+      );
+
+      const raw = characteristic?.value ? decodeBase64(characteristic.value) : null;
+      if (!raw) {
+        return null;
+      }
+
       return JSON.parse(raw) as DeviceProvisioningDeviceInfo;
     } catch (error) {
-      console.warn('Provisioning device info parse failed:', error);
+      console.warn('Provisioning device info read failed:', error);
       return null;
     }
   }
@@ -186,7 +186,12 @@ class DeviceProvisioningService {
       console.log('✅ [BLE Provisioning] Payload written successfully');
     } catch (error) {
       console.error('❌ [BLE Provisioning] Payload write failed:', error);
-      throw error;
+      throw new Error(
+        describeBleError(
+          error,
+          'Connected to the bracelet, but sending Wi-Fi setup data over Bluetooth failed.'
+        )
+      );
     }
   }
 
@@ -293,6 +298,11 @@ class DeviceProvisioningService {
     finalStatus: DeviceProvisioningStatus;
   }> {
     const deviceInfo = await this.readDeviceInfo(params.deviceId);
+    if (deviceInfo?.device_id) {
+      console.log('✅ [BLE Provisioning] Device info read:', deviceInfo);
+    } else {
+      console.log('⚠️ [BLE Provisioning] Device info unavailable, continuing with selected BLE device id:', params.deviceId);
+    }
     const pairing = await this.requestPairingToken(
       deviceInfo?.device_id || params.deviceId,
       deviceInfo?.firmware_version,

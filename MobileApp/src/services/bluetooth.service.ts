@@ -13,6 +13,39 @@ const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreCl
 
 export const isBluetoothSupported = () => !isExpoGo;
 
+export const describeBleError = (error: unknown, fallback: string): string => {
+  if (!error) return fallback;
+
+  const bleError = error as {
+    message?: string;
+    reason?: string;
+    errorCode?: number | string;
+    attErrorCode?: number | string;
+    androidErrorCode?: number | string;
+  };
+
+  const reason = typeof bleError.reason === 'string' ? bleError.reason.trim() : '';
+  const message = typeof bleError.message === 'string' ? bleError.message.trim() : '';
+  const details = [
+    bleError.errorCode != null ? `code ${bleError.errorCode}` : null,
+    bleError.attErrorCode != null ? `ATT ${bleError.attErrorCode}` : null,
+    bleError.androidErrorCode != null ? `Android ${bleError.androidErrorCode}` : null,
+  ].filter(Boolean).join(', ');
+
+  if (reason) {
+    return details ? `${reason} (${details})` : reason;
+  }
+
+  if (
+    message &&
+    !/unknown error occurred\. this is probably a bug! check reason property\.?/i.test(message)
+  ) {
+    return details ? `${message} (${details})` : message;
+  }
+
+  return details ? `${fallback} (${details})` : fallback;
+};
+
 class BluetoothService {
   private manager: any | null = null;
   private State: any | null = null;
@@ -180,25 +213,35 @@ class BluetoothService {
       throw new Error('Bluetooth requires a development build (not Expo Go).');
     }
 
-    console.log('🔗 [BLE] Connecting to device:', deviceId);
-    const device = await this.manager.connectToDevice(deviceId, {
-      autoConnect: false,
-      timeout: 12000,
-    });
-    console.log('✅ [BLE] Connected:', device.id);
+    try {
+      console.log('🔗 [BLE] Connecting to device:', deviceId);
+      const device = await this.manager.connectToDevice(deviceId, {
+        autoConnect: false,
+        timeout: 12000,
+      });
+      console.log('✅ [BLE] Connected:', device.id);
 
-    if (Platform.OS === 'android' && typeof device.requestMTU === 'function') {
-      try {
-        const mtuDevice = await device.requestMTU(185);
-        console.log('📏 [BLE] Requested MTU:', mtuDevice?.mtu ?? 185);
-      } catch (error) {
-        console.warn('⚠️ [BLE] MTU request failed, continuing with default MTU:', error);
+      if (Platform.OS === 'android' && typeof device.requestMTU === 'function') {
+        try {
+          const mtuDevice = await device.requestMTU(185);
+          console.log('📏 [BLE] Requested MTU:', mtuDevice?.mtu ?? 185);
+        } catch (error) {
+          console.warn('⚠️ [BLE] MTU request failed, continuing with default MTU:', error);
+        }
       }
-    }
 
-    await device.discoverAllServicesAndCharacteristics();
-    console.log('📡 [BLE] Services discovered for device:', device.id);
-    return device;
+      await device.discoverAllServicesAndCharacteristics();
+      console.log('📡 [BLE] Services discovered for device:', device.id);
+      return device;
+    } catch (error) {
+      console.warn('❌ [BLE] Connect/discovery failed:', error);
+      throw new Error(
+        describeBleError(
+          error,
+          'Failed to connect to the bracelet over Bluetooth. Make sure it is powered on and still advertising.'
+        )
+      );
+    }
   }
 
   async scanProvisioningDevices(timeoutMs: number = 8000): Promise<ScannedDevice[]> {

@@ -75,10 +75,11 @@ export default function ReportsPage() {
   };
 
   useRealtimeEvents(["alerts", "vitals", "predictions", "motions"], (event) => {
-    if (event.action !== "created" || !event.payload?.timestamp) return;
+    const payload = event.payload;
+    if (event.action !== "created" || !payload?.timestamp) return;
     setData((prev) => {
       if (!prev) return prev;
-      if (!withinRange(event.payload.timestamp, prev)) return prev;
+      if (!withinRange(payload.timestamp, prev)) return prev;
       const next: ReportData = {
         ...prev,
         summary: { ...prev.summary },
@@ -90,15 +91,15 @@ export default function ReportsPage() {
       };
       if (event.resource === "alerts") {
         next.summary.alerts += 1;
-        next.series.alerts = bumpSeries(next.series.alerts, event.payload.timestamp);
+        next.series.alerts = bumpSeries(next.series.alerts, payload.timestamp);
       }
       if (event.resource === "vitals") {
         next.summary.vitals += 1;
-        next.series.vitals = bumpSeries(next.series.vitals, event.payload.timestamp);
+        next.series.vitals = bumpSeries(next.series.vitals, payload.timestamp);
       }
       if (event.resource === "motions") {
         next.summary.motions += 1;
-        next.series.motions = bumpSeries(next.series.motions, event.payload.timestamp);
+        next.series.motions = bumpSeries(next.series.motions, payload.timestamp);
       }
       if (event.resource === "predictions") {
         next.summary.predictions += 1;

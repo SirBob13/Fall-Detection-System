@@ -6,7 +6,7 @@ export type RealtimeEvent = {
   action?: string;
   user_id?: number;
   timestamp?: number;
-  payload?: unknown;
+  payload?: Record<string, any> | null;
 };
 
 type Listener = (event: RealtimeEvent) => void;

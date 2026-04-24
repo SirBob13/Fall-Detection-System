@@ -177,24 +177,25 @@ export default function UserDetailPage() {
   };
 
   useRealtimeEvents(["users", "alerts", "vitals", "predictions", "devices", "motions"], (event) => {
-    if (!event.payload) return;
+    const payload = event.payload;
+    if (!payload) return;
 
-    if (event.resource === "users" && event.payload.id === userId) {
-      setDetail((prev) => (prev ? { ...prev, ...event.payload } : prev));
+    if (event.resource === "users" && payload.id === userId) {
+      setDetail((prev) => (prev ? { ...prev, ...payload } : prev));
       return;
     }
 
-    if (event.resource === "devices" && event.payload.user_id === userId) {
+    if (event.resource === "devices" && payload.user_id === userId) {
       setDetail((prev) => {
         if (!prev) return prev;
-        const devices = upsertById(prev.devices || [], event.payload as UserDevice, 50);
+        const devices = upsertById(prev.devices || [], payload as UserDevice, 50);
         return { ...prev, devices };
       });
       return;
     }
 
-    if (event.resource === "alerts" && event.payload.user_id === userId) {
-      setAlerts((prev) => upsertWithRange(prev, event.payload as AlertItem));
+    if (event.resource === "alerts" && payload.user_id === userId) {
+      setAlerts((prev) => upsertWithRange(prev, payload as AlertItem));
       if (event.action === "created") {
         setDetail((prev) =>
           prev ? { ...prev, stats: { ...prev.stats, alerts: prev.stats.alerts + 1 } } : prev
@@ -203,8 +204,8 @@ export default function UserDetailPage() {
       return;
     }
 
-    if (event.resource === "vitals" && event.payload.user_id === userId) {
-      setVitals((prev) => upsertWithRange(prev, event.payload as VitalItem));
+    if (event.resource === "vitals" && payload.user_id === userId) {
+      setVitals((prev) => upsertWithRange(prev, payload as VitalItem));
       if (event.action === "created") {
         setDetail((prev) =>
           prev ? { ...prev, stats: { ...prev.stats, vitals: prev.stats.vitals + 1 } } : prev
@@ -213,8 +214,8 @@ export default function UserDetailPage() {
       return;
     }
 
-    if (event.resource === "motions" && event.payload.user_id === userId) {
-      setMotions((prev) => upsertWithRange(prev, event.payload as MotionItem));
+    if (event.resource === "motions" && payload.user_id === userId) {
+      setMotions((prev) => upsertWithRange(prev, payload as MotionItem));
       if (event.action === "created") {
         setDetail((prev) =>
           prev ? { ...prev, stats: { ...prev.stats, motions: prev.stats.motions + 1 } } : prev
@@ -223,8 +224,8 @@ export default function UserDetailPage() {
       return;
     }
 
-    if (event.resource === "predictions" && event.payload.user_id === userId) {
-      setPredictions((prev) => upsertWithRange(prev, event.payload as PredictionItem));
+    if (event.resource === "predictions" && payload.user_id === userId) {
+      setPredictions((prev) => upsertWithRange(prev, payload as PredictionItem));
     }
   });
 

@@ -31,7 +31,8 @@ export default function OverviewPage() {
   useRealtimeRefresh(["alerts", "vitals", "predictions", "devices", "motions", "users"], loadOverview, 800);
 
   useRealtimeEvents(["alerts", "vitals", "predictions", "devices", "motions"], (event) => {
-    if (!event.payload) return;
+    const payload = event.payload;
+    if (!payload) return;
     setData((prev) => {
       if (!prev) return prev;
       const next = { ...prev };
@@ -40,37 +41,37 @@ export default function OverviewPage() {
           ...prev.alerts,
           total: prev.alerts.total + 1,
           active:
-            event.payload.status === "active" || event.payload.status === "pending"
+            payload.status === "active" || payload.status === "pending"
               ? prev.alerts.active + 1
               : prev.alerts.active,
         };
         next.last_activity = {
           ...prev.last_activity,
-          alert: event.payload.timestamp || prev.last_activity.alert,
+          alert: payload.timestamp || prev.last_activity.alert,
         };
       }
       if (event.resource === "vitals" && event.action === "created") {
         next.vitals = prev.vitals + 1;
         next.last_activity = {
           ...prev.last_activity,
-          vital: event.payload.timestamp || prev.last_activity.vital,
+          vital: payload.timestamp || prev.last_activity.vital,
         };
       }
       if (event.resource === "predictions" && event.action === "created") {
         next.predictions = prev.predictions + 1;
         next.last_activity = {
           ...prev.last_activity,
-          motion: event.payload.timestamp || prev.last_activity.motion,
+          motion: payload.timestamp || prev.last_activity.motion,
         };
       }
       if (event.resource === "motions" && event.action === "created") {
         next.motions = prev.motions + 1;
         next.last_activity = {
           ...prev.last_activity,
-          motion: event.payload.timestamp || prev.last_activity.motion,
+          motion: payload.timestamp || prev.last_activity.motion,
         };
       }
-      if (event.resource === "devices" && event.payload?.connection_state !== undefined) {
+      if (event.resource === "devices" && payload.connection_state !== undefined) {
         next.devices = { ...prev.devices };
       }
       if (event.resource === "users") {
