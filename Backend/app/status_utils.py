@@ -39,11 +39,12 @@ def get_device_connection_state(device: Optional[Device], now: Optional[datetime
 def is_session_active(session: Optional[UserSession], now: Optional[datetime] = None) -> bool:
     if not session:
         return False
-    expires_at = getattr(session, "expires_at", None)
-    if not expires_at:
-        return False
-    current = now or datetime.utcnow()
-    return expires_at > current
+
+    # Treat any persisted session row as logged-in presence until the user
+    # explicitly logs out and the session is deleted. This keeps the admin
+    # dashboard aligned with the product expectation that "Login" remains
+    # visible while the account is still signed in on the phone.
+    return bool(getattr(session, "token", None) and getattr(session, "refresh_token", None))
 
 
 def get_user_presence_status(

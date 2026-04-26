@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -27,13 +27,14 @@ export const AlertsScreen: React.FC = () => {
   const [monitoredUser, setMonitoredUser] = useState<User | null>(null);
   const [links, setLinks] = useState<CareLink[]>([]);
   const [user, setUser] = useState<User | null>(null);
+  const hasShownLoadErrorRef = useRef(false);
   
   // Get safe area insets
   const insets = useSafeAreaInsets();
 
   useEffect(() => {
     loadAlerts();
-  }, [monitoredUser]);
+  }, [monitoredUser?.id]);
 
   useEffect(() => {
     setAlerts(applyFilter(allAlerts, filter));
@@ -47,6 +48,22 @@ export const AlertsScreen: React.FC = () => {
       return items.filter((alert) => alert.status === 'resolved');
     }
     return items;
+  };
+
+  const showLoadErrorOnce = (message: string) => {
+    if (hasShownLoadErrorRef.current) {
+      return;
+    }
+
+    hasShownLoadErrorRef.current = true;
+    RNAlert.alert(t('common.error'), message, [
+      {
+        text: t('common.ok'),
+        onPress: () => {
+          hasShownLoadErrorRef.current = false;
+        },
+      },
+    ]);
   };
 
   const loadAlerts = async () => {
@@ -75,18 +92,23 @@ export const AlertsScreen: React.FC = () => {
       }
       const storedUser = normalizedSessionUser || (await storageService.getUser());
       setUser(storedUser || null);
-      const monitoredUser = await storageService.getMonitoredUser();
-      setMonitoredUser(monitoredUser || null);
-      const activeUser = monitoredUser || storedUser;
+      const storedMonitoredUser = await storageService.getMonitoredUser();
+      const activeMonitoredUser = monitoredUser ?? storedMonitoredUser ?? null;
+
+      if ((storedMonitoredUser?.id ?? null) !== (monitoredUser?.id ?? null)) {
+        setMonitoredUser(storedMonitoredUser || null);
+      }
+
+      const activeUser = activeMonitoredUser || storedUser;
 
       if (!activeUser) {
-        RNAlert.alert(t('common.error'), t('errors.loginRequired'));
+        showLoadErrorOnce(t('errors.loginRequired'));
         setIsLoading(false);
         return;
       }
 
-      if (user?.id) {
-        const linksResponse = await apiService.getCareLinks(user.id);
+      if (storedUser?.id) {
+        const linksResponse = await apiService.getCareLinks(storedUser.id);
         if (linksResponse.success && linksResponse.data) {
           setLinks(linksResponse.data);
         } else {
@@ -96,14 +118,15 @@ export const AlertsScreen: React.FC = () => {
 
       const response = await apiService.getUserAlerts(activeUser.id, 50);
       if (response.success && response.data) {
+        hasShownLoadErrorRef.current = false;
         setAllAlerts(response.data);
         setAlerts(applyFilter(response.data, filter));
       } else {
-        RNAlert.alert(t('common.error'), response.message || t('alerts.loadFailed'));
+        showLoadErrorOnce(response.message || t('alerts.loadFailed'));
       }
     } catch (error) {
       console.error('Error loading alerts:', error);
-      RNAlert.alert(t('common.error'), t('alerts.loadFailed'));
+      showLoadErrorOnce(t('alerts.loadFailed'));
     } finally {
       setIsLoading(false);
     }
@@ -131,7 +154,11 @@ export const AlertsScreen: React.FC = () => {
   const handleSelectMonitored = async (link: CareLink | null) => {
     if (!link || !link.patient) {
       await storageService.saveMonitoredUser(null);
+      const wasAlreadyShowingOwnData = !monitoredUser;
       setMonitoredUser(null);
+      if (wasAlreadyShowingOwnData) {
+        void loadAlerts();
+      }
       return;
     }
     await storageService.saveMonitoredUser(link.patient);
@@ -353,7 +380,7 @@ export const AlertsScreen: React.FC = () => {
               <Text className="text-primary text-2xl">⏳</Text>
             </View>
             <Text className="text-base text-gray">
-              {t('alerts.loadingAlerts')}
+              {t('alerts.loading')}
             </Text>
           </View>
         ) : alerts.length > 0 ? (

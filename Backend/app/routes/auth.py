@@ -8,14 +8,17 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request, Header
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 import re
+import secrets
 import bcrypt
 import jwt
 import httpx
 from datetime import datetime, timedelta
 
 from ..database import get_db
-from ..models import User, UserAuth, SocialAccount, UserSession
+from ..models import User, UserAuth, SocialAccount, UserSession, Device
 from ..services.auth_service import AuthService
+from ..realtime import notify_admins
+from ..status_utils import summarize_user_presence
 from ..config import (
     SECRET_KEY,
     ALGORITHM,
@@ -69,6 +72,34 @@ def create_access_token(data: dict, expires_delta: timedelta = None):
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
+
+
+def _build_admin_user_presence_payload(db: Session, user_id: int) -> Optional[Dict[str, Any]]:
+    user = db.query(User).filter(User.id == user_id).first()
+    auth = db.query(UserAuth).filter(UserAuth.user_id == user_id).first()
+    if not user or not auth:
+        return None
+
+    devices = db.query(Device).filter(Device.user_id == user_id).all()
+    sessions = db.query(UserSession).filter(UserSession.user_id == user_id).all()
+
+    last_seen = None
+    for device in devices:
+        if device.last_seen and (last_seen is None or device.last_seen > last_seen):
+            last_seen = device.last_seen
+
+    presence_status, online_devices = summarize_user_presence(devices, sessions)
+    return {
+        "id": user.id,
+        "name": user.name,
+        "email": auth.email,
+        "is_active": bool(user.is_active),
+        "presence_status": presence_status,
+        "online_devices": online_devices,
+        "created_at": user.created_at.isoformat() if user.created_at else None,
+        "devices": len(devices),
+        "last_seen": last_seen.isoformat() if last_seen else None,
+    }
 
 # ==================== Social Login Helpers ====================
 
@@ -464,6 +495,7 @@ def _get_profile_completion(user: User) -> Dict[str, Any]:
 @router.post("/social-login", response_model=Dict[str, Any])
 async def social_login(
     data: SocialLoginRequest,
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """Social login with Google/Apple"""
@@ -579,16 +611,35 @@ async def social_login(
 
         db.commit()
 
-        access_token = create_access_token(
-            data={"sub": str(user.id), "email": email or user_auth.email}
+        auth_service = AuthService(db)
+        session_email = email or (user_auth.email if user_auth else "")
+        access_token, refresh_token, refresh_expires = auth_service.create_tokens(
+            user.id,
+            session_email,
         )
+        session = UserSession(
+            id=secrets.token_urlsafe(32),
+            user_id=user.id,
+            token=access_token,
+            refresh_token=refresh_token,
+            device_info=request.headers.get("User-Agent", f"{provider} social login"),
+            expires_at=refresh_expires,
+            created_at=datetime.utcnow(),
+        )
+        db.add(session)
+        db.commit()
+
         profile_completion = _get_profile_completion(user)
+        admin_payload = _build_admin_user_presence_payload(db, int(user.id))
+        if admin_payload:
+            await notify_admins("users", action="updated", payload=admin_payload, throttle_seconds=1.0)
 
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
                 "success": True,
                 "access_token": access_token,
+                "refresh_token": refresh_token,
                 "token_type": "bearer",
                 "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60,
                 "user": {
@@ -661,6 +712,10 @@ async def login_user(
             "profile_complete": True,
             "missing_fields": [],
         }
+
+        admin_payload = _build_admin_user_presence_payload(db, int(user_payload.get("id")))
+        if admin_payload:
+            await notify_admins("users", action="updated", payload=admin_payload, throttle_seconds=1.0)
 
         return JSONResponse(
             status_code=status.HTTP_200_OK,
@@ -1145,18 +1200,44 @@ async def change_password(
 @router.post("/logout", response_model=Dict[str, Any])
 async def logout_user(
     logout_data: Dict[str, Any],
+    authorization: Optional[str] = Header(None),
     db: Session = Depends(get_db)
 ):
     """User logout (token invalidation)"""
     try:
-        # In a real implementation, you would add the token to a blacklist
-        # For now, just return success
+        access_token = (
+            logout_data.get("access_token")
+            or logout_data.get("token")
+            or extract_bearer_token(authorization)
+        )
+        refresh_token = logout_data.get("refresh_token")
+
+        if not access_token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail={
+                    "success": False,
+                    "error": "Authorization token required"
+                }
+            )
+
+        session = db.query(UserSession).filter(UserSession.token == access_token).first()
+        if not refresh_token and session:
+            refresh_token = session.refresh_token
+
+        user_id = session.user_id if session else None
+        auth_service = AuthService(db)
+        result = auth_service.logout(access_token, refresh_token or "")
+
+        admin_payload = _build_admin_user_presence_payload(db, int(user_id)) if user_id else None
+        if admin_payload:
+            await notify_admins("users", action="updated", payload=admin_payload, throttle_seconds=1.0)
         
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
-                "success": True,
-                "message": "Logged out successfully"
+                "success": bool(result.get("success", True)),
+                "message": result.get("message", "Logged out successfully")
             }
         )
         
