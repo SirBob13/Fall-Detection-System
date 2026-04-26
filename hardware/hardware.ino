@@ -15,6 +15,8 @@ static const char *SERVICE_UUID = "7A100001-8C6A-4F6D-A55B-000000000001";
 static const char *DEVICE_INFO_UUID = "7A100002-8C6A-4F6D-A55B-000000000001";
 static const char *WRITE_UUID = "7A100003-8C6A-4F6D-A55B-000000000001";
 static const char *STATUS_UUID = "7A100004-8C6A-4F6D-A55B-000000000001";
+static const char *SENSOR_SERVICE_UUID = "7A200001-8C6A-4F6D-A55B-000000000001";
+static const char *SENSOR_DATA_UUID = "7A200002-8C6A-4F6D-A55B-000000000001";
 
 // ================= Preferences =================
 static const char *PREF_NAMESPACE = "bracelet";
@@ -29,6 +31,7 @@ static const char *PREF_MQTT_TOPIC_KEY = "mqtt_topic";
 
 // ================= Firmware Identity =================
 static const char *DEVICE_NAME = "FallDetectionBracelet";
+static const char *BACKUP_DEVICE_NAME = "FallDetectionBracelet-Backup";
 static const char *DEVICE_TYPE = "esp32-bracelet";
 static const char *FIRMWARE_VERSION = "2.0.0";
 
@@ -36,11 +39,13 @@ static const char *FIRMWARE_VERSION = "2.0.0";
 static const unsigned long WIFI_RETRY_INTERVAL_MS = 10000;
 static const unsigned long MQTT_RETRY_INTERVAL_MS = 5000;
 static const unsigned long PUBLISH_INTERVAL_MS = 5000;
+static const unsigned long BACKUP_BLE_PUBLISH_INTERVAL_MS = 2000;
 
 Preferences preferences;
 BLECharacteristic *deviceInfoChar = nullptr;
 BLECharacteristic *writeChar = nullptr;
 BLECharacteristic *statusChar = nullptr;
+BLECharacteristic *sensorDataChar = nullptr;
 
 WiFiClient wifiClient;
 PubSubClient mqttClient(wifiClient);
@@ -60,6 +65,15 @@ int provisionedUserId = 0;
 unsigned long lastWifiAttemptMs = 0;
 unsigned long lastMqttAttemptMs = 0;
 unsigned long lastPublishMs = 0;
+unsigned long lastBackupBlePublishMs = 0;
+
+enum BleMode {
+  BLE_MODE_OFF,
+  BLE_MODE_PROVISIONING,
+  BLE_MODE_BACKUP,
+};
+
+BleMode currentBleMode = BLE_MODE_OFF;
 
 // ================= Utilities =================
 void disableClassicBluetooth() {
@@ -96,6 +110,7 @@ void saveConfig() {
 }
 
 String connectionStatusLabel() {
+  if (currentBleMode == BLE_MODE_BACKUP) return "backup_ble";
   if (mqttClient.connected()) return "streaming";
   if (WiFi.status() == WL_CONNECTED) return "wifi_connected";
   if (wifiSsid.length() > 0) return "provisioned";
@@ -136,10 +151,16 @@ void updateDeviceInfoCharacteristic() {
   deviceInfoChar->setValue((uint8_t *)buffer, len);
 }
 
-void stopBleProvisioning() {
+void stopBle() {
   if (!BLEDevice::getInitialized()) return;
   BLEDevice::deinit(true);
-  Serial.println("✅ BLE stopped after provisioning");
+  deviceInfoChar = nullptr;
+  writeChar = nullptr;
+  statusChar = nullptr;
+  sensorDataChar = nullptr;
+  deviceConnected = false;
+  currentBleMode = BLE_MODE_OFF;
+  Serial.println("✅ BLE stopped");
 }
 
 // ================= Mock Sensor Data =================
@@ -213,6 +234,16 @@ void buildTelemetryJson(char *output, size_t outputSize) {
   serializeJson(doc, output, outputSize);
 }
 
+void notifyBackupTelemetry() {
+  if (!sensorDataChar || !BLEDevice::getInitialized()) return;
+
+  char payload[512];
+  buildTelemetryJson(payload, sizeof(payload));
+  sensorDataChar->setValue((uint8_t *)payload, strlen(payload));
+  sensorDataChar->notify();
+  Serial.printf("📡 BLE backup telemetry: %s\n", payload);
+}
+
 // ================= Connectivity =================
 bool connectToWiFi(bool forceReconnect = false) {
   if (wifiSsid.isEmpty() || wifiPassword.isEmpty()) {
@@ -244,6 +275,9 @@ bool connectToWiFi(bool forceReconnect = false) {
   Serial.println();
 
   if (WiFi.status() == WL_CONNECTED) {
+    if (currentBleMode == BLE_MODE_BACKUP) {
+      stopBle();
+    }
     Serial.printf("✅ WiFi connected. IP=%s\n", WiFi.localIP().toString().c_str());
     notifyStatus("wifi_connected", true, WiFi.localIP().toString());
     updateDeviceInfoCharacteristic();
@@ -380,6 +414,13 @@ class WriteCallbacks : public BLECharacteristicCallbacks {
 
 // ================= BLE Setup =================
 void startBleProvisioning() {
+  if (currentBleMode == BLE_MODE_PROVISIONING && BLEDevice::getInitialized()) {
+    return;
+  }
+  if (BLEDevice::getInitialized()) {
+    stopBle();
+  }
+
   BLEDevice::init(DEVICE_NAME);
   BLEDevice::setMTU(517);
 
@@ -419,7 +460,43 @@ void startBleProvisioning() {
   adv->setMinPreferred(0x12);
   adv->start();
 
+  currentBleMode = BLE_MODE_PROVISIONING;
   Serial.println("🚀 BLE provisioning ready");
+}
+
+void startBackupBleMode() {
+  if (currentBleMode == BLE_MODE_BACKUP && BLEDevice::getInitialized()) {
+    return;
+  }
+  if (BLEDevice::getInitialized()) {
+    stopBle();
+  }
+
+  BLEDevice::init(BACKUP_DEVICE_NAME);
+  BLEDevice::setMTU(517);
+
+  BLEServer *server = BLEDevice::createServer();
+  server->setCallbacks(new ServerCallbacks());
+
+  BLEService *service = server->createService(SENSOR_SERVICE_UUID);
+
+  sensorDataChar = service->createCharacteristic(
+    SENSOR_DATA_UUID,
+    BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+  );
+  sensorDataChar->addDescriptor(new BLE2902());
+
+  service->start();
+
+  BLEAdvertising *adv = BLEDevice::getAdvertising();
+  adv->addServiceUUID(SENSOR_SERVICE_UUID);
+  adv->setScanResponse(true);
+  adv->setMinPreferred(0x06);
+  adv->setMinPreferred(0x12);
+  adv->start();
+
+  currentBleMode = BLE_MODE_BACKUP;
+  Serial.println("🆘 BLE backup mode ready");
 }
 
 // ================= Arduino Setup/Loop =================
@@ -432,9 +509,9 @@ void setup() {
   preferences.begin(PREF_NAMESPACE, false);
   loadStoredConfig();
 
-  startBleProvisioning();
-
-  if (!wifiSsid.isEmpty()) {
+  if (wifiSsid.isEmpty() || provisionedUserId <= 0) {
+    startBleProvisioning();
+  } else {
     Serial.println("📦 Found stored provisioning config");
     shouldApplyProvisioning = true;
   }
@@ -445,15 +522,33 @@ void loop() {
 
   if (shouldApplyProvisioning) {
     shouldApplyProvisioning = false;
-    stopBleProvisioning();
-    connectToWiFi(true);
+    stopBle();
+    if (!connectToWiFi(true)) {
+      Serial.println("🔁 WiFi provisioning failed, restarting BLE provisioning");
+      startBleProvisioning();
+      delay(100);
+      return;
+    }
   }
 
   if (WiFi.status() != WL_CONNECTED) {
+    const hasStoredConfig = !wifiSsid.isEmpty() && provisionedUserId > 0;
+    if (hasStoredConfig && currentBleMode != BLE_MODE_BACKUP) {
+      startBackupBleMode();
+    } else if (!hasStoredConfig && currentBleMode != BLE_MODE_PROVISIONING) {
+      startBleProvisioning();
+    }
+
     if (now - lastWifiAttemptMs >= WIFI_RETRY_INTERVAL_MS) {
       lastWifiAttemptMs = now;
       connectToWiFi(false);
     }
+
+    if (currentBleMode == BLE_MODE_BACKUP && now - lastBackupBlePublishMs >= BACKUP_BLE_PUBLISH_INTERVAL_MS) {
+      lastBackupBlePublishMs = now;
+      notifyBackupTelemetry();
+    }
+
     delay(100);
     return;
   }

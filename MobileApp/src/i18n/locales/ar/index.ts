@@ -427,7 +427,6 @@ export default {
     personalInfoDesc: "عرض وتعديل بياناتك الشخصية",
     deviceInfo: "معلومات الجهاز",
     deviceManagement: "إدارة الجهاز",
-    deviceManagementDesc: "ربط وفصل وإدارة الجهاز",
     appearance: "المظهر",
     themeDesc: "اختاري مظهر التطبيق المفضل",
     themeSystem: "النظام",
@@ -442,9 +441,6 @@ export default {
     voiceCommandsDesc: "تشغيل الأوامر بدون لمس",
     automaticSOS: "نداء تلقائي للطوارئ",
     automaticSOSDesc: "إرسال SOS تلقائيًا عند الحاجة",
-    familyPortal: "بوابة العائلة",
-    familyPortalDesc: "لوحة متابعة لأفراد العائلة",
-    familyPortalUnavailable: "بوابة العائلة غير متاحة الآن",
     healthInsights: "نصائح صحية",
     healthInsightsDesc: "إرشادات مخصصة حسب البيانات",
     language: "اللغة", 
@@ -470,11 +466,6 @@ export default {
     emergencyContact: "جهة اتصال للطوارئ",
     medicalConditions: "الحالات المرضية",
     medicalConditionsPlaceholder: "ضغط مرتفع، سكر، إلخ...",
-    changePassword: "تغيير كلمة المرور",
-    changePasswordHint: "أدخلي كلمة المرور الحالية ثم اختاري كلمة مرور جديدة.",
-    currentPassword: "كلمة المرور الحالية",
-    newPassword: "كلمة المرور الجديدة",
-    confirmPassword: "تأكيد كلمة المرور",
     logout: "تسجيل الخروج",
     help: "المساعدة والدعم",
     privacy: "سياسة الخصوصية",
@@ -512,6 +503,7 @@ export default {
     network: "تعذر الاتصال بالخادم. يرجى التحقق من اتصال الإنترنت",
     connection: "مشكلة في الاتصال",
     connectionDesc: "يرجى التحقق من اتصال الإنترنت والمحاولة مرة أخرى.",
+    serverUnavailableDesc: "الخادم لا يستجيب حاليًا. يرجى المحاولة مرة أخرى بعد قليل.",
     loginRequired: "يرجى تسجيل الدخول أولاً",
     server: "خطأ في الخادم",
     unauthorized: "غير مصرح به",
@@ -690,20 +682,4 @@ export default {
     view: "عرض"
   },
 
-  reports: {
-    title: "التقارير والتحليلات",
-    subtitle: "ملخص يومي وأسبوعي",
-    shortDesc: "اتجاهات وتوصيات",
-    daily: "يومي",
-    weekly: "أسبوعي",
-    monthly: "شهري",
-    viewing: "عرض",
-    summary: "الملخص",
-    trend: "الاتجاه اليومي",
-    noTrend: "لا توجد بيانات كافية بعد",
-    vitals: "ملخص المؤشرات",
-    abnormalRate: "نسبة القيم غير الطبيعية",
-    recommendations: "التوصيات",
-    noData: "لا توجد بيانات تقارير بعد"
-  }
 };

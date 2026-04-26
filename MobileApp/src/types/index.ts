@@ -30,6 +30,7 @@ export interface Device {
   is_archived?: boolean;
   last_seen?: string;
   created_at?: string;
+  updated_at?: string;
 }
 
 // Motion Data Types

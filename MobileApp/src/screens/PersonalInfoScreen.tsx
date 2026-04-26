@@ -253,18 +253,6 @@ export const PersonalInfoScreen: React.FC = () => {
           {saving ? <ActivityIndicator color="#FFF" /> : <Text style={styles.saveBtnText}>{t('common.save')}</Text>}
         </TouchableOpacity>
 
-        {!isOnboarding && (
-          <TouchableOpacity 
-              style={styles.passwordBtn}
-              onPress={() => {
-                Keyboard.dismiss();
-                navigation.navigate('ChangePassword' as any);
-              }}
-          >
-            <Text style={styles.passwordBtnText}>{t('settings.changePassword')}</Text>
-          </TouchableOpacity>
-        )}
-
         {Platform.OS === 'ios' && (
           <InputAccessoryView nativeID={IOS_KEYBOARD_ACCESSORY_ID}>
             <View style={styles.keyboardAccessory}>
@@ -344,21 +332,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: 'bold',
-  },
-  passwordBtn: {
-    marginTop: 15,
-    height: 56,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    backgroundColor: '#FFF',
-  },
-  passwordBtnText: {
-    color: '#4B5563',
-    fontSize: 15,
-    fontWeight: '600',
   },
   keyboardAccessory: {
     flexDirection: 'row',

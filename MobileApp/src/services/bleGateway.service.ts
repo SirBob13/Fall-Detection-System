@@ -34,19 +34,28 @@ class BleGatewayService {
   private readonly fallbackAccThreshold = 2.5; // g-force threshold
 
   async start(deviceId: string, userId?: number): Promise<void> {
-    if (!BLE_CONFIG.SERVICE_UUID || !BLE_CONFIG.CHARACTERISTIC_UUID) {
-      console.warn('BLE UUIDs not configured. Set EXPO_PUBLIC_BLE_SERVICE_UUID and EXPO_PUBLIC_BLE_CHARACTERISTIC_UUID.');
+    if (!BLE_CONFIG.SENSOR_SERVICE_UUID || !BLE_CONFIG.SENSOR_DATA_UUID) {
+      console.warn('[BLE Gateway] Sensor BLE UUIDs not configured. Skipping live BLE gateway mode.');
       return;
     }
 
-    const device = await bluetoothService.connect(deviceId);
+    const scannedDevices = await bluetoothService.scanSensorDevices(6000);
+    const targetDeviceId =
+      scannedDevices.find((item) => item.id === deviceId)?.id ||
+      scannedDevices[0]?.id ||
+      deviceId;
+
+    const device = await bluetoothService.connect(targetDeviceId);
     this.device = device;
 
-    console.log('[BLE Gateway] Starting monitoring:', { serviceUUID: BLE_CONFIG.SERVICE_UUID, charUUID: BLE_CONFIG.CHARACTERISTIC_UUID });
+    console.log('[BLE Gateway] Starting monitoring:', {
+      serviceUUID: BLE_CONFIG.SENSOR_SERVICE_UUID,
+      charUUID: BLE_CONFIG.SENSOR_DATA_UUID,
+    });
     
     this.subscription = device.monitorCharacteristicForService(
-      BLE_CONFIG.SERVICE_UUID,
-      BLE_CONFIG.CHARACTERISTIC_UUID,
+      BLE_CONFIG.SENSOR_SERVICE_UUID,
+      BLE_CONFIG.SENSOR_DATA_UUID,
       async (error, characteristic) => {
         if (error) {
           console.error('❌ BLE monitor error:', error.message);
@@ -72,7 +81,7 @@ class BleGatewayService {
         try {
           const parsed = JSON.parse(decoded);
           const payload: DeviceIngestPayload = {
-            device_id: deviceId,
+            device_id: parsed.device_id || deviceId,
             user_id: userId,
             timestamp: parsed.timestamp || new Date().toISOString(),
             motion: parsed.motion,
@@ -108,7 +117,7 @@ class BleGatewayService {
                   emergencyService
                     .triggerEmergency('fall', {
                       source: 'ble_offline',
-                      device_id: deviceId,
+                      device_id: parsed.device_id || deviceId,
                       acc_mag: accMag,
                       timestamp: payload.timestamp,
                     })

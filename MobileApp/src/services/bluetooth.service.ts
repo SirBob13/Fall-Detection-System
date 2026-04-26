@@ -230,8 +230,12 @@ class BluetoothService {
         }
       }
 
-      await device.discoverAllServicesAndCharacteristics();
-      console.log('📡 [BLE] Services discovered for device:', device.id);
+      try {
+        await device.discoverAllServicesAndCharacteristics();
+        console.log('📡 [BLE] Services discovered for device:', device.id);
+      } catch (error) {
+        console.warn('⚠️ [BLE] Service discovery failed, but connection is active. Continuing:', error);
+      }
       return device;
     } catch (error) {
       console.warn('❌ [BLE] Connect/discovery failed:', error);
@@ -247,6 +251,11 @@ class BluetoothService {
   async scanProvisioningDevices(timeoutMs: number = 8000): Promise<ScannedDevice[]> {
     const devices = await this.scan(timeoutMs, [BLE_CONFIG.PROVISIONING_SERVICE_UUID]);
     return devices.filter(device => device.name !== 'Unknown device' || this.isLikelyProvisioningDevice(device));
+  }
+
+  async scanSensorDevices(timeoutMs: number = 8000): Promise<ScannedDevice[]> {
+    const devices = await this.scan(timeoutMs, [BLE_CONFIG.SENSOR_SERVICE_UUID]);
+    return devices.filter(device => device.name !== 'Unknown device' || BLE_KNOWN_DEVICE_NAME_PATTERN.test(device.name));
   }
 
   stopScan(): void {

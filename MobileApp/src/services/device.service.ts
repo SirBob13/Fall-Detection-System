@@ -180,7 +180,7 @@ class DeviceService {
 
       await this.connectDeviceToUser({
         userId,
-        deviceId: device.device_id,
+        deviceId: device.mac_address || device.device_id,
         connectBle: true,
         startGateway: true,
       });

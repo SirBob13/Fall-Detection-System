@@ -9,7 +9,6 @@ export type AppSettings = {
   offlineMode: boolean;
   voiceCommands: boolean;
   automaticSOS: boolean;
-  familyPortal: boolean;
   healthInsights: boolean;
   defaultDeviceId?: string | null;
 };
@@ -22,7 +21,6 @@ const DEFAULT_SETTINGS: AppSettings = {
   offlineMode: true,
   voiceCommands: false,
   automaticSOS: true,
-  familyPortal: false,
   healthInsights: true,
   defaultDeviceId: null,
 };

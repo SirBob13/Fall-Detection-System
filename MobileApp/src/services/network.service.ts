@@ -1,5 +1,5 @@
 import NetInfo, { NetInfoState } from '@react-native-community/netinfo';
-import { API_CONFIG } from '../config/app.config';
+import { API_CONFIG } from '../utils/constants';
 
 export interface NetworkStatus {
   isConnected: boolean;
@@ -54,25 +54,38 @@ export class NetworkService {
   }
 
   private async probeBackendReachability(): Promise<boolean> {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), Math.min(this.config.timeout, 3500));
+    const primaryHealthUrl = `${API_CONFIG.BASE_URL}/health`;
+    const fallbackHealthUrl = `${API_CONFIG.BASE_URL.replace(/\/api\/v1$/, '')}/health`;
+    const probeUrls = Array.from(new Set([primaryHealthUrl, fallbackHealthUrl]));
 
-      const response = await fetch(`${API_CONFIG.BASE_URL}/health`, {
-        method: 'GET',
-        headers: {
-          Accept: 'application/json',
-        },
-        signal: controller.signal,
-      });
+    for (const url of probeUrls) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), Math.min(this.config.timeout, 3500));
 
-      clearTimeout(timeoutId);
-      return response.ok;
-    } catch (error: any) {
-      const isAbort = error?.name === 'AbortError' || String(error?.message || '').includes('Abort');
-      if (!isAbort) {
-        console.warn('⚠️ [Network] Backend reachability probe failed:', error?.message || error);
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+          },
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+        if (response.ok) {
+          return true;
+        }
+      } catch (error: any) {
+        const isAbort = error?.name === 'AbortError' || String(error?.message || '').includes('Abort');
+        if (!isAbort) {
+          console.warn(`⚠️ [Network] Backend reachability probe failed for ${url}:`, error?.message || error);
+        }
       }
+    }
+
+    try {
+      return false;
+    } catch (error: any) {
       return false;
     }
   }

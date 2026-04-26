@@ -18,20 +18,16 @@ import { LoginScreen } from '../screens/auth/LoginScreen';
 import { RegisterScreen } from '../screens/auth/RegisterScreen';
 import { ForgotPasswordScreen } from '../screens/auth/ForgotPasswordScreen';
 import { ResetPasswordScreen } from '../screens/auth/ResetPasswordScreen';
-import { ChangePasswordScreen } from '../screens/auth/ChangePasswordScreen';
 
 // Import main screens
 import { HomeScreen } from '../screens/HomeScreen';
 import { AlertsScreen } from '../screens/AlertsScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { EmergencyContactsScreen } from '../screens/EmergencyContactsScreen';
-import { EmergencySettingsScreen } from '../screens/EmergencySettingsScreen';
 import { LanguageSettingsScreen } from '../screens/LanguageSettingsScreen';
-import { DeviceManagementScreen } from '../screens/DeviceManagementScreen';
 import { PersonalInfoScreen } from '../screens/PersonalInfoScreen';
 import { CareManagementScreen } from '../screens/CareManagementScreen';
 import { CaregiverDashboardScreen } from '../screens/CaregiverDashboardScreen';
-import { ReportsScreen } from '../screens/ReportsScreen';
 import { PrivacyPolicyScreen } from '../screens/PrivacyPolicyScreen';
 
 // Define navigation types
@@ -58,21 +54,16 @@ export type MainTabParamList = {
 export type SettingsStackParamList = {
   SettingsMain: undefined;
   PersonalInfo: undefined;
-  ChangePassword: undefined;
   CareManagement: undefined;
   CareDashboard: undefined;
-  Reports: undefined;
   EmergencyContacts: undefined;
-  EmergencySettings: undefined;
   LanguageSettings: undefined;
-  DeviceManagement: undefined;
   PrivacyPolicy: undefined;
   ResetPassword: { token: string };
 };
 
 export type EmergencyStackParamList = {
   EmergencyContacts: undefined;
-  EmergencySettings: undefined;
   LanguageSettings: undefined;
 };
 
@@ -186,35 +177,15 @@ const SettingsNavigator = () => {
         component={CaregiverDashboardScreen}
         options={{ title: t('dashboard.title') }}
       />
-      <SettingsStack.Screen
-        name="Reports"
-        component={ReportsScreen}
-        options={{ title: t('reports.title') }}
-      />
       <SettingsStack.Screen 
         name="EmergencyContacts" 
         component={EmergencyContactsScreen}
         options={{ title: t('emergency.contacts.title') }}
       />
       <SettingsStack.Screen 
-        name="EmergencySettings" 
-        component={EmergencySettingsScreen}
-        options={{ title: t('emergency.settings.title') }}
-      />
-      <SettingsStack.Screen 
         name="LanguageSettings" 
         component={LanguageSettingsScreen}
         options={{ title: t('language.title') }}
-      />
-      <SettingsStack.Screen 
-        name="DeviceManagement" 
-        component={DeviceManagementScreen}
-        options={{ title: t('settings.deviceManagement') }}
-      />
-      <SettingsStack.Screen
-        name="ChangePassword"
-        component={ChangePasswordScreen}
-        options={{ title: t('settings.changePassword') }}
       />
       <SettingsStack.Screen
         name="PrivacyPolicy"
@@ -255,11 +226,6 @@ const EmergencyNavigator = () => {
         options={{ 
           title: t('emergency.contacts.title'),
         }}
-      />
-      <EmergencyStack.Screen 
-        name="EmergencySettings" 
-        component={EmergencySettingsScreen}
-        options={{ title: t('emergency.settings.title') }}
       />
       <EmergencyStack.Screen 
         name="LanguageSettings" 

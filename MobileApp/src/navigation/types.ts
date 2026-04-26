@@ -27,15 +27,18 @@ export type MainTabParamList = {
 export type SettingsStackParamList = {
   SettingsMain: undefined;
   EmergencyContacts: undefined;
-  EmergencySettings: undefined;
-  DeviceManagement: undefined;
+  LanguageSettings: undefined;
+  PersonalInfo: undefined;
+  CareManagement: undefined;
+  CareDashboard: undefined;
+  PrivacyPolicy: undefined;
+  ResetPassword: { token: string };
 };
 
 // أنواع التنقل للطوارئ
 export type EmergencyStackParamList = {
-  EmergencyMain: undefined;
   EmergencyContacts: undefined;
-  EmergencySettings: undefined;
+  LanguageSettings: undefined;
 };
 
 // إعادة تصدير أنواع StackNavigationProp

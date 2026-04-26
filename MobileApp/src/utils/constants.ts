@@ -67,13 +67,14 @@ export const BLE_KNOWN_DEVICE_NAME_PATTERN = /fall|bracelet|detection|esp32/i;
 export const BLE_SCAN_TIMEOUT_MS = 8000;
 
 export const BLE_CONFIG = {
-  SERVICE_UUID:
-    process.env.EXPO_PUBLIC_BLE_SERVICE_UUID ||
-    '7A100001-8C6A-4F6D-A55B-000000000001',
-  CHARACTERISTIC_UUID:
-    process.env.EXPO_PUBLIC_BLE_CHARACTERISTIC_UUID ||
-    '7A100004-8C6A-4F6D-A55B-000000000001',
-  // ESP Status char (repurpose for telemetry until dedicated data char added)
+  // Used only for live sensor data over BLE backup mode.
+  SENSOR_SERVICE_UUID:
+    process.env.EXPO_PUBLIC_BLE_SENSOR_SERVICE_UUID ||
+    '7A200001-8C6A-4F6D-A55B-000000000001',
+  SENSOR_DATA_UUID:
+    process.env.EXPO_PUBLIC_BLE_SENSOR_DATA_UUID ||
+    '7A200002-8C6A-4F6D-A55B-000000000001',
+  // Used for Wi-Fi/MQTT provisioning over BLE.
   PROVISIONING_SERVICE_UUID:
     process.env.EXPO_PUBLIC_BLE_PROVISIONING_SERVICE_UUID ||
     '7A100001-8C6A-4F6D-A55B-000000000001',

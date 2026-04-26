@@ -297,17 +297,9 @@ class DeviceProvisioningService {
     payload: DeviceProvisioningPayload;
     finalStatus: DeviceProvisioningStatus;
   }> {
-    const deviceInfo = await this.readDeviceInfo(params.deviceId);
-    if (deviceInfo?.device_id) {
-      console.log('✅ [BLE Provisioning] Device info read:', deviceInfo);
-    } else {
-      console.log('⚠️ [BLE Provisioning] Device info unavailable, continuing with selected BLE device id:', params.deviceId);
-    }
-    const pairing = await this.requestPairingToken(
-      deviceInfo?.device_id || params.deviceId,
-      deviceInfo?.firmware_version,
-      deviceInfo?.device_type
-    );
+    // Request secure pairing info first so we do not hold a BLE connection open if the user session expired.
+    const deviceInfo: DeviceProvisioningDeviceInfo | null = null;
+    const pairing = await this.requestPairingToken(params.deviceId);
 
     const payload: DeviceProvisioningPayload = {
       device_id: pairing.device_id,
@@ -321,9 +313,30 @@ class DeviceProvisioningService {
       api: pairing.api,
     };
 
-    const statusPromise = this.waitForProvisioningCompletion(params.deviceId, params.onStatus);
+    params.onStatus?.({
+      device_id: pairing.device_id,
+      stage: 'ready_for_provisioning',
+      success: true,
+      message: 'Connecting to the bracelet over Bluetooth...',
+    });
+
+    await this.connect(params.deviceId);
     await this.writeProvisioningPayload(params.deviceId, payload);
-    const finalStatus = await statusPromise;
+
+    let finalStatus: DeviceProvisioningStatus = {
+      device_id: pairing.device_id,
+      stage: 'provisioning_received',
+      success: true,
+      message: 'Provisioning data sent to the bracelet.',
+    };
+
+    params.onStatus?.(finalStatus);
+
+    try {
+      finalStatus = await this.waitForProvisioningCompletion(params.deviceId, params.onStatus);
+    } catch (error) {
+      console.warn('⚠️ [BLE Provisioning] Status monitoring failed after successful write, continuing:', error);
+    }
 
     return {
       deviceInfo,

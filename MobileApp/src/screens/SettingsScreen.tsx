@@ -6,8 +6,6 @@ import {
   Switch,
   TouchableOpacity,
   Alert,
-  Linking,
-  StyleSheet,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -48,13 +46,6 @@ export const SettingsScreen: React.FC = () => {
     if (key === 'notifications' && !value) {
       notificationService.cancelAllNotifications();
     }
-  };
-
-  const handleFamilyPortal = async () => {
-    const url = 'https://family.falldetection.app';
-    const canOpen = await Linking.canOpenURL(url);
-    if (canOpen) await Linking.openURL(url);
-    else Alert.alert(t('common.error'), t('settings.familyPortalUnavailable'));
   };
 
   const handleLogout = () => {
@@ -179,13 +170,13 @@ export const SettingsScreen: React.FC = () => {
           <ToggleRow 
             label={t('settings.notifications')} 
             value={!!settings.notifications} 
-            onValueChange={(val) => handleSettingChange('notifications', val)} 
+            onValueChange={(val: boolean) => handleSettingChange('notifications', val)} 
           />
           <View className="h-px bg-gray-50 mx-4" />
           <ToggleRow 
             label={t('settings.autoConnect')} 
             value={!!settings.autoConnect} 
-            onValueChange={(val) => handleSettingChange('autoConnect', val)} 
+            onValueChange={(val: boolean) => handleSettingChange('autoConnect', val)} 
           />
         </View>
       </View>

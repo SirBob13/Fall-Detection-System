@@ -11,6 +11,7 @@ import {
 class ApiService {
   private client: AxiosInstance;
   private useMockData: boolean = false; // لا بيانات وهمية للمستخدمين
+  private refreshPromise: Promise<string | null> | null = null;
 
   constructor() {
     this.client = axios.create({
@@ -49,6 +50,104 @@ class ApiService {
 
       return config;
     });
+
+    this.client.interceptors.response.use(
+      (response) => response,
+      async (error) => {
+        const originalRequest = error?.config;
+        const status = error?.response?.status;
+        const requestUrl = String(originalRequest?.url || '');
+        const isRefreshRequest = requestUrl.includes('/auth/refresh');
+
+        if (!originalRequest || originalRequest._retry || isRefreshRequest || (status !== 401 && status !== 403)) {
+          return Promise.reject(error);
+        }
+
+        originalRequest._retry = true;
+
+        try {
+          const nextToken = await this.refreshAccessToken();
+          if (!nextToken) {
+            return Promise.reject(error);
+          }
+
+          originalRequest.headers = originalRequest.headers || {};
+          originalRequest.headers.Authorization = `Bearer ${nextToken}`;
+          return this.client(originalRequest);
+        } catch (refreshError) {
+          return Promise.reject(refreshError);
+        }
+      }
+    );
+  }
+
+  private async refreshAccessToken(): Promise<string | null> {
+    if (this.refreshPromise) {
+      return this.refreshPromise;
+    }
+
+    this.refreshPromise = (async () => {
+      try {
+        const sessionString = await AsyncStorage.getItem(AUTH_CONFIG.STORAGE_KEYS.USER_SESSION);
+        if (!sessionString) {
+          return null;
+        }
+
+        const session = JSON.parse(sessionString) as {
+          token?: string;
+          refresh_token?: string;
+          expires_at?: string;
+          user?: unknown;
+        } | null;
+
+        const refreshToken = session?.refresh_token?.trim();
+        if (!refreshToken) {
+          return null;
+        }
+
+        const response = await axios.post(
+          `${API_CONFIG.BASE_URL}/auth/refresh`,
+          { refresh_token: refreshToken },
+          {
+            timeout: API_CONFIG.TIMEOUT,
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'application/json',
+            },
+          }
+        );
+
+        const data = response.data;
+        const nextToken = data?.access_token?.trim();
+        if (!data?.success || !nextToken) {
+          return null;
+        }
+
+        const updatedSession = {
+          ...session,
+          token: nextToken,
+          refresh_token: data.refresh_token || refreshToken,
+          expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+          last_refresh: new Date().toISOString(),
+        };
+
+        await AsyncStorage.setItem(
+          AUTH_CONFIG.STORAGE_KEYS.USER_SESSION,
+          JSON.stringify(updatedSession)
+        );
+
+        this.setAuthToken(nextToken);
+        return nextToken;
+      } catch (error) {
+        await AsyncStorage.removeItem(AUTH_CONFIG.STORAGE_KEYS.USER_SESSION);
+        this.clearAuthToken();
+        return null;
+      } finally {
+        this.refreshPromise = null;
+      }
+    })();
+
+    return this.refreshPromise;
   }
 
   private formatApiError(error: any, fallbackMessage: string): ApiResponse<any> {

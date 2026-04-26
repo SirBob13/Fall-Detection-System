@@ -28,9 +28,12 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const rotateAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.8)).current;
+  const isRenderedRef = useRef(visible);
 
   useEffect(() => {
     if (visible) {
+      isRenderedRef.current = true;
+
       // بدء الأنميشن عند الظهور
       Animated.parallel([
         Animated.timing(fadeAnim, {
@@ -68,20 +71,24 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({
           duration: 200,
           useNativeDriver: true,
         }),
-      ]).start();
+      ]).start(({ finished }) => {
+        if (finished) {
+          isRenderedRef.current = false;
+        }
+      });
     }
-  }, [visible]);
+  }, [fadeAnim, rotateAnim, scaleAnim, visible]);
 
   const getConfig = () => {
     switch (type) {
       case 'success':
-        return { icon: 'check-circle', color: '#4CAF50', bgColor: '#E8F5E9' };
+        return { icon: 'check-circle' as const, color: '#4CAF50', bgColor: '#E8F5E9' };
       case 'error':
-        return { icon: 'alert-circle', color: '#F44336', bgColor: '#FFEBEE' };
+        return { icon: 'alert-circle' as const, color: '#F44336', bgColor: '#FFEBEE' };
       case 'warning':
-        return { icon: 'alert', color: '#FF9800', bgColor: '#FFF3E0' };
+        return { icon: 'alert' as const, color: '#FF9800', bgColor: '#FFF3E0' };
       default:
-        return { icon: 'loading', color: '#2196F3', bgColor: '#E3F2FD' };
+        return { icon: 'loading' as const, color: '#2196F3', bgColor: '#E3F2FD' };
     }
   };
 
@@ -91,7 +98,7 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({
     outputRange: ['0deg', '360deg'],
   });
 
-  if (!visible && fadeAnim._value === 0) return null;
+  if (!visible && !isRenderedRef.current) return null;
 
   return (
     <Animated.View style={[styles.overlay, { opacity: fadeAnim }]}>

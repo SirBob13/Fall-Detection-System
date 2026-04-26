@@ -11,7 +11,6 @@ import {
   TextInput,
   ActivityIndicator,
   Platform,
-  I18nManager,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -29,6 +28,7 @@ import { offlineQueueService } from '../services/offlineQueue.service';
 import { networkService, NetworkStatus } from '../services/network.service';
 import { bluetoothService, ScannedDevice, isBluetoothSupported } from '../services/bluetooth.service';
 import { deviceService } from '../services/device.service';
+import { deviceProvisioningService } from '../services/deviceProvisioning.service';
 import { emergencyService } from '../services/emergency.service';
 import { voiceService } from '../services/voice.service';
 import { User, Device, Alert as AlertType, Prediction, VitalData } from '../types';
@@ -66,6 +66,12 @@ export const HomeScreen: React.FC = () => {
   const [healthInsight, setHealthInsight] = useState<string | null>(null);
   const [listening, setListening] = useState(false);
   const [lastCommand, setLastCommand] = useState<string | null>(null);
+
+  const closePairModal = async () => {
+    setPairModalVisible(false);
+    bluetoothService.stopScan();
+    await deviceProvisioningService.disconnect();
+  };
   
   useEffect(() => {
     loadData();
@@ -81,6 +87,8 @@ export const HomeScreen: React.FC = () => {
       clearInterval(interval);
       clearInterval(queueInterval);
       unsubscribe();
+      bluetoothService.stopScan();
+      void deviceProvisioningService.disconnect();
     };
   }, []);
 
@@ -130,27 +138,30 @@ export const HomeScreen: React.FC = () => {
       const activeUser = storedMonitoredUser || storedUser;
       if (activeUser) {
         try {
+          let apiReachable = false;
+
           const alertsResponse = await apiService.getUserAlerts(activeUser.id, 5);
           if (alertsResponse.success) {
             setAlerts(alertsResponse.data || []);
-            setConnectionError(false);
-          } else {
-            setConnectionError(true);
+            apiReachable = true;
           }
 
           const deviceResponse = await apiService.getUserDevice(activeUser.id);
           if (deviceResponse.success && deviceResponse.data) {
+            apiReachable = true;
             setDevice(deviceResponse.data);
             await storageService.saveDevice(deviceResponse.data);
           }
 
           const predictionResponse = await apiService.getUserPredictions(activeUser.id, 1);
           if (predictionResponse.success && predictionResponse.data && predictionResponse.data.length > 0) {
+            apiReachable = true;
             setLastPrediction(predictionResponse.data[0]);
           }
 
           const vitalsResponse = await apiService.getUserVitals(activeUser.id, 1);
           if (vitalsResponse.success && vitalsResponse.data && vitalsResponse.data.length > 0) {
+            apiReachable = true;
             setLatestVitals(vitalsResponse.data[0]);
             if (settings.automaticSOS && vitalsResponse.data[0].is_abnormal) {
               emergencyService.triggerEmergency('vital_abnormal', vitalsResponse.data[0]).catch(() => undefined);
@@ -162,6 +173,7 @@ export const HomeScreen: React.FC = () => {
           if (settings.healthInsights) {
             const reportResponse = await apiService.getUserReport(activeUser.id, 7);
             if (reportResponse.success && reportResponse.data?.recommendations?.length) {
+              apiReachable = true;
               setHealthInsight(reportResponse.data.recommendations[0]);
             } else {
               setHealthInsight(null);
@@ -169,6 +181,8 @@ export const HomeScreen: React.FC = () => {
           } else {
             setHealthInsight(null);
           }
+
+          setConnectionError(!apiReachable);
         } catch (apiError) {
           console.warn('⚠️ (Background) Error loading data:', apiError);
           setConnectionError(true);
@@ -404,9 +418,15 @@ export const HomeScreen: React.FC = () => {
     navigation.navigate('Alerts');
   };
 
-  const handleOpenDeviceManagement = () => {
-    navigation.navigate('Settings', { screen: 'DeviceManagement' });
-  };
+  const connectionBannerTitle =
+    networkStatus?.isConnected && !networkStatus?.isInternetReachable
+      ? t('errors.server')
+      : t('errors.connection');
+
+  const connectionBannerDescription =
+    networkStatus?.isConnected && !networkStatus?.isInternetReachable
+      ? t('errors.serverUnavailableDesc')
+      : t('errors.connectionDesc');
 
   const openPairModal = () => {
     if (!user) {
@@ -451,6 +471,8 @@ export const HomeScreen: React.FC = () => {
 
     setIsConnectingDevice(true);
     setProvisioningMessage(null);
+    bluetoothService.stopScan();
+    await deviceProvisioningService.disconnect();
     try {
       const connected = await deviceService.connectDeviceToUser({
         userId: user.id,
@@ -465,7 +487,7 @@ export const HomeScreen: React.FC = () => {
 
       if (connected) {
         setDevice(connected);
-        setPairModalVisible(false);
+        await closePairModal();
         setSelectedBleDeviceId(null);
         setManualDeviceId('');
         setScanResults([]);
@@ -508,11 +530,11 @@ export const HomeScreen: React.FC = () => {
             <View className="flex-row items-center">
               <View className="w-3 h-3 rounded-full bg-danger mr-2" />
               <Text className="text-sm font-medium text-dark flex-1">
-                {t('errors.connection')}
+                {connectionBannerTitle}
               </Text>
             </View>
             <Text className="text-xs text-gray mt-1">
-              {t('errors.connectionDesc')}
+              {connectionBannerDescription}
             </Text>
           </View>
         )}
@@ -576,30 +598,6 @@ export const HomeScreen: React.FC = () => {
             isConnecting={isConnectingDevice}
             compact={isAndroid}
           />
-          <TouchableOpacity
-            onPress={handleOpenDeviceManagement}
-            className="mt-3 rounded-2xl flex-row items-center justify-center"
-            style={{
-              backgroundColor: 'rgba(33,150,243,0.10)',
-              borderColor: 'rgba(33,150,243,0.18)',
-              borderWidth: 1,
-              paddingVertical: isAndroid ? 14 : 12,
-              paddingHorizontal: 16,
-            }}
-            activeOpacity={0.8}
-          >
-            <MaterialCommunityIcons name="watch-variant" size={18} color="#2196F3" />
-            <Text className="text-primary font-semibold text-sm">
-              {'  '}
-              {t('settings.deviceManagement')}
-            </Text>
-            <MaterialCommunityIcons
-              name={I18nManager.isRTL ? 'chevron-left' : 'chevron-right'}
-              size={18}
-              color="#2196F3"
-              style={{ marginStart: 6 }}
-            />
-          </TouchableOpacity>
         </View>
 
         {/* Vital Signs */}
@@ -856,7 +854,9 @@ export const HomeScreen: React.FC = () => {
         visible={pairModalVisible}
         transparent
         animationType="slide"
-        onRequestClose={() => setPairModalVisible(false)}
+        onRequestClose={() => {
+          void closePairModal();
+        }}
       >
         <View className="flex-1 bg-black/40 justify-end">
           <View
@@ -865,7 +865,9 @@ export const HomeScreen: React.FC = () => {
           >
             <View className="flex-row justify-between items-center mb-3">
               <Text className="text-lg font-bold text-dark">{t('system.connectAction')}</Text>
-              <TouchableOpacity onPress={() => setPairModalVisible(false)}>
+              <TouchableOpacity onPress={() => {
+                void closePairModal();
+              }}>
                 <Text className="text-primary font-semibold">{t('common.cancel')}</Text>
               </TouchableOpacity>
             </View>

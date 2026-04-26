@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 
 from ..database import get_db
 from ..models import User, UserAuth, SocialAccount, UserSession
+from ..services.auth_service import AuthService
 from ..config import (
     SECRET_KEY,
     ALGORITHM,
@@ -625,13 +626,13 @@ async def login_user(
     request: Request,
     db: Session = Depends(get_db)
 ):
-    """User login with database validation"""
+    """User login with database validation and persistent session creation."""
     try:
         email = login_data.email.lower().strip()
         password = login_data.password
-        
+
         logger.info(f"Login attempt for: {email}")
-        
+
         if not email or not password:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -640,82 +641,48 @@ async def login_user(
                     "error": "Email and password are required"
                 }
             )
-        
-        # Find user authentication
-        user_auth = db.query(UserAuth).filter(
-            UserAuth.email == email
-        ).first()
-        
-        if not user_auth:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail={
-                    "success": False,
-                    "error": "User not found"
-                }
-            )
-        
-        # Verify password
-        if not verify_password(password, user_auth.password_hash):
+
+        auth_service = AuthService(db)
+        device_info = request.headers.get("User-Agent", "Mobile App")
+        result = auth_service.login_user(email, password, device_info=device_info)
+
+        if not result or "access_token" not in result or "user" not in result:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail={
                     "success": False,
-                    "error": "Incorrect password"
+                    "error": "Invalid credentials"
                 }
             )
-        
-        # Get user data
-        user = db.query(User).filter(User.id == user_auth.user_id).first()
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail={
-                    "success": False,
-                    "error": "User data not found"
-                }
-            )
-        
-        if not user.is_active:
-            raise HTTPException(
-                status_code=status.HTTP_423_LOCKED,
-                detail={
-                    "success": False,
-                    "error": "Account is inactive"
-                }
-            )
-        
-        # Create token
-        access_token = create_access_token(
-            data={"sub": str(user.id), "email": email}
-        )
-        
-        # Update last login
-        user_auth.last_login = datetime.utcnow()
-        db.commit()
-        
-        profile_completion = _get_profile_completion(user)
+
+        user_payload = result["user"]
+        user = db.query(User).filter(User.id == user_payload.get("id")).first()
+        profile_completion = _get_profile_completion(user) if user else {
+            "profile_complete": True,
+            "missing_fields": [],
+        }
 
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
                 "success": True,
-                "access_token": access_token,
+                "access_token": result["access_token"],
+                "refresh_token": result.get("refresh_token"),
                 "token_type": "bearer",
-                "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+                "expires_in": result.get("expires_in", ACCESS_TOKEN_EXPIRE_MINUTES * 60),
                 "user": {
-                    "id": user.id,
-                    "name": user.name,
-                    "email": email,
-                    "phone": user.phone,
-                    "age": user.age,
-                    "gender": user.gender,
-                    "emergency_contact": user.emergency_contact,
-                    "medical_conditions": user.medical_conditions,
-                    "email_verified": user_auth.email_verified,
-                    "phone_verified": user_auth.phone_verified,
-                    "created_at": user.created_at.isoformat() if user.created_at else None,
-                    "is_active": user.is_active,
+                    "id": user_payload.get("id"),
+                    "name": user_payload.get("name"),
+                    "email": user_payload.get("email", email),
+                    "phone": user_payload.get("phone"),
+                    "age": user_payload.get("age"),
+                    "gender": user_payload.get("gender"),
+                    "emergency_contact": user_payload.get("emergency_contact"),
+                    "medical_conditions": user_payload.get("medical_conditions"),
+                    "email_verified": user_payload.get("email_verified", False),
+                    "phone_verified": user_payload.get("phone_verified", False),
+                    "created_at": user_payload.get("created_at"),
+                    "is_active": user_payload.get("is_active", True),
                     "profile_complete": profile_completion["profile_complete"],
                     "missing_fields": profile_completion["missing_fields"]
                 }

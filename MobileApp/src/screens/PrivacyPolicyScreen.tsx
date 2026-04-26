@@ -115,7 +115,7 @@ const styles = StyleSheet.create({
   sectionBody: {
     fontSize: 15,
     color: '#4B5563', // لون مريح للقراءة الطويلة
-    leading: 24, // زيادة المسافة بين الأسطر لراحة العين
+    lineHeight: 24, // زيادة المسافة بين الأسطر لراحة العين
     textAlign: 'left', // يعتمد على اللغة، يفضل تركه تلقائي
   }
 });
