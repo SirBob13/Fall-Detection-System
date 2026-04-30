@@ -13,6 +13,8 @@ export interface EmergencyContact {
 export interface EmergencyMessage {
   id: string;
   type: 'fall' | 'manual' | 'vital_abnormal' | 'inactivity';
+  source_alert_id?: number;
+  source_event_key?: string;
   timestamp: string;
   location?: {
     latitude: number;

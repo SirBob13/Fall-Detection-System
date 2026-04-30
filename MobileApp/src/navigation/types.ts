@@ -6,6 +6,7 @@ import { NativeStackNavigationProp as StackNavigationProp } from '@react-navigat
 export type RootStackParamList = {
   Auth: undefined;
   Main: undefined;
+  EmergencySetup: { requiredSetup?: boolean; openImport?: boolean } | undefined;
 };
 
 // أنواع شاشات المصادقة
@@ -26,18 +27,19 @@ export type MainTabParamList = {
 // أنواع التنقل لشاشات الإعدادات
 export type SettingsStackParamList = {
   SettingsMain: undefined;
-  EmergencyContacts: undefined;
+  EmergencyContacts: { requiredSetup?: boolean; openImport?: boolean } | undefined;
   LanguageSettings: undefined;
   PersonalInfo: undefined;
   CareManagement: undefined;
   CareDashboard: undefined;
+  DeviceDetails: { device: import('../types').Device };
   PrivacyPolicy: undefined;
   ResetPassword: { token: string };
 };
 
 // أنواع التنقل للطوارئ
 export type EmergencyStackParamList = {
-  EmergencyContacts: undefined;
+  EmergencyContacts: { requiredSetup?: boolean; openImport?: boolean } | undefined;
   LanguageSettings: undefined;
 };
 

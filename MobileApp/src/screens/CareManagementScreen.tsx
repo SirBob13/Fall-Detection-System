@@ -9,22 +9,26 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 import { useLanguage } from '../components/LanguageProvider';
 import { authService } from '../services/auth.service';
 import { apiService } from '../services/api';
 import { storageService } from '../services/storage';
 import { CareLink, CareLinkRequest, User } from '../types';
 import { realtimeService } from '../services/realtime.service';
+import { ScreenHeader } from '../components/ScreenHeader';
 
 const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 const phoneDigitsRegex = /^\+?[0-9]{6,15}$/;
 
 export const CareManagementScreen: React.FC = () => {
   const { t } = useLanguage();
+  const navigation = useNavigation<any>();
   const [user, setUser] = useState<User | null>(null);
   const [links, setLinks] = useState<CareLink[]>([]);
-  const [incomingRequests, setIncomingRequests] = useState<CareLinkRequest[]>([]);
-  const [outgoingRequests, setOutgoingRequests] = useState<CareLinkRequest[]>([]);
+  const [reverseLinks, setReverseLinks] = useState<CareLink[]>([]);
+  const [approvalRequests, setApprovalRequests] = useState<CareLinkRequest[]>([]);
+  const [sentRequests, setSentRequests] = useState<CareLinkRequest[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [identifier, setIdentifier] = useState('');
@@ -65,6 +69,7 @@ export const CareManagementScreen: React.FC = () => {
     if (normalizedSessionUser) {
       await Promise.all([
         fetchLinks(normalizedSessionUser.id),
+        fetchReverseLinks(normalizedSessionUser.id),
         fetchRequests(normalizedSessionUser.id),
       ]);
     }
@@ -82,7 +87,7 @@ export const CareManagementScreen: React.FC = () => {
 
       if (isRequest) {
         if (isPatient) {
-          setIncomingRequests((prev) => {
+          setApprovalRequests((prev) => {
             const exists = prev.find((item) => item.id === payload.id);
             if (payload.status !== 'pending') {
               return prev.filter((item) => item.id !== payload.id);
@@ -95,7 +100,7 @@ export const CareManagementScreen: React.FC = () => {
         }
 
         if (isCaregiver) {
-          setOutgoingRequests((prev) => {
+          setSentRequests((prev) => {
             const exists = prev.find((item) => item.id === payload.id);
             if (payload.status !== 'pending') {
               return prev.filter((item) => item.id !== payload.id);
@@ -110,6 +115,21 @@ export const CareManagementScreen: React.FC = () => {
         if (isCaregiver) {
           setLinks((prev) => {
             const exists = prev.find((item) => item.id === payload.id);
+            if (payload.is_active === false) {
+              return prev.filter((item) => item.id !== payload.id);
+            }
+            const next = exists
+              ? prev.map((item) => (item.id === payload.id ? { ...item, ...payload } : item))
+              : [payload, ...prev];
+            return next;
+          });
+        }
+        if (isPatient) {
+          setReverseLinks((prev) => {
+            const exists = prev.find((item) => item.id === payload.id);
+            if (payload.is_active === false) {
+              return prev.filter((item) => item.id !== payload.id);
+            }
             const next = exists
               ? prev.map((item) => (item.id === payload.id ? { ...item, ...payload } : item))
               : [payload, ...prev];
@@ -136,17 +156,30 @@ export const CareManagementScreen: React.FC = () => {
     }
   };
 
+  const fetchReverseLinks = async (patientId: number) => {
+    try {
+      const response = await apiService.getCareLinksAsPatient(patientId);
+      if (response.success && response.data) {
+        setReverseLinks(response.data);
+      } else {
+        setReverseLinks([]);
+      }
+    } catch {
+      setReverseLinks([]);
+    }
+  };
+
   const fetchRequests = async (userId: number) => {
     try {
-      const [incoming, outgoing] = await Promise.all([
-        apiService.getCareRequestsIncoming(userId),
-        apiService.getCareRequestsOutgoing(userId),
+      const [approvals, sent] = await Promise.all([
+        apiService.getCareRequestsApprovals(userId),
+        apiService.getCareRequestsSent(userId),
       ]);
-      setIncomingRequests(incoming.success && incoming.data ? incoming.data : []);
-      setOutgoingRequests(outgoing.success && outgoing.data ? outgoing.data : []);
+      setApprovalRequests(approvals.success && approvals.data ? approvals.data : []);
+      setSentRequests(sent.success && sent.data ? sent.data : []);
     } catch {
-      setIncomingRequests([]);
-      setOutgoingRequests([]);
+      setApprovalRequests([]);
+      setSentRequests([]);
     }
   };
 
@@ -207,7 +240,7 @@ export const CareManagementScreen: React.FC = () => {
         Alert.alert(t('success.updated'), t('care.requestSent'));
         setIdentifier('');
         setRelationship('');
-        await Promise.all([fetchLinks(user.id), fetchRequests(user.id)]);
+        await Promise.all([fetchLinks(user.id), fetchReverseLinks(user.id), fetchRequests(user.id)]);
       } else {
         Alert.alert(t('common.error'), response.message || t('care.requestFailed'));
       }
@@ -220,7 +253,7 @@ export const CareManagementScreen: React.FC = () => {
     if (!user) return;
     const response = await apiService.acceptCareRequest(requestId, user.id);
     if (response.success) {
-      await Promise.all([fetchLinks(user.id), fetchRequests(user.id)]);
+      await Promise.all([fetchLinks(user.id), fetchReverseLinks(user.id), fetchRequests(user.id)]);
     } else {
       Alert.alert(t('common.error'), response.message || t('care.requestFailed'));
     }
@@ -230,7 +263,7 @@ export const CareManagementScreen: React.FC = () => {
     if (!user) return;
     const response = await apiService.rejectCareRequest(requestId, user.id);
     if (response.success) {
-      await fetchRequests(user.id);
+      await Promise.all([fetchLinks(user.id), fetchReverseLinks(user.id), fetchRequests(user.id)]);
     } else {
       Alert.alert(t('common.error'), response.message || t('care.requestFailed'));
     }
@@ -246,10 +279,35 @@ export const CareManagementScreen: React.FC = () => {
     }
   };
 
+  const getApprovalRequestDisplayUser = (req: CareLinkRequest) => {
+    if (!user) return req.caregiver || req.patient || null;
+    const requestType = req.request_type || 'link';
+    const initiatedBy = req.initiated_by || 'caregiver';
+
+    if (requestType === 'unlink' && initiatedBy === 'patient' && req.caregiver_id === user.id) {
+      return req.patient || null;
+    }
+
+    return req.caregiver || req.patient || null;
+  };
+
+  const getSentRequestDisplayUser = (req: CareLinkRequest) => {
+    if (!user) return req.patient || req.caregiver || null;
+    const requestType = req.request_type || 'link';
+    const initiatedBy = req.initiated_by || 'caregiver';
+
+    if (requestType === 'unlink' && initiatedBy === 'patient' && req.patient_id === user.id) {
+      return req.caregiver || null;
+    }
+
+    return req.patient || req.caregiver || null;
+  };
+
   const handleSelect = async (link: CareLink) => {
     if (!link.patient) return;
     await storageService.saveMonitoredUser(link.patient);
     setMonitoredUser(link.patient);
+    navigation.navigate('CareDashboard');
   };
 
   const handleSwitchBack = async () => {
@@ -259,26 +317,21 @@ export const CareManagementScreen: React.FC = () => {
 
   const handleUnlink = async (link: CareLink) => {
     Alert.alert(
-      t('care.unlinkConfirmTitle'),
-      t('care.unlinkConfirmBody'),
+      t('care.unlinkRequestTitle'),
+      t('care.unlinkRequestBody'),
       [
         { text: t('common.cancel'), style: 'cancel' },
         {
-          text: t('care.remove'),
+          text: t('care.sendUnlinkRequest'),
           style: 'destructive',
           onPress: async () => {
-            const response = await apiService.deleteCareLink(link.id);
+            if (!user) return;
+            const response = await apiService.requestCareUnlink(link.id, user.id);
             if (response.success) {
-              if (monitoredUser && link.patient && monitoredUser.id === link.patient.id) {
-                await storageService.saveMonitoredUser(null);
-                setMonitoredUser(null);
-              }
-              Alert.alert(t('success.deleted'), t('care.unlinkSuccess'));
-              if (user) {
-                await fetchLinks(user.id);
-              }
+              Alert.alert(t('success.sent'), t('care.unlinkRequestSent'));
+              await fetchRequests(user.id);
             } else {
-              Alert.alert(t('common.error'), response.message || t('care.unlinkFailed'));
+              Alert.alert(t('common.error'), response.message || t('care.unlinkRequestFailed'));
             }
           },
         },
@@ -288,12 +341,11 @@ export const CareManagementScreen: React.FC = () => {
 
   return (
     <ScrollView className="flex-1 bg-light" showsVerticalScrollIndicator={false}>
-      <View className="mx-4 mt-4">
-        <Text className="text-lg font-bold text-dark">
-          {t('settings.careManagement')}
-        </Text>
-        <Text className="text-xs text-gray mt-1">{t('settings.careManagementDesc')}</Text>
-      </View>
+      <ScreenHeader
+        title={t('settings.careManagement')}
+        subtitle={t('care.subtitle')}
+        showBack
+      />
 
       <View className="mx-4 mt-4 bg-white rounded-2xl shadow-lg border border-lightGray p-4">
         <Text className="text-base font-semibold text-dark mb-3">{t('care.selected')}</Text>
@@ -326,6 +378,7 @@ export const CareManagementScreen: React.FC = () => {
 
       <View className="mx-4 mt-4 bg-white rounded-2xl shadow-lg border border-lightGray p-4">
         <Text className="text-base font-semibold text-dark mb-3">{t('care.addTitle')}</Text>
+        <Text className="text-xs text-gray mb-3">{t('care.addHint')}</Text>
 
         <Text className="input-label">{t('care.identifierLabel')}</Text>
         <TextInput
@@ -363,12 +416,14 @@ export const CareManagementScreen: React.FC = () => {
       <View className="mx-4 mt-4">
         <Text className="text-base font-semibold text-dark mb-3">{t('care.requestsIncoming')}</Text>
 
-        {incomingRequests.length === 0 ? (
+        {approvalRequests.length === 0 ? (
           <Text className="text-xs text-gray">
             {t('care.noIncomingRequests')}
           </Text>
         ) : (
-          incomingRequests.map((req) => (
+          approvalRequests.map((req) => {
+            const displayUser = getApprovalRequestDisplayUser(req);
+            return (
             <View
               key={req.id}
               className="bg-white rounded-2xl shadow-lg border border-lightGray p-4 mb-3"
@@ -376,11 +431,14 @@ export const CareManagementScreen: React.FC = () => {
               <View className="flex-row items-center justify-between">
                 <View className="flex-1">
                   <Text className="text-sm font-semibold text-dark">
-                    {req.caregiver?.name || t('common.unknown')}
+                    {displayUser?.name || t('common.unknown')}
                   </Text>
-                  {req.caregiver?.email ? (
-                    <Text className="text-xs text-gray mt-1">{req.caregiver.email}</Text>
+                  {displayUser?.email ? (
+                    <Text className="text-xs text-gray mt-1">{displayUser.email}</Text>
                   ) : null}
+                  <Text className="text-xs text-gray mt-1">
+                    {t(`care.requestType.${req.request_type || 'link'}`)}
+                  </Text>
                   {req.relationship ? (
                     <Text className="text-xs text-gray mt-1">{req.relationship}</Text>
                   ) : null}
@@ -401,19 +459,21 @@ export const CareManagementScreen: React.FC = () => {
                 </View>
               </View>
             </View>
-          ))
+          )})
         )}
       </View>
 
       <View className="mx-4 mt-4">
         <Text className="text-base font-semibold text-dark mb-3">{t('care.requestsOutgoing')}</Text>
 
-        {outgoingRequests.length === 0 ? (
+        {sentRequests.length === 0 ? (
           <Text className="text-xs text-gray">
             {t('care.noOutgoingRequests')}
           </Text>
         ) : (
-          outgoingRequests.map((req) => (
+          sentRequests.map((req) => {
+            const displayUser = getSentRequestDisplayUser(req);
+            return (
             <View
               key={req.id}
               className="bg-white rounded-2xl shadow-lg border border-lightGray p-4 mb-3"
@@ -421,11 +481,14 @@ export const CareManagementScreen: React.FC = () => {
               <View className="flex-row items-center justify-between">
                 <View className="flex-1">
                   <Text className="text-sm font-semibold text-dark">
-                    {req.patient?.name || t('common.unknown')}
+                    {displayUser?.name || t('common.unknown')}
                   </Text>
-                  {req.patient?.email ? (
-                    <Text className="text-xs text-gray mt-1">{req.patient.email}</Text>
+                  {displayUser?.email ? (
+                    <Text className="text-xs text-gray mt-1">{displayUser.email}</Text>
                   ) : null}
+                  <Text className="text-xs text-gray mt-1">
+                    {t(`care.requestType.${req.request_type || 'link'}`)}
+                  </Text>
                   <Text className="text-xs text-gray mt-1">
                     {t(`care.requestStatus.${req.status}`)}
                   </Text>
@@ -440,7 +503,7 @@ export const CareManagementScreen: React.FC = () => {
                 ) : null}
               </View>
             </View>
-          ))
+          )})
         )}
       </View>
 
@@ -485,6 +548,45 @@ export const CareManagementScreen: React.FC = () => {
                     <Text className="text-xs text-danger">{t('care.remove')}</Text>
                   </TouchableOpacity>
                 </View>
+              </View>
+            </View>
+          ))
+        )}
+      </View>
+
+      <View className="mx-4 mt-4 mb-6">
+        <Text className="text-base font-semibold text-dark mb-3">{t('care.monitorsMeTitle')}</Text>
+
+        {loading ? (
+          <ActivityIndicator color="#2196F3" />
+        ) : reverseLinks.length === 0 ? (
+          <Text className="text-xs text-gray">
+            {t('care.noMonitorsMe')}
+          </Text>
+        ) : (
+          reverseLinks.map((link) => (
+            <View
+              key={link.id}
+              className="bg-white rounded-2xl shadow-lg border border-lightGray p-4 mb-3"
+            >
+              <View className="flex-row items-center justify-between">
+                <View className="flex-1">
+                  <Text className="text-sm font-semibold text-dark">
+                    {link.caregiver?.name || t('common.unknown')}
+                  </Text>
+                  {link.caregiver?.email ? (
+                    <Text className="text-xs text-gray mt-1">{link.caregiver.email}</Text>
+                  ) : null}
+                  {link.relationship ? (
+                    <Text className="text-xs text-gray mt-1">{link.relationship}</Text>
+                  ) : null}
+                </View>
+                <TouchableOpacity
+                  className="px-3 py-2 rounded-lg bg-red-50"
+                  onPress={() => handleUnlink(link)}
+                >
+                  <Text className="text-xs text-danger">{t('care.remove')}</Text>
+                </TouchableOpacity>
               </View>
             </View>
           ))

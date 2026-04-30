@@ -9,7 +9,11 @@ from typing import List, Dict, Optional, Tuple
 from sqlalchemy.orm import Session
 
 from . import models
-from .config import VITAL_CHANGE_THRESHOLD
+from .config import (
+    VITAL_CHANGE_THRESHOLD,
+    FALL_ALERT_THRESHOLD,
+    FALL_ALERT_WITH_VITALS_THRESHOLD,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -45,12 +49,15 @@ class DoubleVerificationSystem:
             
             if not recent_vitals:
                 logger.warning(f"No recent vitals found for user {user_id}")
+                fall_probability = fall_prediction.get("fall_now_probability", 0.0)
+                fall_confirmed = fall_probability >= FALL_ALERT_THRESHOLD
                 return {
                     **fall_prediction,
                     "vital_check_performed": False,
                     "vital_check_result": None,
-                    "final_verdict": fall_prediction.get("fall_now_prediction", False),
-                    "confidence_score": fall_prediction.get("fall_now_probability", 0.0)
+                    "final_verdict": fall_confirmed,
+                    "confidence_score": fall_probability,
+                    "decision_reason": "motion_only" if fall_confirmed else "insufficient_confirmation",
                 }
             
             # Check for vital abnormalities
@@ -68,28 +75,39 @@ class DoubleVerificationSystem:
             fall_detected = fall_prediction.get("fall_now_prediction", False)
             fall_probability = fall_prediction.get("fall_now_probability", 0.0)
             
-            if fall_detected and is_abnormal:
-                # Both motion and vitals indicate fall
+            if fall_probability >= FALL_ALERT_THRESHOLD:
+                # Motion score is high enough to confirm a fall even without vitals support.
                 final_verdict = True
-                confidence_score = min(1.0, fall_probability + 0.3)
+                confidence_score = min(1.0, fall_probability if not is_abnormal else fall_probability + 0.1)
+                decision_reason = "strong_motion"
+                logger.info(f"Strong motion-only fall confirmation for user {user_id}")
+
+            elif fall_detected and is_abnormal and fall_probability >= FALL_ALERT_WITH_VITALS_THRESHOLD:
+                # Motion is moderately high and vitals support the event.
+                final_verdict = True
+                confidence_score = min(1.0, fall_probability + 0.15)
+                decision_reason = "motion_plus_vitals"
                 logger.info(f"Double verification confirmed fall for user {user_id}")
-                
+
             elif fall_detected and not is_abnormal:
-                # Motion indicates fall but vitals are normal
-                final_verdict = True  # Still consider it a fall, but lower confidence
-                confidence_score = fall_probability * 0.7
-                logger.warning(f"Fall detected but vitals normal for user {user_id}")
-                
+                # Motion indicates a possible fall but vitals do not support it strongly enough.
+                final_verdict = False
+                confidence_score = fall_probability * 0.6
+                decision_reason = "warning_only_motion"
+                logger.warning(f"Possible fall rejected due to normal vitals for user {user_id}")
+
             elif not fall_detected and is_abnormal:
-                # Vitals abnormal but no fall detected
+                # Vitals abnormal but no fall detected; keep as in-app health warning only.
                 final_verdict = False
                 confidence_score = 0.3
+                decision_reason = "vitals_only"
                 logger.info(f"Vitals abnormal but no fall detected for user {user_id}")
-                
+
             else:
-                # Both normal
+                # Both normal / low confidence
                 final_verdict = False
                 confidence_score = 1.0 - fall_probability
+                decision_reason = "normal"
             
             return {
                 **fall_prediction,
@@ -97,7 +115,8 @@ class DoubleVerificationSystem:
                 "vital_check_result": is_abnormal,
                 "abnormality_type": abnormality_type,
                 "final_verdict": final_verdict,
-                "confidence_score": confidence_score
+                "confidence_score": confidence_score,
+                "decision_reason": decision_reason,
             }
             
         except Exception as e:
@@ -106,8 +125,9 @@ class DoubleVerificationSystem:
                 **fall_prediction,
                 "vital_check_performed": False,
                 "vital_check_result": None,
-                "final_verdict": fall_prediction.get("fall_now_prediction", False),
+                "final_verdict": fall_prediction.get("fall_now_probability", 0.0) >= FALL_ALERT_THRESHOLD,
                 "confidence_score": fall_prediction.get("fall_now_probability", 0.0),
+                "decision_reason": "verification_error",
                 "error": str(e)
             }
     
@@ -176,89 +196,77 @@ class DoubleVerificationSystem:
         prediction_id: int,
         verification_result: Dict
     ) -> Optional[models.Alert]:
-        """Create alert if fall is verified with flood protection."""
-        
-        if verification_result.get("final_verdict"):
-            # Get user info
-            user = self.db.query(models.User).filter(models.User.id == user_id).first()
-            if not user:
-                logger.error(f"User {user_id} not found for alert creation")
-                return None
-            
-            # Enhanced flood protection - check for alerts in last 10 minutes
-            ten_minutes_ago = datetime.utcnow() - timedelta(minutes=10)
-            
-            recent_alerts_count = self.db.query(models.Alert)\
-                .filter(models.Alert.user_id == user_id)\
-                .filter(models.Alert.alert_type == "fall")\
-                .filter(models.Alert.timestamp >= ten_minutes_ago)\
-                .filter(models.Alert.status.in_(['pending', 'sent', 'acknowledged']))\
-                .count()
-            
-            # Allow maximum 3 alerts in 10 minutes
-            if recent_alerts_count >= 3:
-                logger.warning(f"Alert flood detected for user {user_id}. Skipping new alert.")
-                return None
-            
-            # Check for very recent alert (last 2 minutes)
-            two_minutes_ago = datetime.utcnow() - timedelta(minutes=2)
-            
-            recent_alert = self.db.query(models.Alert)\
-                .filter(models.Alert.user_id == user_id)\
-                .filter(models.Alert.alert_type == "fall")\
-                .filter(models.Alert.timestamp >= two_minutes_ago)\
-                .filter(models.Alert.status.in_(['pending', 'sent']))\
-                .first()
-            
-            if recent_alert:
-                # Update existing alert instead of creating new one
-                logger.info(f"Updating existing alert {recent_alert.id} for user {user_id}")
-                
-                # Update confidence score if higher
-                new_confidence = verification_result.get("confidence_score", 0)
-                
-                # Extract current confidence from message or use 0
-                current_confidence = 0
-                if recent_alert.message:
-                    try:
-                        # Extract confidence from message
-                        import re
-                        match = re.search(r'Confidence:\s*([\d.]+)%', recent_alert.message)
-                        if match:
-                            current_confidence = float(match.group(1)) / 100
-                    except:
-                        pass
-                
-                if new_confidence > current_confidence:
-                    # Update the alert
-                    recent_alert.severity = "critical" if new_confidence > 0.7 else "high"
-                    recent_alert.message = f"Fall detected for {user.name}. Confidence: {new_confidence:.2%}"
-                    recent_alert.timestamp = datetime.utcnow()
-                    self.db.commit()
-                
-                return recent_alert
-            
-            # Create new alert
-            confidence = verification_result.get("confidence_score", 0)
-            alert = models.Alert(
-                user_id=user_id,
-                prediction_id=prediction_id,
-                alert_type="fall",
-                severity="critical" if confidence > 0.7 else "high",
-                message=f"Fall detected for {user.name}. Confidence: {confidence:.2%}",
-                status="pending",
-                sent_to=user.emergency_contact,
-                timestamp=datetime.utcnow()
-            )
-            
-            self.db.add(alert)
+        """Create either a confirmed fall alert or an in-app fall risk alert."""
+
+        user = self.db.query(models.User).filter(models.User.id == user_id).first()
+        if not user:
+            logger.error(f"User {user_id} not found for alert creation")
+            return None
+
+        is_confirmed_fall = bool(verification_result.get("final_verdict"))
+        is_fall_risk = bool(verification_result.get("fall_soon_prediction")) and not is_confirmed_fall
+
+        if not is_confirmed_fall and not is_fall_risk:
+            return None
+
+        alert_type = "fall_now" if is_confirmed_fall else "fall_risk"
+        confidence = float(verification_result.get("confidence_score", 0))
+
+        ten_minutes_ago = datetime.utcnow() - timedelta(minutes=10)
+        recent_alerts_count = self.db.query(models.Alert)\
+            .filter(models.Alert.user_id == user_id)\
+            .filter(models.Alert.alert_type == alert_type)\
+            .filter(models.Alert.timestamp >= ten_minutes_ago)\
+            .filter(models.Alert.status.in_(['pending', 'sent', 'acknowledged']))\
+            .count()
+
+        if recent_alerts_count >= 3:
+            logger.warning(f"Alert flood detected for user {user_id}. Skipping new {alert_type} alert.")
+            return None
+
+        two_minutes_ago = datetime.utcnow() - timedelta(minutes=2)
+        recent_alert = self.db.query(models.Alert)\
+            .filter(models.Alert.user_id == user_id)\
+            .filter(models.Alert.alert_type == alert_type)\
+            .filter(models.Alert.timestamp >= two_minutes_ago)\
+            .filter(models.Alert.status.in_(['pending', 'sent']))\
+            .first()
+
+        if alert_type == "fall_now":
+            severity = "critical" if confidence >= 0.85 else "high"
+            message = f"Confirmed fall detected for {user.name}. Confidence: {confidence:.2%}"
+        else:
+            risk_probability = float(verification_result.get("fall_soon_probability", 0))
+            severity = "high" if risk_probability >= 0.9 else "medium"
+            message = f"High fall risk detected for {user.name}. Probability: {risk_probability:.2%}"
+
+        if recent_alert:
+            logger.info(f"Updating existing alert {recent_alert.id} for user {user_id}")
+            recent_alert.severity = severity
+            recent_alert.message = message
+            recent_alert.timestamp = datetime.utcnow()
+            recent_alert.prediction_id = prediction_id
             self.db.commit()
-            self.db.refresh(alert)
-            
-            logger.info(f"Created alert {alert.id} for user {user_id}")
-            return alert
-        
-        return None
+            self.db.refresh(recent_alert)
+            return recent_alert
+
+        alert = models.Alert(
+            user_id=user_id,
+            prediction_id=prediction_id,
+            alert_type=alert_type,
+            severity=severity,
+            message=message,
+            status="pending",
+            sent_to=user.emergency_contact,
+            timestamp=datetime.utcnow()
+        )
+
+        self.db.add(alert)
+        self.db.commit()
+        self.db.refresh(alert)
+
+        logger.info(f"Created alert {alert.id} ({alert_type}) for user {user_id}")
+        return alert
     
     def check_vital_patterns(self, user_id: int, hours: int = 24) -> Dict:
         """Analyze vital sign patterns over time for anomaly detection."""

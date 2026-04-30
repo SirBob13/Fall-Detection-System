@@ -8,6 +8,7 @@
 #include <ArduinoJson.h>
 #include <PubSubClient.h>
 #include "esp_bt.h"
+#include "mbedtls/base64.h"
 #include <math.h>
 
 // ================= BLE UUIDs =================
@@ -52,6 +53,7 @@ PubSubClient mqttClient(wifiClient);
 
 bool deviceConnected = false;
 bool shouldApplyProvisioning = false;
+bool hasPendingProvisioning = false;
 
 String wifiSsid = "";
 String wifiPassword = "";
@@ -61,6 +63,18 @@ String mqttHost = "";
 String mqttTopic = "";
 uint16_t mqttPort = 1883;
 int provisionedUserId = 0;
+
+String pendingWifiSsid = "";
+String pendingWifiPassword = "";
+String pendingProvisionedDeviceId = "";
+String pendingPairingToken = "";
+String pendingMqttHost = "";
+String pendingMqttTopic = "";
+uint16_t pendingMqttPort = 1883;
+int pendingProvisionedUserId = 0;
+
+String lastErrorStage = "";
+String lastErrorMessage = "";
 
 unsigned long lastWifiAttemptMs = 0;
 unsigned long lastMqttAttemptMs = 0;
@@ -117,14 +131,70 @@ String connectionStatusLabel() {
   return "ready_for_provisioning";
 }
 
-void notifyStatus(const char *stage, bool success, const String &message) {
+void setLastError(const String &stage, const String &message) {
+  lastErrorStage = stage;
+  lastErrorMessage = message;
+}
+
+String getActiveDeviceId() {
+  if (pendingProvisionedDeviceId.length() > 0) return pendingProvisionedDeviceId;
+  if (provisionedDeviceId.length() > 0) return provisionedDeviceId;
+  return fallbackDeviceId();
+}
+
+String decodeBase64Payload(const String &encoded) {
+  if (encoded.length() == 0) return "";
+
+  size_t outputLen = 0;
+  size_t bufferSize = encoded.length() + 8;
+  unsigned char *buffer = (unsigned char *)malloc(bufferSize);
+
+  if (!buffer) {
+    return "";
+  }
+
+  int result = mbedtls_base64_decode(
+    buffer,
+    bufferSize - 1,
+    &outputLen,
+    (const unsigned char *)encoded.c_str(),
+    encoded.length()
+  );
+
+  if (result != 0 || outputLen == 0) {
+    free(buffer);
+    return "";
+  }
+
+  buffer[outputLen] = '\0';
+  String decoded = String((char *)buffer);
+  free(buffer);
+  return decoded;
+}
+
+void notifyStatus(const char *stage, bool success, const String &message, int code = 0) {
   if (!statusChar) return;
 
   StaticJsonDocument<256> doc;
-  doc["device_id"] = provisionedDeviceId.length() ? provisionedDeviceId : fallbackDeviceId();
+
+  if (!success) {
+    setLastError(stage, message);
+  } else if (String(stage) == "streaming" || String(stage) == "mqtt_connected" || String(stage) == "wifi_connected") {
+    setLastError("", "");
+  }
+
+  doc["device_id"] = getActiveDeviceId();
   doc["stage"] = stage;
   doc["success"] = success;
   doc["message"] = message;
+
+  if (code != 0) {
+    doc["code"] = code;
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    doc["ip"] = WiFi.localIP().toString();
+  }
 
   char buffer[256];
   size_t len = serializeJson(doc, buffer, sizeof(buffer));
@@ -145,8 +215,10 @@ void updateDeviceInfoCharacteristic() {
   doc["backend_connected"] = mqttClient.connected();
   doc["battery_level"] = 85;
   doc["status"] = connectionStatusLabel();
+  doc["last_error_stage"] = lastErrorStage;
+  doc["last_error_message"] = lastErrorMessage;
 
-  char buffer[256];
+  char buffer[384];
   size_t len = serializeJson(doc, buffer, sizeof(buffer));
   deviceInfoChar->setValue((uint8_t *)buffer, len);
 }
@@ -246,7 +318,10 @@ void notifyBackupTelemetry() {
 
 // ================= Connectivity =================
 bool connectToWiFi(bool forceReconnect = false) {
-  if (wifiSsid.isEmpty() || wifiPassword.isEmpty()) {
+  const String targetSsid = hasPendingProvisioning ? pendingWifiSsid : wifiSsid;
+  const String targetPassword = hasPendingProvisioning ? pendingWifiPassword : wifiPassword;
+
+  if (targetSsid.isEmpty() || targetPassword.isEmpty()) {
     notifyStatus("ready_for_provisioning", false, "WiFi credentials not provisioned");
     return false;
   }
@@ -262,9 +337,9 @@ bool connectToWiFi(bool forceReconnect = false) {
 
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);
-  WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
+  WiFi.begin(targetSsid.c_str(), targetPassword.c_str());
 
-  Serial.printf("🔄 Connecting to WiFi SSID=%s\n", wifiSsid.c_str());
+  Serial.printf("🔄 Connecting to WiFi SSID=%s\n", targetSsid.c_str());
 
   int retries = 0;
   while (WiFi.status() != WL_CONNECTED && retries < 20) {
@@ -275,6 +350,20 @@ bool connectToWiFi(bool forceReconnect = false) {
   Serial.println();
 
   if (WiFi.status() == WL_CONNECTED) {
+    if (hasPendingProvisioning) {
+      wifiSsid = pendingWifiSsid;
+      wifiPassword = pendingWifiPassword;
+      provisionedDeviceId = pendingProvisionedDeviceId;
+      pairingToken = pendingPairingToken;
+      mqttHost = pendingMqttHost;
+      mqttTopic = pendingMqttTopic;
+      mqttPort = pendingMqttPort;
+      provisionedUserId = pendingProvisionedUserId;
+      saveConfig();
+      hasPendingProvisioning = false;
+      notifyStatus("credentials_saved", true, "Provisioning saved successfully");
+    }
+
     if (currentBleMode == BLE_MODE_BACKUP) {
       stopBle();
     }
@@ -368,46 +457,79 @@ class WriteCallbacks : public BLECharacteristicCallbacks {
   void onWrite(BLECharacteristic *characteristic) override {
     std::string rawValue = characteristic->getValue();
     if (rawValue.empty()) {
-      notifyStatus("provisioning_received", false, "Empty provisioning payload");
+      notifyStatus("invalid_data", false, "Empty provisioning payload");
       return;
     }
 
-    String value = String(rawValue.c_str());
+    String encodedValue = String(rawValue.c_str());
+    String value = encodedValue;
+
+    if (!value.startsWith("{")) {
+      String decodedValue = decodeBase64Payload(encodedValue);
+      if (decodedValue.length() > 0) {
+        value = decodedValue;
+      }
+    }
+
     Serial.printf("📥 Provisioning payload bytes=%u\n", value.length());
+    Serial.println("📥 Provisioning payload:");
+    Serial.println(value);
 
     StaticJsonDocument<768> doc;
     DeserializationError err = deserializeJson(doc, value);
     if (err) {
       Serial.printf("❌ Provisioning JSON parse failed: %s\n", err.c_str());
-      notifyStatus("provisioning_received", false, String("Invalid JSON: ") + err.c_str());
+      notifyStatus("invalid_json", false, String("Invalid provisioning payload: ") + err.c_str());
       return;
     }
 
     JsonObject wifi = doc["wifi"].is<JsonObject>() ? doc["wifi"].as<JsonObject>() : doc["w"].as<JsonObject>();
     JsonObject mqtt = doc["mqtt"].is<JsonObject>() ? doc["mqtt"].as<JsonObject>() : doc["m"].as<JsonObject>();
 
-    wifiSsid = wifi["ssid"] | wifi["s"] | "";
-    wifiPassword = wifi["password"] | wifi["p"] | "";
-    provisionedDeviceId = doc["device_id"] | doc["d"] | fallbackDeviceId();
-    pairingToken = doc["pairing_token"] | doc["pt"] | "";
-    mqttHost = mqtt["host"] | mqtt["h"] | "";
-    mqttTopic = mqtt["topic"] | mqtt["t"] | "fall-detection/device-data";
-    mqttPort = mqtt["port"] | mqtt["o"] | 1883;
-    provisionedUserId = doc["user_id"] | doc["u"] | 0;
+    pendingWifiSsid = wifi["ssid"] | wifi["s"] | "";
+    pendingWifiPassword = wifi["password"] | wifi["p"] | "";
+    pendingProvisionedDeviceId = doc["device_id"] | doc["d"] | fallbackDeviceId();
+    pendingPairingToken = doc["pairing_token"] | doc["pt"] | "";
+    pendingMqttHost = mqtt["host"] | mqtt["h"] | "";
+    pendingMqttTopic = mqtt["topic"] | mqtt["t"] | "fall-detection/device-data";
+    pendingMqttPort = mqtt["port"] | mqtt["o"] | 1883;
+    pendingProvisionedUserId = doc["user_id"] | doc["u"] | 0;
 
-    if (wifiSsid.isEmpty() || wifiPassword.isEmpty()) {
-      notifyStatus("provisioning_received", false, "WiFi SSID/password missing");
+    pendingWifiSsid.trim();
+    pendingWifiPassword.trim();
+    pendingProvisionedDeviceId.trim();
+    pendingMqttHost.trim();
+    pendingMqttTopic.trim();
+    pendingPairingToken.trim();
+
+    if (pendingWifiSsid.isEmpty()) {
+      notifyStatus("missing_ssid", false, "WiFi SSID is missing");
       return;
     }
 
-    if (provisionedDeviceId.isEmpty() || provisionedUserId <= 0) {
-      notifyStatus("provisioning_received", false, "device_id or user_id missing");
+    if (pendingWifiPassword.isEmpty()) {
+      notifyStatus("missing_password", false, "WiFi password is missing");
       return;
     }
 
-    saveConfig();
+    if (pendingProvisionedDeviceId.isEmpty()) {
+      notifyStatus("invalid_device_id", false, "device_id is missing");
+      return;
+    }
+
+    if (pendingProvisionedUserId <= 0) {
+      notifyStatus("invalid_user_id", false, "user_id must be greater than 0");
+      return;
+    }
+
+    if (pendingMqttHost.isEmpty()) {
+      notifyStatus("mqtt_failed", false, "MQTT host missing from provisioning data");
+      return;
+    }
+
+    hasPendingProvisioning = true;
     updateDeviceInfoCharacteristic();
-    notifyStatus("provisioning_received", true, "Provisioning saved");
+    notifyStatus("provisioning_received", true, "Provisioning data received, connecting to WiFi");
     shouldApplyProvisioning = true;
   }
 };

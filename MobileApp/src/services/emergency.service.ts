@@ -4,6 +4,9 @@ import * as Location from 'expo-location';
 import * as SMS from 'expo-sms';
 import * as Contacts from 'expo-contacts';
 import * as Notifications from 'expo-notifications';
+import { authService } from './auth.service';
+import { apiService } from './api';
+import i18n, { getCurrentLanguage } from '../i18n';
 import { 
   EmergencyContact, 
   EmergencyMessage, 
@@ -39,8 +42,7 @@ export class EmergencyService {
   private emergencyTimeout: ReturnType<typeof setTimeout> | null = null;
   private appStateSubscription: any = null;
   private emergencyInProgress = false;
-  private readonly MAX_CONSECUTIVE_EMERGENCIES = 3;
-  private readonly EMERGENCY_COOLDOWN_MINUTES = 15;
+  private readonly AUTO_EMERGENCY_DEDUP_MINUTES = 3;
 
   static getInstance(): EmergencyService {
     if (!EmergencyService.instance) {
@@ -291,11 +293,12 @@ export class EmergencyService {
         return false;
       }
 
-      // Check for consecutive emergencies (prevent abuse)
-      const canTrigger = await this.canTriggerEmergency();
+      // Prevent duplicate auto-emergencies for the same recent event while
+      // still allowing manual SOS and truly new emergencies.
+      const canTrigger = await this.canTriggerEmergency(type, fallData);
       if (!canTrigger) {
         console.warn('⚠️ [Emergency] Too many consecutive emergencies');
-        this.showRateLimitWarning();
+        this.showRateLimitWarning(type);
         return false;
       }
 
@@ -312,9 +315,9 @@ export class EmergencyService {
 
       if (targetContacts.length === 0) {
         Alert.alert(
-          '⚠️ No Emergency Contacts',
-          'Please add emergency contacts in settings before triggering an emergency.',
-          [{ text: 'OK', style: 'default' }]
+          i18n.t('emergency.messages.noContactsTitle'),
+          i18n.t('emergency.messages.noContactsBody'),
+          [{ text: i18n.t('common.ok'), style: 'default' }]
         );
         this.isEmergencyActive = false;
         this.emergencyInProgress = false;
@@ -327,19 +330,50 @@ export class EmergencyService {
         location = await this.getCurrentLocation();
       }
 
+      const sessionUser = await authService.getCurrentUser();
+      const activeUser = sessionUser || null;
+
       // Create emergency message
-      const emergencyMessage = this.createEmergencyMessage(type, location, fallData);
-      
-      // Process emergency notifications
-      const effectiveSettings =
-        type === 'manual'
-          ? { ...settings, send_sms: true, auto_call_emergency: false }
-          : settings;
-      const responses = await this.processEmergencyNotifications(
-        emergencyMessage,
-        targetContacts,
-        effectiveSettings
+      const emergencyMessage = this.createEmergencyMessage(
+        type,
+        location,
+        activeUser?.name || 'User',
+        fallData
       );
+      
+      let responses: EmergencyResponse[] = [];
+      if (activeUser?.id) {
+        const serverResult = await apiService.triggerEmergency({
+          user_id: Number(activeUser.id),
+          user_name: activeUser.name,
+          language: getCurrentLanguage(),
+          type,
+          message: emergencyMessage.message,
+          location: emergencyMessage.location ?? null,
+          fall_data: fallData ?? null,
+          contacts: targetContacts,
+        });
+
+        if (!serverResult.success) {
+          console.error('❌ [Emergency] Backend trigger failed:', serverResult.message || serverResult.error);
+          this.isEmergencyActive = false;
+          this.emergencyInProgress = false;
+          return false;
+        }
+
+        responses = serverResult.data?.responses || [];
+      } else {
+        console.warn('⚠️ [Emergency] No logged-in user found, falling back to local emergency flow');
+        const effectiveSettings =
+          type === 'manual'
+            ? { ...settings, send_sms: true, auto_call_emergency: false }
+            : settings;
+        responses = await this.processEmergencyNotifications(
+          emergencyMessage,
+          targetContacts,
+          effectiveSettings
+        );
+      }
 
       // Log the emergency
       await this.logEmergency(emergencyMessage, responses);
@@ -364,28 +398,71 @@ export class EmergencyService {
     }
   }
 
-  private async canTriggerEmergency(): Promise<boolean> {
+  private buildEmergencyEventKey(
+    type: 'fall' | 'manual' | 'vital_abnormal' | 'inactivity',
+    fallData?: any
+  ): string {
+    const alertId = typeof fallData?.id === 'number' ? fallData.id : null;
+    if (alertId != null) {
+      return `${type}:${alertId}`;
+    }
+
+    const roundedTimestamp =
+      typeof fallData?.timestamp === 'string'
+        ? new Date(fallData.timestamp).toISOString().slice(0, 16)
+        : new Date().toISOString().slice(0, 16);
+
+    return `${type}:${roundedTimestamp}`;
+  }
+
+  private async canTriggerEmergency(
+    type: 'fall' | 'manual' | 'vital_abnormal' | 'inactivity',
+    fallData?: any
+  ): Promise<boolean> {
     try {
+      if (type === 'manual') {
+        return true;
+      }
+
       const history = await this.getEmergencyHistory();
-      const recentEmergencies = history.filter(entry => {
+      const eventKey = this.buildEmergencyEventKey(type, fallData);
+      const recentSimilarEmergencies = history.filter(entry => {
         const emergencyTime = new Date(entry.timestamp);
         const now = new Date();
         const minutesDiff = (now.getTime() - emergencyTime.getTime()) / (1000 * 60);
-        return minutesDiff < this.EMERGENCY_COOLDOWN_MINUTES;
+        return (
+          minutesDiff < this.AUTO_EMERGENCY_DEDUP_MINUTES &&
+          (entry.source_event_key === eventKey ||
+            (entry.type === type &&
+              entry.source_alert_id != null &&
+              entry.source_alert_id === fallData?.id))
+        );
       });
 
-      return recentEmergencies.length < this.MAX_CONSECUTIVE_EMERGENCIES;
+      return recentSimilarEmergencies.length === 0;
     } catch (error) {
       console.warn('⚠️ [Emergency] Error checking emergency rate limit:', error);
       return true; // Allow emergency if check fails
     }
   }
 
-  private showRateLimitWarning(): void {
+  private showRateLimitWarning(type: 'fall' | 'manual' | 'vital_abnormal' | 'inactivity'): void {
+    const label =
+      type === 'fall'
+        ? 'fall event'
+        : type === 'vital_abnormal'
+          ? 'vital-sign event'
+          : type === 'inactivity'
+            ? 'inactivity event'
+            : 'emergency event';
+
     Alert.alert(
-      '⚠️ Emergency Rate Limit',
-      `Too many emergencies triggered recently. Please wait ${this.EMERGENCY_COOLDOWN_MINUTES} minutes before trying again.`,
-      [{ text: 'OK', style: 'default' }]
+      i18n.t('emergency.messages.alreadySentTitle'),
+      i18n.t('emergency.messages.alreadySentBody', {
+        event: label,
+        minutes: this.AUTO_EMERGENCY_DEDUP_MINUTES,
+      }),
+      [{ text: i18n.t('common.ok'), style: 'default' }]
     );
   }
 
@@ -414,32 +491,36 @@ export class EmergencyService {
   private createEmergencyMessage(
     type: 'fall' | 'manual' | 'vital_abnormal' | 'inactivity',
     location: Location.LocationObject | null,
+    userName: string,
     fallData?: any
   ): EmergencyMessage {
     const now = new Date();
-    const user = 'User'; // Replace with actual user name
+    const user = userName || 'User';
+    const locale = getCurrentLanguage() === 'ar' ? 'ar-EG' : 'en-US';
     
     let message = '';
     let severity: 'low' | 'medium' | 'high' | 'critical' = 'medium';
     
     switch (type) {
       case 'fall':
-        message = `🚨 EMERGENCY: ${user} may have fallen!`;
+        message = i18n.t('emergency.messages.fall', { user });
         severity = 'critical';
         if (fallData?.confidence) {
-          message += ` Confidence: ${Math.round(fallData.confidence * 100)}%`;
+          message += ` ${i18n.t('emergency.messages.confidence', {
+            value: Math.round(fallData.confidence * 100),
+          })}`;
         }
         break;
       case 'manual':
-        message = `🆘 ${user} is requesting immediate help!`;
+        message = i18n.t('emergency.messages.manual', { user });
         severity = 'high';
         break;
       case 'vital_abnormal':
-        message = `📊 ${user}: Abnormal vital signs detected!`;
+        message = i18n.t('emergency.messages.vitals', { user });
         severity = 'high';
         break;
       case 'inactivity':
-        message = `⏰ ${user}: No activity detected for extended period!`;
+        message = i18n.t('emergency.messages.inactivity', { user });
         severity = 'medium';
         break;
     }
@@ -448,15 +529,17 @@ export class EmergencyService {
     if (location) {
       const lat = location.coords.latitude.toFixed(6);
       const lon = location.coords.longitude.toFixed(6);
-      message += `\n📍 Location: https://maps.google.com/?q=${lat},${lon}`;
+      message += `\n${i18n.t('emergency.messages.location')}: https://maps.google.com/?q=${lat},${lon}`;
     }
 
-    message += `\n🕒 Time: ${now.toLocaleTimeString()}`;
-    message += `\n📱 Sent from Fall Detection App`;
+    message += `\n${i18n.t('emergency.messages.time')}: ${now.toLocaleTimeString(locale)}`;
+    message += `\n${i18n.t('emergency.messages.sentFrom')}`;
 
     return {
       id: Date.now().toString(),
       type,
+      source_alert_id: typeof fallData?.id === 'number' ? fallData.id : undefined,
+      source_event_key: this.buildEmergencyEventKey(type, fallData),
       timestamp: now.toISOString(),
       location: location ? {
         latitude: location.coords.latitude,
@@ -797,7 +880,7 @@ export class EmergencyService {
         type: 'manual',
         timestamp: new Date().toISOString(),
         location: null,
-        message: '⚠️ TEST EMERGENCY: This is a test of the emergency alert system.',
+        message: i18n.t('emergency.messages.test'),
         severity: 'low',
         sent_to: ['test-contact'],
         status: 'test',

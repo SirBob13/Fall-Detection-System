@@ -9,9 +9,12 @@ import { ActivityIndicator, View, Text, AppState, Alert, Platform } from 'react-
 import { AUTH_CONFIG } from '../constants/auth';
 import { authService } from '../services/auth.service';
 import { deviceService } from '../services/device.service';
+import { notificationService } from '../services/notifications';
+import { apiService } from '../services/api';
 import { useLanguage } from '../components/LanguageProvider';
 import { analyticsService } from '../services/analytics.service';
 import { realtimeService } from '../services/realtime.service';
+import { emergencyService } from '../services/emergency.service';
 
 // Import authentication screens
 import { LoginScreen } from '../screens/auth/LoginScreen';
@@ -28,13 +31,18 @@ import { LanguageSettingsScreen } from '../screens/LanguageSettingsScreen';
 import { PersonalInfoScreen } from '../screens/PersonalInfoScreen';
 import { CareManagementScreen } from '../screens/CareManagementScreen';
 import { CaregiverDashboardScreen } from '../screens/CaregiverDashboardScreen';
+import { MonitoredPatientScreen } from '../screens/MonitoredPatientScreen';
 import { PrivacyPolicyScreen } from '../screens/PrivacyPolicyScreen';
+import { DeviceDetailsScreen } from '../screens/DeviceDetailsScreen';
+import { User } from '../types';
+import { Device } from '../types';
 
 // Define navigation types
 export type RootStackParamList = {
   Auth: undefined;
   MainTabs: undefined;
   CompleteProfile: { mode?: 'onboarding' } | undefined;
+  EmergencySetup: { requiredSetup?: boolean; openImport?: boolean } | undefined;
 };
 
 export type AuthStackParamList = {
@@ -46,7 +54,7 @@ export type AuthStackParamList = {
 
 export type MainTabParamList = {
   Home: undefined;
-  Alerts: undefined;
+  Alerts: { monitoredPatient?: User } | undefined;
   Emergency: undefined;
   Settings: undefined;
 };
@@ -56,14 +64,16 @@ export type SettingsStackParamList = {
   PersonalInfo: undefined;
   CareManagement: undefined;
   CareDashboard: undefined;
-  EmergencyContacts: undefined;
+  MonitoredPatient: { patient: User };
+  DeviceDetails: { device: Device };
+  EmergencyContacts: { requiredSetup?: boolean; openImport?: boolean } | undefined;
   LanguageSettings: undefined;
   PrivacyPolicy: undefined;
   ResetPassword: { token: string };
 };
 
 export type EmergencyStackParamList = {
-  EmergencyContacts: undefined;
+  EmergencyContacts: { requiredSetup?: boolean; openImport?: boolean } | undefined;
   LanguageSettings: undefined;
 };
 
@@ -177,6 +187,16 @@ const SettingsNavigator = () => {
         component={CaregiverDashboardScreen}
         options={{ title: t('dashboard.title') }}
       />
+      <SettingsStack.Screen
+        name="MonitoredPatient"
+        component={MonitoredPatientScreen}
+        options={{ title: t('dashboard.title') }}
+      />
+      <SettingsStack.Screen
+        name="DeviceDetails"
+        component={DeviceDetailsScreen}
+        options={{ title: t('system.deviceDetails') }}
+      />
       <SettingsStack.Screen 
         name="EmergencyContacts" 
         component={EmergencyContactsScreen}
@@ -238,7 +258,42 @@ const EmergencyNavigator = () => {
 
 // Main screens with bottom tabs
 const MainNavigator = () => {
-  const { t } = useLanguage();  
+  const { t } = useLanguage();
+  const [alertsBadgeCount, setAlertsBadgeCount] = useState(0);
+
+  useEffect(() => {
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    const loadBadgeCount = async () => {
+      const sessionUser = await authService.getCurrentUser();
+      if (!sessionUser?.id) {
+        setAlertsBadgeCount(0);
+        await notificationService.setBadgeCount(0);
+        return;
+      }
+
+      const [alertsResponse] = await Promise.all([
+        apiService.getUserAlerts(Number(sessionUser.id), 25),
+      ]);
+
+      const ownPending = alertsResponse.success && alertsResponse.data
+        ? alertsResponse.data.filter((a) => a.status === 'pending' || a.status === 'sent').length
+        : 0;
+      const count = ownPending;
+      setAlertsBadgeCount(count);
+      await notificationService.setBadgeCount(count);
+    };
+
+    loadBadgeCount().catch(() => undefined);
+    intervalId = setInterval(() => {
+      loadBadgeCount().catch(() => undefined);
+    }, 15000);
+
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, []);
+
   return (
     <MainTab.Navigator
       initialRouteName="Home"
@@ -299,6 +354,7 @@ const MainNavigator = () => {
         component={AlertsScreen}
         options={{ 
           tabBarLabel: t('alerts.title'),
+          tabBarBadge: alertsBadgeCount > 0 ? alertsBadgeCount : undefined,
         }}
       />
       <MainTab.Screen 
@@ -307,6 +363,11 @@ const MainNavigator = () => {
         options={{ 
           tabBarLabel: t('emergency.title'),
         }}
+        listeners={({ navigation }) => ({
+          tabPress: () => {
+            navigation.navigate('Emergency', { screen: 'EmergencyContacts' });
+          },
+        })}
       />
       <MainTab.Screen 
         name="Settings" 
@@ -314,6 +375,11 @@ const MainNavigator = () => {
         options={{ 
           tabBarLabel: t('settings.title'),
         }}
+        listeners={({ navigation }) => ({
+          tabPress: () => {
+            navigation.navigate('Settings', { screen: 'SettingsMain' });
+          },
+        })}
       />
     </MainTab.Navigator>
   );
@@ -324,6 +390,7 @@ export const AppNavigator: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [needsProfileCompletion, setNeedsProfileCompletion] = useState(false);
+  const [needsEmergencySetup, setNeedsEmergencySetup] = useState(false);
   const appState = useRef(AppState.currentState);
   const navigationRef = useRef<any>(null);
   const autoConnectRef = useRef(false);
@@ -358,6 +425,7 @@ export const AppNavigator: React.FC = () => {
           console.log('❌ [Auth Check] No session found');
           setIsAuthenticated(false);
           setNeedsProfileCompletion(false);
+          setNeedsEmergencySetup(false);
           realtimeService.disconnect();
           return;
         }
@@ -381,6 +449,7 @@ export const AppNavigator: React.FC = () => {
           setIsAuthenticated(true);
           const completion = authService.getProfileCompletion(session.user);
           setNeedsProfileCompletion(!completion.complete);
+          setNeedsEmergencySetup(await checkEmergencySetupRequired());
 
           if (session.token) {
             realtimeService.connect(session.token);
@@ -401,6 +470,7 @@ export const AppNavigator: React.FC = () => {
         await authService.clearSession();
         setIsAuthenticated(false);
         setNeedsProfileCompletion(false);
+        setNeedsEmergencySetup(false);
         realtimeService.disconnect();
 
         if (!backgroundCheck && !isLoading) {
@@ -425,6 +495,7 @@ export const AppNavigator: React.FC = () => {
         });
         setIsAuthenticated(false);
         setNeedsProfileCompletion(false);
+        setNeedsEmergencySetup(false);
       } finally {
         lastAuthCheckRef.current = Date.now();
         authCheckInFlightRef.current = null;
@@ -436,6 +507,16 @@ export const AppNavigator: React.FC = () => {
 
     authCheckInFlightRef.current = run;
     return run;
+  };
+
+  const checkEmergencySetupRequired = async (): Promise<boolean> => {
+    try {
+      const contacts = await emergencyService.getEmergencyContacts();
+      return !contacts.some((contact) => contact.is_active && Boolean(contact.phone?.trim()));
+    } catch (error) {
+      console.warn('⚠️ [Emergency Setup] Unable to check emergency contacts:', error);
+      return true;
+    }
   };
 
   // App state change handler
@@ -530,9 +611,11 @@ export const AppNavigator: React.FC = () => {
         } else {
           setNeedsProfileCompletion(false);
         }
+        setNeedsEmergencySetup(await checkEmergencySetupRequired());
         await deviceService.autoConnectIfEnabled();
       } else {
         setNeedsProfileCompletion(false);
+        setNeedsEmergencySetup(false);
         realtimeService.disconnect();
       }
     });
@@ -562,6 +645,25 @@ export const AppNavigator: React.FC = () => {
   }, [isAuthenticated, isLoading]);
 
   useEffect(() => {
+    if (!isAuthenticated || !needsEmergencySetup) {
+      return;
+    }
+
+    let cancelled = false;
+    const intervalId = setInterval(async () => {
+      const stillRequired = await checkEmergencySetupRequired();
+      if (!cancelled && !stillRequired) {
+        setNeedsEmergencySetup(false);
+      }
+    }, 1500);
+
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, [isAuthenticated, needsEmergencySetup]);
+
+  useEffect(() => {
     if (!isAuthenticated) {
       realtimeService.disconnect();
       return;
@@ -573,12 +675,61 @@ export const AppNavigator: React.FC = () => {
     });
   }, [isAuthenticated]);
 
+  useEffect(() => {
+    let subscriptionPromise: Promise<any> | null = null;
+
+    const handleNotificationResponse = async (response: any) => {
+      const data = response?.notification?.request?.content?.data;
+      if (!data || !navigationRef.current) return;
+
+      const monitoredUserId = Number(data.monitoredUserId || 0);
+      const monitoredPersonName = data.monitoredPersonName as string | undefined;
+
+      if (monitoredUserId > 0) {
+        navigationRef.current.navigate('MainTabs', {
+          screen: 'Alerts',
+          params: {
+            monitoredPatient: {
+              id: monitoredUserId,
+              name: monitoredPersonName || 'Monitored User',
+              age: 0,
+              gender: 'other',
+              is_active: true,
+              created_at: new Date().toISOString(),
+            },
+          },
+        });
+        return;
+      }
+
+      navigationRef.current.navigate('MainTabs', {
+        screen: 'Alerts',
+        params: { monitoredPatient: undefined },
+      });
+    };
+
+    notificationService.getLastNotificationResponse().then((response) => {
+      if (response) {
+        handleNotificationResponse(response).catch(() => undefined);
+      }
+    });
+
+    subscriptionPromise = notificationService.addNotificationResponseListener((response) => {
+      handleNotificationResponse(response).catch(() => undefined);
+    });
+
+    return () => {
+      subscriptionPromise?.then((subscription) => subscription?.remove?.()).catch(() => undefined);
+    };
+  }, []);
+
   // Handle logout
   const handleLogout = async () => {
     try {
       await authService.logout();
       setIsAuthenticated(false);
       setNeedsProfileCompletion(false);
+      setNeedsEmergencySetup(false);
       analyticsService.track('user_logout');
       
       // Reset navigation to auth stack
@@ -644,6 +795,8 @@ export const AppNavigator: React.FC = () => {
       ? 'Auth'
       : needsProfileCompletion
       ? 'CompleteProfile'
+      : needsEmergencySetup
+      ? 'EmergencySetup'
       : 'MainTabs';
 
     const currentRoute = navigationRef.current.getCurrentRoute?.()?.name;
@@ -654,13 +807,15 @@ export const AppNavigator: React.FC = () => {
     const nextRoute =
       targetRoute === 'CompleteProfile'
         ? { name: 'CompleteProfile', params: { mode: 'onboarding' } }
+        : targetRoute === 'EmergencySetup'
+        ? { name: 'EmergencySetup', params: { requiredSetup: true, openImport: true } }
         : { name: targetRoute };
 
     navigationRef.current.reset({
       index: 0,
       routes: [nextRoute],
     });
-  }, [isAuthenticated, isLoading, needsProfileCompletion]);
+  }, [isAuthenticated, isLoading, needsProfileCompletion, needsEmergencySetup]);
 
   if (isLoading) {
     return <LoadingScreen />;
@@ -698,6 +853,12 @@ export const AppNavigator: React.FC = () => {
           name="CompleteProfile"
           component={PersonalInfoScreen}
           initialParams={{ mode: 'onboarding' }}
+          options={{ gestureEnabled: false }}
+        />
+        <RootStack.Screen
+          name="EmergencySetup"
+          component={EmergencyContactsScreen}
+          initialParams={{ requiredSetup: true, openImport: true }}
           options={{ gestureEnabled: false }}
         />
         <RootStack.Screen 

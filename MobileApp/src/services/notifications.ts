@@ -120,19 +120,28 @@ export class NotificationService {
     }
   }
 
-  async sendFallAlert(alert: Alert) {
+  async sendFallAlert(alert: Alert, monitoredPersonName?: string, monitoredUserId?: number) {
     try {
       const Notifications = await getNotificationsModule();
+      const title = monitoredPersonName ? `🚨 خطر: ${monitoredPersonName}` : '🚨 خطر: سقوط مؤكد';
+      const body = monitoredPersonName
+        ? `تم رصد سقوط مؤكد لـ ${monitoredPersonName}. ${alert.message}`
+        : `تم رصد سقوط مؤكد. ${alert.message}`;
       if (!Notifications) {
         Vibration.vibrate([500, 500, 500]);
         return;
       }
       await Notifications.scheduleNotificationAsync({
         content: {
-          title: '⚠️ اكتشاف سقوط!',
-          body: alert.message,
+          title,
+          body,
           sound: true,
-          data: { alertId: alert.id, type: alert.alert_type },
+          data: {
+            alertId: alert.id,
+            type: alert.alert_type,
+            monitoredPersonName,
+            monitoredUserId,
+          },
         },
         trigger: null, // إرسال فوري
       });
@@ -201,6 +210,29 @@ export class NotificationService {
       await Notifications.dismissAllNotificationsAsync();
     } catch (error) {
       console.warn('Error cancelling notifications:', error);
+    }
+  }
+
+  addNotificationResponseListener(listener: (response: any) => void) {
+    return getNotificationsModule().then((Notifications) => {
+      if (!Notifications) return null;
+      return Notifications.addNotificationResponseReceivedListener(listener);
+    });
+  }
+
+  async getLastNotificationResponse() {
+    const Notifications = await getNotificationsModule();
+    if (!Notifications) return null;
+    return Notifications.getLastNotificationResponseAsync();
+  }
+
+  async setBadgeCount(count: number) {
+    try {
+      const Notifications = await getNotificationsModule();
+      if (!Notifications) return;
+      await Notifications.setBadgeCountAsync(Math.max(0, count));
+    } catch (error) {
+      console.warn('Error setting badge count:', error);
     }
   }
 

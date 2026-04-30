@@ -35,6 +35,7 @@ import { SessionTimeout } from './src/components/SessionTimeout';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { LoadingScreen } from './src/components/LoadingScreen';
 import { API_CONFIG } from './src/config/app.config';
+import { requestEssentialPermissionsOnce } from './src/utils/permissions';
 
 // الخطوط المخصصة للتطبيق
 const customFonts = {
@@ -191,6 +192,7 @@ export default function App() {
         console.log('🔐 [App] Checking user session...');
         authService.loadSession().then(async (session) => {
           if (session?.user?.id) {
+            await requestEssentialPermissionsOnce();
             analyticsService.setUserId(session.user.id);
             analyticsService.setUserProperties({
               email: session.user.email,

@@ -52,9 +52,14 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       ? {
           ...DEFAULT_SETTINGS,
           ...(stored || {}),
+          notifications: true,
+          autoConnect: true,
         }
       : DEFAULT_SETTINGS;
     setSettings(merged);
+    if (stored && (stored.notifications !== true || stored.autoConnect !== true)) {
+      await storageService.saveSettings(merged);
+    }
   };
 
   const updateSettings = async (patch: Partial<AppSettings>) => {

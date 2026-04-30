@@ -16,21 +16,31 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useLanguage } from '../components/LanguageProvider';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { realtimeService } from '../services/realtime.service';
+import { RouteProp, useNavigation, useRoute, useScrollToTop } from '@react-navigation/native';
+import { MainTabParamList } from '../navigation/AppNavigator';
+
+type AlertsRouteProp = RouteProp<MainTabParamList, 'Alerts'>;
 
 export const AlertsScreen: React.FC = () => {
   const { t } = useLanguage();
+  const navigation = useNavigation<any>();
+  const route = useRoute<AlertsRouteProp>();
   const [refreshing, setRefreshing] = useState(false);
   const [alerts, setAlerts] = useState<AlertType[]>([]);
   const [allAlerts, setAllAlerts] = useState<AlertType[]>([]);
   const [filter, setFilter] = useState<'all' | 'pending' | 'resolved'>('all');
   const [isLoading, setIsLoading] = useState(true);
-  const [monitoredUser, setMonitoredUser] = useState<User | null>(null);
-  const [links, setLinks] = useState<CareLink[]>([]);
   const [user, setUser] = useState<User | null>(null);
+  const [links, setLinks] = useState<CareLink[]>([]);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const hasShownLoadErrorRef = useRef(false);
+  const scrollRef = useRef<any>(null);
+  const monitoredUser = route.params?.monitoredPatient ?? null;
   
   // Get safe area insets
   const insets = useSafeAreaInsets();
+
+  useScrollToTop(scrollRef);
 
   useEffect(() => {
     loadAlerts();
@@ -88,18 +98,11 @@ export const AlertsScreen: React.FC = () => {
         : null;
 
       if (normalizedSessionUser) {
-        await storageService.saveUser(normalizedSessionUser);
+        setUser(normalizedSessionUser);
+        const linksResponse = await apiService.getCareLinks(normalizedSessionUser.id);
+        setLinks(linksResponse.success && linksResponse.data ? linksResponse.data : []);
       }
-      const storedUser = normalizedSessionUser || (await storageService.getUser());
-      setUser(storedUser || null);
-      const storedMonitoredUser = await storageService.getMonitoredUser();
-      const activeMonitoredUser = monitoredUser ?? storedMonitoredUser ?? null;
-
-      if ((storedMonitoredUser?.id ?? null) !== (monitoredUser?.id ?? null)) {
-        setMonitoredUser(storedMonitoredUser || null);
-      }
-
-      const activeUser = activeMonitoredUser || storedUser;
+      const activeUser = monitoredUser || normalizedSessionUser;
 
       if (!activeUser) {
         showLoadErrorOnce(t('errors.loginRequired'));
@@ -107,20 +110,12 @@ export const AlertsScreen: React.FC = () => {
         return;
       }
 
-      if (storedUser?.id) {
-        const linksResponse = await apiService.getCareLinks(storedUser.id);
-        if (linksResponse.success && linksResponse.data) {
-          setLinks(linksResponse.data);
-        } else {
-          setLinks([]);
-        }
-      }
-
       const response = await apiService.getUserAlerts(activeUser.id, 50);
       if (response.success && response.data) {
         hasShownLoadErrorRef.current = false;
         setAllAlerts(response.data);
         setAlerts(applyFilter(response.data, filter));
+        setLastRefreshedAt(new Date());
       } else {
         showLoadErrorOnce(response.message || t('alerts.loadFailed'));
       }
@@ -151,24 +146,20 @@ export const AlertsScreen: React.FC = () => {
     return unsubscribe;
   }, [monitoredUser, user]);
 
-  const handleSelectMonitored = async (link: CareLink | null) => {
-    if (!link || !link.patient) {
-      await storageService.saveMonitoredUser(null);
-      const wasAlreadyShowingOwnData = !monitoredUser;
-      setMonitoredUser(null);
-      if (wasAlreadyShowingOwnData) {
-        void loadAlerts();
-      }
-      return;
-    }
-    await storageService.saveMonitoredUser(link.patient);
-    setMonitoredUser(link.patient);
-  };
-
   const onRefresh = async () => {
     setRefreshing(true);
     await loadAlerts();
     setRefreshing(false);
+  };
+
+  const handleOpenMyAlerts = async () => {
+    await storageService.saveMonitoredUser(null);
+    navigation.setParams({ monitoredPatient: undefined });
+  };
+
+  const handleOpenPersonAlerts = async (patient: User) => {
+    await storageService.saveMonitoredUser(patient);
+    navigation.setParams({ monitoredPatient: patient });
   };
 
   const getAlertStats = () => {
@@ -202,8 +193,8 @@ export const AlertsScreen: React.FC = () => {
   };
 
   const handleAcknowledge = async (alertId: number) => {
+    if (monitoredUser) return;
     try {
-      const user = await storageService.getUser();
       const response = await apiService.acknowledgeAlert(alertId, user?.name || 'user');
       if (response.success) {
         RNAlert.alert(t('common.success'), t('alerts.acknowledged'));
@@ -217,6 +208,7 @@ export const AlertsScreen: React.FC = () => {
   };
 
   const handleResolve = async (alertId: number) => {
+    if (monitoredUser) return;
     try {
       const response = await apiService.resolveAlert(alertId);
       if (response.success) {
@@ -231,6 +223,7 @@ export const AlertsScreen: React.FC = () => {
   };
 
   const handleImFine = async (alertId: number) => {
+    if (monitoredUser) return;
     try {
       const response = await apiService.resolveAlert(alertId);
       if (response.success) {
@@ -245,10 +238,28 @@ export const AlertsScreen: React.FC = () => {
   };
 
   const stats = getAlertStats();
+  const groupedAlerts = alerts.reduce<Record<string, AlertType[]>>((groups, alert) => {
+    const alertDate = new Date(alert.timestamp);
+    const today = new Date();
+    const yesterday = new Date();
+    yesterday.setDate(today.getDate() - 1);
+
+    let key = t('datetime.today');
+    if (alertDate.toDateString() === yesterday.toDateString()) {
+      key = t('datetime.yesterday');
+    } else if (alertDate.toDateString() !== today.toDateString()) {
+      key = alertDate.toLocaleDateString();
+    }
+
+    groups[key] = groups[key] || [];
+    groups[key].push(alert);
+    return groups;
+  }, {});
 
   return (
     <SafeAreaView className="flex-1 bg-light">
       <ScrollView
+        ref={scrollRef}
         className="flex-1"
         contentContainerStyle={{ paddingHorizontal: 8, paddingTop: insets.top }}
         refreshControl={
@@ -261,73 +272,111 @@ export const AlertsScreen: React.FC = () => {
         }
         showsVerticalScrollIndicator={false}
       >
-        <ScreenHeader title={t('alerts.historyTitle')} subtitle={t('alerts.historySubtitle')} />
+        <ScreenHeader
+          title={monitoredUser ? t('alerts.forPerson', { name: monitoredUser.name }) : t('alerts.historyTitle')}
+          subtitle={monitoredUser ? t('dashboard.shortDesc') : t('alerts.historySubtitle')}
+          showBack={Boolean(monitoredUser)}
+          onBack={() => {
+            if (monitoredUser) {
+              navigation.navigate('Settings', {
+                screen: 'MonitoredPatient',
+                params: { patient: monitoredUser },
+              });
+            }
+          }}
+        />
 
-        <View className="mx-4 mb-4 bg-white border border-lightGray rounded-xl p-3">
-          <Text className="text-xs text-gray mb-2">{t('care.monitoring')}</Text>
-          <View className="flex-row flex-wrap">
+        <View className="mx-4 mb-5 bg-white border border-lightGray rounded-2xl p-4 shadow-sm">
+          <Text className="text-sm font-semibold text-dark mb-2">
+            {t('care.selected')}
+          </Text>
+          <Text className="text-xs text-gray mb-1">
+            {monitoredUser ? t('care.monitoring') : t('dashboard.myData')}
+          </Text>
+          <Text className="text-sm font-semibold text-dark">
+            {monitoredUser ? monitoredUser.name : user?.name || t('common.unknown')}
+          </Text>
+          {monitoredUser?.email ? (
+            <Text className="text-xs text-gray mt-1">{monitoredUser.email}</Text>
+          ) : null}
+
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mt-3">
             <TouchableOpacity
-              className={`px-3 py-2 rounded-full mr-2 mb-2 ${!monitoredUser ? 'bg-primary' : 'bg-lightGray'}`}
-              onPress={() => handleSelectMonitored(null)}
+              className={`px-4 py-2 rounded-full mr-2 ${!monitoredUser ? 'bg-primary' : 'bg-lightGray'}`}
+              onPress={handleOpenMyAlerts}
             >
-              <Text className={`${!monitoredUser ? 'text-white' : 'text-dark'} text-xs`}>
+              <Text className={`${!monitoredUser ? 'text-white' : 'text-dark'} text-xs font-semibold`}>
                 {t('dashboard.myData')}
               </Text>
             </TouchableOpacity>
-            {links.map((link) => (
-              <TouchableOpacity
-                key={link.id}
-                className={`px-3 py-2 rounded-full mr-2 mb-2 ${
-                  monitoredUser?.id === link.patient?.id ? 'bg-primary' : 'bg-lightGray'
-                }`}
-                onPress={() => handleSelectMonitored(link)}
-                disabled={!link.patient}
-              >
-                <Text className={`${monitoredUser?.id === link.patient?.id ? 'text-white' : 'text-dark'} text-xs`}>
-                  {link.patient?.name || t('common.unknown')}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+            {links.map((link) =>
+              link.patient ? (
+                <TouchableOpacity
+                  key={link.id}
+                  className={`px-4 py-2 rounded-full mr-2 ${
+                    monitoredUser?.id === link.patient.id ? 'bg-primary' : 'bg-lightGray'
+                  }`}
+                  onPress={() => handleOpenPersonAlerts(link.patient!)}
+                >
+                  <Text
+                    className={`text-xs font-semibold ${
+                      monitoredUser?.id === link.patient.id ? 'text-white' : 'text-dark'
+                    }`}
+                  >
+                    {link.patient.name}
+                  </Text>
+                </TouchableOpacity>
+              ) : null
+            )}
+          </ScrollView>
+          {lastRefreshedAt ? (
+            <Text className="text-[10px] text-gray mt-3">
+              {t('dashboard.updatedNow', {
+                time: lastRefreshedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              })}
+            </Text>
+          ) : null}
         </View>
 
         {/* Statistics Overview */}
         <View className="mx-4 mb-6">
           <View className="flex-row justify-between mb-3">
-            <View className="items-center flex-1 p-4 bg-primary rounded-2xl mx-1 shadow-lg">
-              <Text className="text-3xl font-bold text-white">{stats.total}</Text>
-              <Text className="text-sm text-white/90 mt-1">{t('alerts.totalAlerts')}</Text>
+            <View className="items-center flex-1 p-4 bg-blue-50 border border-primary/20 rounded-2xl mx-1 shadow-sm">
+              <Text className="text-primary text-[10px] font-semibold uppercase mb-1">{t('alerts.totalAlerts')}</Text>
+              <Text className="text-3xl font-bold text-primary">{stats.total}</Text>
             </View>
             
-            <View className="items-center flex-1 p-4 bg-warning rounded-2xl mx-1 shadow-lg">
-              <Text className="text-3xl font-bold text-white">{stats.pending}</Text>
-              <Text className="text-sm text-white/90 mt-1">{t('alerts.pending')}</Text>
+            <View className="items-center flex-1 p-4 bg-orange-50 border border-warning/20 rounded-2xl mx-1 shadow-sm">
+              <Text className="text-warning text-[10px] font-semibold uppercase mb-1">{t('alerts.pending')}</Text>
+              <Text className="text-3xl font-bold text-warning">{stats.pending}</Text>
             </View>
           </View>
           
           <View className="flex-row justify-between">
-            <View className="items-center flex-1 p-4 bg-success rounded-2xl mx-1 shadow-lg">
-              <Text className="text-3xl font-bold text-white">{stats.resolved}</Text>
-              <Text className="text-sm text-white/90 mt-1">{t('alerts.resolved')}</Text>
+            <View className="items-center flex-1 p-4 bg-green-50 border border-success/20 rounded-2xl mx-1 shadow-sm">
+              <Text className="text-success text-[10px] font-semibold uppercase mb-1">{t('alerts.resolved')}</Text>
+              <Text className="text-3xl font-bold text-success">{stats.resolved}</Text>
             </View>
             
-            <View className="items-center flex-1 p-4 bg-danger rounded-2xl mx-1 shadow-lg">
-              <Text className="text-3xl font-bold text-white">{stats.critical}</Text>
-              <Text className="text-sm text-white/90 mt-1">{t('alerts.critical')}</Text>
+            <View className="items-center flex-1 p-4 bg-red-50 border border-danger/20 rounded-2xl mx-1 shadow-sm">
+              <Text className="text-danger text-[10px] font-semibold uppercase mb-1">{t('alerts.critical')}</Text>
+              <Text className="text-3xl font-bold text-danger">{stats.critical}</Text>
             </View>
           </View>
           
           {/* Last Updated */}
           <View className="mt-4 items-center">
             <Text className="text-xs text-gray">
-              {t('alerts.lastUpdated')}: {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              {t('dashboard.updatedNow', {
+                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              })}
             </Text>
           </View>
         </View>
 
         {/* Filter Section */}
-        <View className="card mx-4 mb-6">
-          <Text className="section-title">{t('alerts.filterAlerts')}</Text>
+        <View className="mx-4 mb-6 bg-white rounded-2xl border border-lightGray p-4 shadow-sm">
+          <Text className="text-base font-bold text-dark mb-4">{t('alerts.filterAlerts')}</Text>
           
           <View className="flex-row justify-between mb-4">
             {(['all', 'pending', 'resolved'] as const).map((filterType) => (
@@ -345,7 +394,7 @@ export const AlertsScreen: React.FC = () => {
                 onPress={() => setFilter(filterType)}
                 activeOpacity={0.7}
               >
-                <Text className={`font-semibold ${
+                <Text className={`text-sm font-semibold ${
                   filter === filterType ? 'text-white' : 'text-dark'
                 }`}>
                   {filterType === 'all' && t('alerts.all')}
@@ -357,9 +406,9 @@ export const AlertsScreen: React.FC = () => {
           </View>
           
           {/* Filter Summary */}
-          <View className="flex-row items-center justify-between p-3 bg-blue-50 rounded-lg">
+          <View className="flex-row items-center justify-between p-3 bg-blue-50 rounded-xl border border-primary/10">
             <Text className="text-sm font-medium text-dark">
-              {t('alerts.showing')}: <Text className="text-primary">{alerts.length}</Text> {t('alerts.alerts')}
+              {t('alerts.showingSummary', { count: alerts.length })}
             </Text>
             {alerts.length > 0 && (
               <TouchableOpacity
@@ -385,14 +434,22 @@ export const AlertsScreen: React.FC = () => {
           </View>
         ) : alerts.length > 0 ? (
           <View className="mx-2 mb-8">
-            {alerts.map((alert, index) => (
-              <View key={alert.id} className={`mb-3 ${index > 0 ? 'mt-3' : ''}`}>
-                  <AlertCard
-                    alert={alert}
-                    onAcknowledge={() => handleAcknowledge(alert.id)}
-                    onResolve={() => handleResolve(alert.id)}
-                    onImFine={() => handleImFine(alert.id)}
-                  />
+            {Object.entries(groupedAlerts).map(([group, items]) => (
+              <View key={group} className="mb-5">
+                <Text className="text-sm font-bold text-dark mx-4 mb-3">{group}</Text>
+                {items.map((alert, index) => (
+                  <View key={alert.id} className={`mb-3 ${index > 0 ? 'mt-3' : ''}`}>
+                    {monitoredUser ? (
+                      <Text className="text-[10px] text-gray mx-4 mb-1">{monitoredUser.name}</Text>
+                    ) : null}
+                    <AlertCard
+                      alert={alert}
+                      onAcknowledge={monitoredUser ? undefined : () => handleAcknowledge(alert.id)}
+                      onResolve={monitoredUser ? undefined : () => handleResolve(alert.id)}
+                      onImFine={monitoredUser ? undefined : () => handleImFine(alert.id)}
+                    />
+                  </View>
+                ))}
               </View>
             ))}
             

@@ -21,6 +21,8 @@ import { authService } from '../../services/auth.service';
 import { LoadingScreen } from '../../components/LoadingScreen';
 import { RegisterData } from '../../types/auth';
 import { transliterateArabic } from '../../utils/transliteration';
+import { useLanguage } from '../../components/LanguageProvider';
+import { requestEssentialPermissionsOnce } from '../../utils/permissions';
 
 type AuthStackParamList = {
   Login: { prefilledEmail?: string };
@@ -177,9 +179,148 @@ const RegisterSchema = Yup.object().shape({
 
 export const RegisterScreen: React.FC = () => {
   const navigation = useNavigation<RegisterScreenNavigationProp>();
+  const { t } = useLanguage();
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const isArabic = t('direction') === 'rtl';
+  const copy = isArabic
+    ? {
+        successTitle: 'تم إنشاء الحساب بنجاح',
+        successBody:
+          'تم إنشاء حسابك بنجاح. بعد تسجيل الدخول، سيطلب منك التطبيق اختيار جهة طوارئ واحدة على الأقل من الهاتف حتى يتمكن من إرسال تنبيه سريع إذا حدثت حالة طارئة.',
+        loginButton: 'تسجيل الدخول',
+        genericError: 'حدثت مشكلة أثناء إنشاء الحساب. حاولي مرة أخرى.',
+        emailExists: 'هذا البريد الإلكتروني مسجل بالفعل. يمكنك تسجيل الدخول مباشرة.',
+        passwordMismatch: 'كلمتا المرور غير متطابقتين. راجعي الحقلين ثم حاولي مرة أخرى.',
+        invalidEmail: 'من فضلك أدخلي بريدًا إلكترونيًا صحيحًا.',
+        weakPassword: 'استخدمي كلمة مرور أقوى: 8 أحرف على الأقل وتحتوي على حروف وأرقام.',
+        networkError: 'تعذر الاتصال بالسيرفر. تأكدي من الإنترنت ثم حاولي مرة أخرى.',
+        noticeTitle: 'تنبيه',
+        goToLogin: 'الذهاب لتسجيل الدخول',
+        fallbackTitle: 'تعذر إكمال العملية',
+        fallbackBody: 'لم نتمكن من إكمال التسجيل الآن. حاولي مرة أخرى بعد قليل.',
+        loadingText: 'جاري إنشاء الحساب...',
+        brandTitle: 'أنشئي حسابك',
+        brandSubtitle: 'ابدئي استخدام كشف السقوط والتنبيهات السريعة بخطوات بسيطة.',
+        helperText:
+          'يمكنك إنشاء الحساب بالاسم والبريد وكلمة المرور فقط، ثم إكمال باقي البيانات لاحقًا.',
+        badgeSecurity: 'حماية مستمرة',
+        badgeAlerts: 'تنبيهات فورية',
+        badgeSupport: 'دعم دائم',
+        basicInfo: 'البيانات الأساسية',
+        fullName: 'الاسم الكامل',
+        fullNamePlaceholder: 'اكتبي اسمك الكامل',
+        emailLabel: 'البريد الإلكتروني',
+        phoneLabel: 'رقم الهاتف',
+        phoneOptional: 'رقم الهاتف اختياري',
+        egyptPhoneHint: 'يفضّل رقم مصري يبدأ بـ 010 أو 011 أو 012 أو 015',
+        ageLabel: 'العمر',
+        ageOptional: 'العمر اختياري',
+        genderLabel: 'النوع',
+        genderOptional: 'النوع اختياري',
+        male: 'ذكر',
+        female: 'أنثى',
+        passwordSection: 'كلمة المرور',
+        createPassword: 'أنشئي كلمة المرور',
+        passwordHint: 'استخدمي 8 أحرف على الأقل وتضم حروفًا وأرقامًا.',
+        confirmPassword: 'تأكيد كلمة المرور',
+        passwordMatch: 'كلمتا المرور متطابقتان',
+        passwordMismatchInline: 'كلمتا المرور غير متطابقتين',
+        extraInfo: 'معلومات إضافية',
+        optional: 'اختياري',
+        extraInfoHint: 'يمكنك إضافة هذه البيانات الآن أو إكمالها لاحقًا من الإعدادات.',
+        height: 'الطول (سم)',
+        weight: 'الوزن (كجم)',
+        emergencyContact: 'رقم طوارئ سريع',
+        emergencyContactHint: 'هذا الرقم يساعدنا في الوصول السريع لشخص قريب منك عند الطوارئ.',
+        medicalConditions: 'الحالات المرضية',
+        medicalConditionsPlaceholder: 'مثل: ضغط، سكر، حساسية...',
+        termsPrefix: 'أوافق على',
+        terms: 'الشروط والأحكام',
+        privacy: 'سياسة الخصوصية',
+        createAccount: 'إنشاء الحساب',
+        dataProtectedTitle: 'بياناتك في أمان',
+        dataProtectedBody: 'نحفظ بياناتك بشكل آمن ومشفّر حتى تبقى معلوماتك الطبية والشخصية محمية.',
+        alreadyHaveAccount: 'لديك حساب بالفعل؟',
+        loginHere: 'سجلي الدخول',
+        termsTitle: 'الشروط والأحكام',
+        termsBody:
+          'باستخدامك للتطبيق، أنت توافقين على:\n\n• استخدامه لمتابعة السلامة والصحة فقط\n• الحفاظ على سرية حسابك وبياناتك\n• إضافة بيانات صحيحة تساعد على الاستجابة وقت الطوارئ\n\nنحن نلتزم بتقديم خدمة آمنة وواضحة لك.',
+        termsDone: 'فهمت',
+        privacyTitle: 'خصوصيتك مهمة لنا',
+        privacyBody:
+          'نحترم خصوصيتك ونحافظ على بياناتك:\n\n• يتم حفظ بياناتك بشكل آمن\n• لا نشارك بياناتك بدون سبب واضح أو إذن منك\n• يمكنك تعديل بياناتك أو حذف حسابك لاحقًا\n• يمكنك إضافة أو تحديث جهات الطوارئ في أي وقت\n\nإذا احتجت أي مساعدة، سنوضح لك دائمًا ما الذي يتم استخدامه ولماذا.',
+        privacyDone: 'شكرًا',
+      }
+    : {
+        successTitle: 'Account created successfully',
+        successBody:
+          'Your account is ready. After login, the app will ask you to choose at least one emergency contact from your phone so alerts can reach someone quickly if you need help.',
+        loginButton: 'Login',
+        genericError: 'An error occurred during registration. Please try again.',
+        emailExists: 'This email is already registered. You can login instead.',
+        passwordMismatch: 'Passwords do not match. Please review both password fields.',
+        invalidEmail: 'Please enter a valid email address.',
+        weakPassword: 'Use a stronger password: at least 8 characters with letters and numbers.',
+        networkError: 'Unable to connect to the server. Please check your internet and try again.',
+        noticeTitle: 'Notice',
+        goToLogin: 'Go to Login',
+        fallbackTitle: 'Could not complete registration',
+        fallbackBody: 'We could not finish registration right now. Please try again in a moment.',
+        loadingText: 'Creating your account...',
+        brandTitle: 'Create your account',
+        brandSubtitle: 'Start using fall detection and fast emergency alerts in a few simple steps.',
+        helperText:
+          'You can create your account with your name, email, and password, then complete the rest later.',
+        badgeSecurity: 'Always protected',
+        badgeAlerts: 'Instant alerts',
+        badgeSupport: 'Ongoing support',
+        basicInfo: 'Basic information',
+        fullName: 'Full name',
+        fullNamePlaceholder: 'Enter your full name',
+        emailLabel: 'Email address',
+        phoneLabel: 'Phone number',
+        phoneOptional: 'Phone number (optional)',
+        egyptPhoneHint: 'Preferably an Egyptian mobile number starting with 010, 011, 012, or 015.',
+        ageLabel: 'Age',
+        ageOptional: 'Age (optional)',
+        genderLabel: 'Gender',
+        genderOptional: 'Gender (optional)',
+        male: 'Male',
+        female: 'Female',
+        passwordSection: 'Password',
+        createPassword: 'Create password',
+        passwordHint: 'Use at least 8 characters with both letters and numbers.',
+        confirmPassword: 'Confirm password',
+        passwordMatch: 'Passwords match',
+        passwordMismatchInline: 'Passwords do not match',
+        extraInfo: 'Additional information',
+        optional: 'Optional',
+        extraInfoHint: 'You can add these details now or complete them later from settings.',
+        height: 'Height (cm)',
+        weight: 'Weight (kg)',
+        emergencyContact: 'Quick emergency number',
+        emergencyContactHint: 'This number helps us reach someone close to you quickly in an emergency.',
+        medicalConditions: 'Medical conditions',
+        medicalConditionsPlaceholder: 'For example: diabetes, hypertension, allergies...',
+        termsPrefix: 'I agree to the',
+        terms: 'Terms and Conditions',
+        privacy: 'Privacy Policy',
+        createAccount: 'Create account',
+        dataProtectedTitle: 'Your data is protected',
+        dataProtectedBody: 'Your personal and medical information is stored securely and encrypted.',
+        alreadyHaveAccount: 'Already have an account?',
+        loginHere: 'Login',
+        termsTitle: 'Terms and Conditions',
+        termsBody:
+          'By using this app, you agree to:\n\n• use it for safety and health support purposes\n• keep your account and data secure\n• provide correct information that helps during emergencies\n\nWe are committed to keeping the experience clear, safe, and reliable.',
+        termsDone: 'Understood',
+        privacyTitle: 'Your privacy matters',
+        privacyBody:
+          'We respect your privacy and protect your data:\n\n• your information is stored securely\n• we do not share your data without a clear reason or your permission\n• you can update your details or delete your account later\n• you can add or change emergency contacts at any time\n\nIf any data is needed, we aim to make that clear and understandable.',
+        privacyDone: 'Thank you',
+      };
   
   const genderOptions = [
     { value: 'male', label: 'Male', icon: 'male' },
@@ -209,42 +350,43 @@ export const RegisterScreen: React.FC = () => {
       const responseMessageLower = responseMessage.toLowerCase();
       
       if (response.success) {
+        await requestEssentialPermissionsOnce();
         Alert.alert(
-          '🎉 Registration Successful!',
-          'Your account has been created successfully. Please login using your email and password.',
+          copy.successTitle,
+          copy.successBody,
           [{ 
-            text: 'Login', 
+            text: copy.loginButton, 
             onPress: () => navigation.replace('Login', { prefilledEmail: normalizedValues.email })
         }]
       );
       } else {
-        let userMessage = responseMessage || 'An error occurred during registration. Please try again.';
+        let userMessage = responseMessage || copy.genericError;
         const shouldRedirectToLogin =
           (response as any)?.shouldRedirectToLogin === true ||
           responseMessageLower.includes('already registered');
         
         if (responseMessageLower.includes('already registered')) {
-          userMessage = 'Email is already registered. You can login instead.';
+          userMessage = copy.emailExists;
         } else if (responseMessageLower.includes('passwords do not match')) {
-          userMessage = 'Passwords do not match. Please review both password fields.';
+          userMessage = copy.passwordMismatch;
         } else if (responseMessageLower.includes('invalid email')) {
-          userMessage = 'Please enter a valid email address.';
+          userMessage = copy.invalidEmail;
         } else if (responseMessageLower.includes('password')) {
-          userMessage = 'Please use a stronger password (at least 8 characters and containing letters and numbers).';
+          userMessage = copy.weakPassword;
         } else if (
           responseMessageLower.includes('connection error') ||
           responseMessageLower.includes('timed out') ||
           responseMessageLower.includes('unable to connect')
         ) {
-          userMessage = 'Unable to connect to server. Please check internet connection and try again.';
+          userMessage = copy.networkError;
         }
 
         Alert.alert(
-          '⚠️ Notice',
+          copy.noticeTitle,
           userMessage,
           [
             {
-              text: shouldRedirectToLogin ? 'Go to Login' : 'OK',
+              text: shouldRedirectToLogin ? copy.goToLogin : t('common.ok'),
               onPress: shouldRedirectToLogin
                 ? () => navigation.navigate('Login', { prefilledEmail: normalizedValues.email })
                 : undefined,
@@ -255,8 +397,8 @@ export const RegisterScreen: React.FC = () => {
     } catch (error) {
       console.error('Technical error:', error);
       Alert.alert(
-        'Sorry',
-        'Could not complete the process at this time. Please try again later.'
+        copy.fallbackTitle,
+        copy.fallbackBody
       );
     } finally {
       setLoading(false);
@@ -265,26 +407,17 @@ export const RegisterScreen: React.FC = () => {
 
   const openTerms = () => {
     Alert.alert(
-      'Terms and Conditions',
-      'By using this app, you agree to:\n\n' +
-      '• Use the app for medical and personal safety purposes\n' +
-      '• Keep your data secure and not share it without your permission\n' +
-      '• Follow safe usage instructions\n\n' +
-      'We are committed to protecting your privacy and providing reliable service.',
-      [{ text: 'Understood' }]
+      copy.termsTitle,
+      copy.termsBody,
+      [{ text: copy.termsDone }]
     );
   };
 
   const openPrivacyPolicy = () => {
     Alert.alert(
-      'Your Privacy Matters',
-      'We respect your privacy and are committed to protecting your data:\n\n' +
-      '• We store your data securely and encrypted\n' +
-      '• We do not share your data with third parties\n' +
-      '• You can delete your account at any time\n' +
-      '• You have the right to access and correct your data\n\n' +
-      'For more details, you can contact us.',
-      [{ text: 'Thank you' }]
+      copy.privacyTitle,
+      copy.privacyBody,
+      [{ text: copy.privacyDone }]
     );
   };
 
@@ -293,8 +426,8 @@ export const RegisterScreen: React.FC = () => {
       <LoadingScreen
         initializing={false}
         networkStatus="checking"
-        currentLanguage="en"
-        loadingText="Creating your account..."
+        currentLanguage={isArabic ? 'ar' : 'en'}
+        loadingText={copy.loadingText}
       />
     );
   }
@@ -327,30 +460,30 @@ export const RegisterScreen: React.FC = () => {
                 <Text className="text-3xl font-bold text-primary">SafeGuard</Text>
               </View>
               
-              <Text className="text-2xl font-bold text-dark mb-3">Join Our Community</Text>
+              <Text className="text-2xl font-bold text-dark mb-3">{copy.brandTitle}</Text>
               <Text className="text-base text-gray text-center leading-6 max-w-md mb-6">
-                Create an account to access smart fall detection and emergency response features
+                {copy.brandSubtitle}
               </Text>
               
               {/* Benefits Badges */}
               <View className="bg-white border border-blue-100 px-4 py-3 rounded-2xl mb-5 w-full max-w-md">
                 <Text className="text-sm text-blue-800 text-center leading-5">
-                  You can create your account with only name, email, password, and password confirmation. Any additional information is optional and can be completed later.
+                  {copy.helperText}
                 </Text>
               </View>
 
               <View className="flex-row flex-wrap justify-center gap-2">
                 <View className="flex-row items-center bg-white px-4 py-2 rounded-full shadow-sm">
                   <MaterialIcons name="security" size={16} color="#4CAF50" />
-                  <Text className="text-sm text-dark ml-2 font-medium">24/7 Protection</Text>
+                  <Text className="text-sm text-dark ml-2 font-medium">{copy.badgeSecurity}</Text>
                 </View>
                 <View className="flex-row items-center bg-white px-4 py-2 rounded-full shadow-sm">
                   <MaterialIcons name="notifications-active" size={16} color="#2196F3" />
-                  <Text className="text-sm text-dark ml-2 font-medium">Instant Alerts</Text>
+                  <Text className="text-sm text-dark ml-2 font-medium">{copy.badgeAlerts}</Text>
                 </View>
                 <View className="flex-row items-center bg-white px-4 py-2 rounded-full shadow-sm">
                   <MaterialIcons name="support-agent" size={16} color="#00BCD4" />
-                  <Text className="text-sm text-dark ml-2 font-medium">Continuous Support</Text>
+                  <Text className="text-sm text-dark ml-2 font-medium">{copy.badgeSupport}</Text>
                 </View>
               </View>
             </View>
@@ -388,14 +521,14 @@ export const RegisterScreen: React.FC = () => {
               <View className="px-5 mt-6">
                 {/* Basic Information Section */}
                 <View className="card mb-4">
-                  <Text className="section-title mb-6">Basic Information</Text>
+                    <Text className="section-title mb-6">{copy.basicInfo}</Text>
                   
                   {/* Name Field */}
                   <View className="mb-5">
-                    <Text className="input-label">Full Name</Text>
+                    <Text className="input-label">{copy.fullName}</Text>
                     <TextInput
                       className={`input-field ${errors.name && touched.name ? 'border-danger' : ''}`}
-                      placeholder="Enter your full name"
+                      placeholder={copy.fullNamePlaceholder}
                       placeholderTextColor="#BDBDBD"
                       value={values.name}
                       onChangeText={(text) => setFieldValue('name', normalizeTextInput(text))}
@@ -409,7 +542,7 @@ export const RegisterScreen: React.FC = () => {
 
                   {/* Email Field */}
                   <View className="mb-5">
-                    <Text className="input-label">Email Address</Text>
+                    <Text className="input-label">{copy.emailLabel}</Text>
                     <TextInput
                       className={`input-field ${errors.email && touched.email ? 'border-danger' : ''}`}
                       placeholder="example@email.com"
@@ -428,7 +561,7 @@ export const RegisterScreen: React.FC = () => {
 
                   {/* Phone Field */}
                   <View className="mb-5">
-                    <Text className="input-label">Phone Number (Optional)</Text>
+                    <Text className="input-label">{copy.phoneOptional}</Text>
                     <TextInput
                       className={`input-field ${errors.phone && touched.phone ? 'border-danger' : ''}`}
                       placeholder="01012345678"
@@ -444,13 +577,13 @@ export const RegisterScreen: React.FC = () => {
                       <Text className="error-text">{errors.phone}</Text>
                     )}
                     <Text className="text-xs text-gray mt-2">
-                      📱 Egyptian number (starts with 010, 011, 012, or 015)
+                      {copy.egyptPhoneHint}
                     </Text>
                   </View>
 
                   {/* Age Field */}
                   <View className="mb-5">
-                    <Text className="input-label">Age (Optional)</Text>
+                    <Text className="input-label">{copy.ageOptional}</Text>
                     <TextInput
                       className={`input-field ${errors.age && touched.age ? 'border-danger' : ''}`}
                       placeholder="30"
@@ -469,7 +602,7 @@ export const RegisterScreen: React.FC = () => {
 
                   {/* Gender Field */}
                   <View className="mb-5">
-                    <Text className="input-label">Gender (Optional)</Text>
+                    <Text className="input-label">{copy.genderOptional}</Text>
                     <View className="flex-row">
                       {genderOptions.map((gender) => (
                         <TouchableOpacity
@@ -491,7 +624,7 @@ export const RegisterScreen: React.FC = () => {
                           <Text className={`ml-2 text-sm font-medium ${
                             values.gender === gender.value ? 'text-white' : 'text-dark'
                           }`}>
-                            {gender.label}
+                            {gender.value === 'male' ? copy.male : copy.female}
                           </Text>
                         </TouchableOpacity>
                       ))}
@@ -504,11 +637,11 @@ export const RegisterScreen: React.FC = () => {
 
                 {/* Password Section */}
                 <View className="card mb-4">
-                  <Text className="section-title mb-6">Password</Text>
+                  <Text className="section-title mb-6">{copy.passwordSection}</Text>
                   
                   {/* Password Field */}
                   <View className="mb-5">
-                    <Text className="input-label">Create Password</Text>
+                    <Text className="input-label">{copy.createPassword}</Text>
                     <View className="relative">
                       <TextInput
                         className={`input-field pr-12 ${
@@ -538,13 +671,13 @@ export const RegisterScreen: React.FC = () => {
                       <Text className="error-text">{errors.password}</Text>
                     )}
                     <Text className="text-xs text-gray mt-2">
-                      🔒 Use at least 8 characters and include letters and numbers
+                      {copy.passwordHint}
                     </Text>
                   </View>
 
                   {/* Confirm Password Field */}
                   <View className="mb-2">
-                    <Text className="input-label">Confirm Password</Text>
+                    <Text className="input-label">{copy.confirmPassword}</Text>
                     <View className="relative">
                       <TextInput
                         className={`input-field pr-12 ${
@@ -586,8 +719,8 @@ export const RegisterScreen: React.FC = () => {
                           values.password === values.confirm_password ? 'text-success' : 'text-danger'
                         }`}>
                           {values.password === values.confirm_password 
-                            ? 'Passwords match' 
-                            : 'Passwords do not match'}
+                            ? copy.passwordMatch
+                            : copy.passwordMismatchInline}
                         </Text>
                       </View>
                     )}
@@ -597,20 +730,20 @@ export const RegisterScreen: React.FC = () => {
                 {/* Additional Information */}
                 <View className="card mb-4">
                   <View className="flex-row items-center justify-between mb-4">
-                    <Text className="section-title">Additional Information</Text>
-                    <View className="px-3 py-1 bg-lightGray/30 rounded-full">
-                      <Text className="text-xs text-gray">Optional</Text>
-                    </View>
+                      <Text className="section-title">{copy.extraInfo}</Text>
+                      <View className="px-3 py-1 bg-lightGray/30 rounded-full">
+                      <Text className="text-xs text-gray">{copy.optional}</Text>
+                      </View>
                   </View>
                   
                   <Text className="text-sm text-gray mb-6 leading-5">
-                    This information helps us provide better personalized service for you
+                    {copy.extraInfoHint}
                   </Text>
                   
                   {/* Height and Weight Row */}
                   <View className="flex-row mb-5">
                     <View className="flex-1 mr-2">
-                      <Text className="input-label">Height (cm)</Text>
+                      <Text className="input-label">{copy.height}</Text>
                       <TextInput
                         className="input-field"
                         placeholder="170"
@@ -624,7 +757,7 @@ export const RegisterScreen: React.FC = () => {
                     </View>
                     
                     <View className="flex-1 ml-2">
-                      <Text className="input-label">Weight (kg)</Text>
+                      <Text className="input-label">{copy.weight}</Text>
                       <TextInput
                         className="input-field"
                         placeholder="70"
@@ -640,10 +773,10 @@ export const RegisterScreen: React.FC = () => {
                   
                   {/* Emergency Contact */}
                   <View className="mb-5">
-                    <Text className="input-label">Emergency Contact (Optional)</Text>
+                    <Text className="input-label">{copy.emergencyContact}</Text>
                     <TextInput
                       className="input-field"
-                      placeholder="Emergency phone number"
+                      placeholder={copy.phoneLabel}
                       placeholderTextColor="#BDBDBD"
                       value={values.emergency_contact}
                       onChangeText={(text) => setFieldValue('emergency_contact', normalizePhoneInput(text))}
@@ -652,16 +785,16 @@ export const RegisterScreen: React.FC = () => {
                       editable={!loading}
                     />
                     <Text className="text-xs text-gray mt-2">
-                      👨‍👩‍👧‍👦 This number will be contacted in case of emergency
+                      {copy.emergencyContactHint}
                     </Text>
                   </View>
                   
                   {/* Medical Conditions */}
                   <View className="mb-2">
-                    <Text className="input-label">Medical Conditions (Optional)</Text>
+                    <Text className="input-label">{copy.medicalConditions}</Text>
                     <TextInput
                       className="input-field h-28 text-align-top"
-                      placeholder="High blood pressure, diabetes, etc..."
+                      placeholder={copy.medicalConditionsPlaceholder}
                       placeholderTextColor="#BDBDBD"
                       value={values.medical_conditions}
                       onChangeText={(text) => setFieldValue('medical_conditions', normalizeTextInput(text))}
@@ -695,19 +828,19 @@ export const RegisterScreen: React.FC = () => {
                     </View>
                     <View className="flex-1">
                       <Text className="text-sm text-gray leading-5">
-                        I agree to the{' '}
+                        {copy.termsPrefix}{' '}
                         <Text 
                           className="text-primary font-semibold" 
                           onPress={openTerms}
                         >
-                          Terms and Conditions
+                          {copy.terms}
                         </Text>{' '}
-                        and{' '}
+                        {isArabic ? 'و' : 'and'}{' '}
                         <Text 
                           className="text-primary font-semibold" 
                           onPress={openPrivacyPolicy}
                         >
-                          Privacy Policy
+                          {copy.privacy}
                         </Text>
                       </Text>
                     </View>
@@ -733,7 +866,7 @@ export const RegisterScreen: React.FC = () => {
                     <>
                       <MaterialIcons name="person-add" size={24} color="#FFF" />
                       <Text className="text-white font-bold text-lg ml-3">
-                        Create My Account
+                        {copy.createAccount}
                       </Text>
                     </>
                   )}
@@ -744,10 +877,10 @@ export const RegisterScreen: React.FC = () => {
                   <MaterialIcons name="verified-user" size={24} color="#4CAF50" />
                   <View className="ml-3 flex-1">
                     <Text className="text-sm font-medium text-dark mb-1">
-                      Your Data is Protected
+                      {copy.dataProtectedTitle}
                     </Text>
                     <Text className="text-xs text-gray">
-                      All your information is encrypted and secured with the highest security standards
+                      {copy.dataProtectedBody}
                     </Text>
                   </View>
                 </View>
@@ -757,12 +890,12 @@ export const RegisterScreen: React.FC = () => {
 
           {/* Login Link */}
           <View className="flex-row justify-center items-center py-6 border-t border-lightGray mx-5">
-            <Text className="text-base text-gray mr-2">Already have an account?</Text>
+            <Text className="text-base text-gray mr-2">{copy.alreadyHaveAccount}</Text>
             <TouchableOpacity 
               onPress={() => navigation.navigate('Login', {})}
               activeOpacity={0.7}
             >
-              <Text className="text-primary font-bold text-base">Login Here</Text>
+              <Text className="text-primary font-bold text-base">{copy.loginHere}</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>

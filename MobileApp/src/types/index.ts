@@ -27,6 +27,10 @@ export interface Device {
   is_connected?: boolean;
   is_online?: boolean;
   connection_state?: 'connected' | 'disconnected' | 'offline' | 'archived';
+  data_state?: 'streaming' | 'stale' | 'no_data';
+  device_status?: 'active' | 'connected_no_data' | 'disconnected' | 'offline' | 'archived';
+  device_status_label?: string;
+  latest_data_at?: string;
   is_archived?: boolean;
   last_seen?: string;
   created_at?: string;
@@ -88,7 +92,7 @@ export interface Alert {
   user_id: number;
   prediction_id?: number;
   timestamp: string;
-  alert_type: 'fall' | 'vital_abnormal' | 'device_offline' | 'heart_rate' | 'blood_pressure' | 'temperature' | 'battery';
+  alert_type: 'fall' | 'fall_now' | 'fall_risk' | 'vital_abnormal' | 'device_offline' | 'heart_rate' | 'blood_pressure' | 'temperature' | 'battery';
   severity: 'low' | 'medium' | 'high' | 'critical';
   message: string;
   status: 'pending' | 'sent' | 'acknowledged' | 'resolved' | 'active' | 'failed' | 'cancelled';
@@ -222,9 +226,12 @@ export interface CareLink {
   is_active: boolean;
   created_at: string;
   patient?: User;
+  caregiver?: User;
 }
 
 export type CareLinkRequestStatus = 'pending' | 'accepted' | 'rejected' | 'cancelled';
+export type CareLinkRequestType = 'link' | 'unlink';
+export type CareLinkRequestInitiator = 'caregiver' | 'patient';
 
 export interface CareLinkRequest {
   id: number;
@@ -232,6 +239,8 @@ export interface CareLinkRequest {
   patient_id: number;
   relationship?: string;
   message?: string;
+  request_type?: CareLinkRequestType;
+  initiated_by?: CareLinkRequestInitiator;
   status: CareLinkRequestStatus;
   created_at: string;
   responded_at?: string | null;

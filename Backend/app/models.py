@@ -324,6 +324,25 @@ class Device(Base):
     def __repr__(self):
         return f"<Device(id={self.id}, device_id='{self.device_id}', user_id={self.user_id})>"
 
+
+class DeletedDevice(Base):
+    """Tombstones for devices that were intentionally removed."""
+    __tablename__ = "deleted_devices"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    device_id = Column(String(50), unique=True, nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    mac_address = Column(String(17))
+    deleted_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        Index("idx_deleted_device_user", "user_id"),
+        Index("idx_deleted_device_deleted_at", "deleted_at"),
+    )
+
+    def __repr__(self):
+        return f"<DeletedDevice(id={self.id}, device_id='{self.device_id}', user_id={self.user_id})>"
+
 # ==================== Sensor Data Models ====================
 
 class MotionSensorData(Base):

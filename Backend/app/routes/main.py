@@ -13,7 +13,7 @@ from typing import List, Dict, Any, Optional, Tuple
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Query, Header, Request
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy.orm import Session
-from sqlalchemy import text, func
+from sqlalchemy import text, func, or_
 import math
 import time
 
@@ -21,13 +21,13 @@ from ..database import get_db
 from ..services.ai_model import load_model_and_scaler, predict_from_sample
 from .. import crud, schemas, models
 from ..services.auth_service import AuthService
-from ..models import User, UserAuth, Alert, Prediction, Device, CareLink, VitalSensorData, EmergencyLog, UserPushToken
+from ..models import User, UserAuth, Alert, Prediction, Device, DeletedDevice, CareLink, VitalSensorData, EmergencyLog, UserPushToken
 from ..device_auth import device_auth
-from ..config import SECRET_KEY, ALGORITHM
+from ..config import SECRET_KEY, ALGORITHM, ADMIN_EMAILS
 from ..double_verification import DoubleVerificationSystem
 from ..services.notification_service import NotificationService
 from ..realtime import notify_user, notify_users, notify_admins
-from ..status_utils import get_device_connection_state, is_device_online, summarize_user_presence
+from ..status_utils import build_device_status_payload, summarize_user_presence
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -74,8 +74,78 @@ def _serialize_alert(alert: Alert) -> Dict[str, Any]:
         "acknowledged_at": alert.acknowledged_at.isoformat() if getattr(alert, "acknowledged_at", None) else None,
     }
 
-def _serialize_device(device: Device) -> Dict[str, Any]:
-    is_online = is_device_online(device)
+
+def _get_caregiver_ids_for_patient(db: Session, patient_id: Optional[int]) -> List[int]:
+    if not patient_id:
+        return []
+
+    try:
+        links = crud.get_care_links_by_patient(db, patient_id)
+    except Exception as exc:
+        logger.warning("Failed to load caregiver links for realtime fanout patient_id=%s: %s", patient_id, exc)
+        return []
+
+    caregiver_ids: List[int] = []
+    for link in links or []:
+        caregiver_id = getattr(link, "caregiver_id", None)
+        if caregiver_id and caregiver_id not in caregiver_ids:
+            caregiver_ids.append(int(caregiver_id))
+    return caregiver_ids
+
+
+async def _notify_patient_and_caregivers(
+    db: Session,
+    patient_id: Optional[int],
+    resource: str,
+    action: str = "updated",
+    payload: Optional[Dict[str, Any]] = None,
+    throttle_seconds: Optional[float] = None,
+) -> None:
+    if not patient_id:
+        return
+
+    target_ids = [int(patient_id), *_get_caregiver_ids_for_patient(db, patient_id)]
+    await notify_users(
+        target_ids,
+        resource,
+        action=action,
+        payload=payload,
+        throttle_seconds=throttle_seconds,
+    )
+
+def _get_latest_motion_timestamp(db: Session, device_id: str) -> Optional[datetime]:
+    return (
+        db.query(func.max(models.MotionSensorData.timestamp))
+        .filter(models.MotionSensorData.device_id == device_id)
+        .scalar()
+    )
+
+
+def _find_deleted_device(db: Session, device_id: str) -> Optional[DeletedDevice]:
+    return db.query(DeletedDevice).filter(DeletedDevice.device_id == device_id).first()
+
+
+def _assert_device_not_deleted(db: Session, device_id: str) -> None:
+    deleted_device = _find_deleted_device(db, device_id)
+    if deleted_device is not None:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail={
+                "success": False,
+                "error": "Device was permanently deleted and cannot reconnect automatically",
+            },
+        )
+
+
+def _serialize_device(
+    db: Session,
+    device: Device,
+    latest_data_at: Optional[datetime] = None,
+) -> Dict[str, Any]:
+    status_payload = build_device_status_payload(
+        device,
+        latest_data_at=latest_data_at or _get_latest_motion_timestamp(db, device.device_id),
+    )
     return {
         "id": device.id,
         "user_id": device.user_id,
@@ -84,11 +154,10 @@ def _serialize_device(device: Device) -> Dict[str, Any]:
         "firmware_version": device.firmware_version,
         "battery_level": device.battery_level,
         "is_connected": device.is_connected,
-        "is_online": is_online,
-        "connection_state": get_device_connection_state(device),
         "is_archived": device.is_archived,
         "last_seen": device.last_seen.isoformat() if device.last_seen else None,
         "created_at": device.created_at.isoformat() if device.created_at else None,
+        **status_payload,
     }
 
 def _serialize_motion(motion: models.MotionSensorData) -> Dict[str, Any]:
@@ -168,6 +237,70 @@ def _serialize_prediction(pred: Prediction) -> Dict[str, Any]:
         "timestamp": pred.timestamp.isoformat() if pred.timestamp else None,
     }
 
+def _build_emergency_message(
+    emergency_type: str,
+    user_name: str,
+    language: str = "en",
+    location: Optional[Dict[str, Any]] = None,
+    fall_data: Optional[Dict[str, Any]] = None,
+) -> Tuple[str, str]:
+    safe_name = user_name.strip() or "User"
+    message = ""
+    severity = "high"
+    is_ar = str(language or "en").lower().startswith("ar")
+
+    if emergency_type == "fall":
+        message = (
+            f"طوارئ: قد يكون {safe_name} تعرّض للسقوط!"
+            if is_ar
+            else f"EMERGENCY: {safe_name} may have fallen!"
+        )
+        severity = "critical"
+        confidence = fall_data.get("confidence") if isinstance(fall_data, dict) else None
+        if isinstance(confidence, (int, float)):
+            message += (
+                f" نسبة الثقة: {round(float(confidence) * 100)}%"
+                if is_ar
+                else f" Confidence: {round(float(confidence) * 100)}%"
+            )
+    elif emergency_type == "manual":
+        message = (
+            f"طوارئ: {safe_name} يطلب المساعدة فورًا!"
+            if is_ar
+            else f"EMERGENCY: {safe_name} is requesting immediate help!"
+        )
+        severity = "critical"
+    elif emergency_type == "vital_abnormal":
+        message = (
+            f"طوارئ: تم اكتشاف مؤشرات حيوية غير طبيعية لدى {safe_name}."
+            if is_ar
+            else f"EMERGENCY: Abnormal vital signs detected for {safe_name}."
+        )
+        severity = "high"
+    elif emergency_type == "inactivity":
+        message = (
+            f"طوارئ: لا توجد حركة من {safe_name} منذ فترة طويلة."
+            if is_ar
+            else f"EMERGENCY: No activity detected for {safe_name} for an extended period."
+        )
+        severity = "medium"
+    else:
+        message = (
+            f"طوارئ: {safe_name} يحتاج إلى تدخل فوري."
+            if is_ar
+            else f"EMERGENCY: {safe_name} needs immediate attention."
+        )
+
+    if location and location.get("latitude") is not None and location.get("longitude") is not None:
+        message += (
+            f"\n{'الموقع' if is_ar else 'Location'}: https://maps.google.com/?q="
+            f"{location['latitude']},{location['longitude']}"
+        )
+
+    message += f"\n{'الوقت' if is_ar else 'Time'}: {datetime.utcnow().strftime('%I:%M:%S %p')}"
+    message += "\nمرسلة من تطبيق كشف السقوط" if is_ar else "\nSent from Fall Detection App"
+    return message, severity
+
 def _ensure_device_for_ingest(
     db: Session,
     device_id: str,
@@ -176,6 +309,7 @@ def _ensure_device_for_ingest(
     firmware_version: Optional[str] = None
 ) -> Device:
     """Ensure device exists and belongs to user."""
+    _assert_device_not_deleted(db, device_id)
     device = crud.get_device_by_id(db, device_id)
     if device is None:
         if not user_id:
@@ -1074,6 +1208,7 @@ def _process_motion_data_internal(
     user_id = int(data.get('user_id'))
     device_id = data.get('device_id')
 
+    _assert_device_not_deleted(db, device_id)
     device = crud.get_device_by_id(db, device_id)
     if device is None:
         device_payload = schemas.DeviceCreate(
@@ -1152,20 +1287,18 @@ def _process_motion_data_internal(
     db.commit()
     db.refresh(db_pred)
 
-    alert = None
-    if verified.get("final_verdict", False):
-        alert = verification_system.create_alert_if_needed(
-            user_id=user_id,
-            prediction_id=db_pred.id,
-            verification_result=verified
+    alert = verification_system.create_alert_if_needed(
+        user_id=user_id,
+        prediction_id=db_pred.id,
+        verification_result=verified
+    )
+    if alert and alert.alert_type == "fall_now":
+        notification_service.notify_caregivers_alert(
+            db=db,
+            patient_id=user_id,
+            alert=alert,
+            reason="fall",
         )
-        if alert:
-            notification_service.notify_caregivers_alert(
-                db=db,
-                patient_id=user_id,
-                alert=alert,
-                reason="fall",
-            )
 
     response = {
         "success": True,
@@ -1209,14 +1342,14 @@ async def process_motion_data(
 
         prediction_payload = _serialize_prediction(db_pred)
         motion_payload = _serialize_motion(stored_motion)
-        await notify_user(stored_motion.user_id, "motions", action="created", payload=motion_payload, throttle_seconds=2.0)
+        await _notify_patient_and_caregivers(db, stored_motion.user_id, "motions", action="created", payload=motion_payload, throttle_seconds=2.0)
         await notify_admins("motions", action="created", payload=motion_payload, throttle_seconds=2.0)
-        await notify_user(stored_motion.user_id, "predictions", action="created", payload=prediction_payload, throttle_seconds=2.0)
+        await _notify_patient_and_caregivers(db, stored_motion.user_id, "predictions", action="created", payload=prediction_payload, throttle_seconds=2.0)
         await notify_admins("predictions", action="created", payload=prediction_payload, throttle_seconds=2.0)
 
         if alert:
             alert_payload = _serialize_alert(alert)
-            await notify_user(alert.user_id, "alerts", action="created", payload=alert_payload)
+            await _notify_patient_and_caregivers(db, alert.user_id, "alerts", action="created", payload=alert_payload)
             await notify_admins("alerts", action="created", payload=alert_payload)
 
         return response
@@ -1254,24 +1387,31 @@ async def ingest_device_data(
             vital_payload = _serialize_vital(latest_vital) if latest_vital else None
             alert_payload = _serialize_alert(latest_alert) if latest_alert else None
             motion_payload = _serialize_motion(latest_motion) if latest_motion else None
-            device_payload = _serialize_device(device_obj) if device_obj else None
+            device_payload = (
+                _serialize_device(
+                    db,
+                    device_obj,
+                    latest_data_at=latest_motion.timestamp if latest_motion and device_obj and latest_motion.device_id == device_obj.device_id else None,
+                )
+                if device_obj else None
+            )
 
             if result.get("motion"):
                 if motion_payload:
-                    await notify_user(user_id, "motions", action="created", payload=motion_payload, throttle_seconds=2.0)
+                    await _notify_patient_and_caregivers(db, user_id, "motions", action="created", payload=motion_payload, throttle_seconds=2.0)
                     await notify_admins("motions", action="created", payload=motion_payload, throttle_seconds=2.0)
-                await notify_user(user_id, "predictions", action="created", payload=prediction_payload, throttle_seconds=2.0)
+                await _notify_patient_and_caregivers(db, user_id, "predictions", action="created", payload=prediction_payload, throttle_seconds=2.0)
                 await notify_admins("predictions", action="created", payload=prediction_payload, throttle_seconds=2.0)
             if result.get("vitals"):
-                await notify_user(user_id, "vitals", action="created", payload=vital_payload, throttle_seconds=5.0)
+                await _notify_patient_and_caregivers(db, user_id, "vitals", action="created", payload=vital_payload, throttle_seconds=5.0)
                 await notify_admins("vitals", action="created", payload=vital_payload, throttle_seconds=5.0)
             motion_alert_id = (result.get("motion") or {}).get("alert_id")
             vital_alert_id = (result.get("vitals") or {}).get("alert_id")
             if motion_alert_id or vital_alert_id:
-                await notify_user(user_id, "alerts", action="created", payload=alert_payload)
+                await _notify_patient_and_caregivers(db, user_id, "alerts", action="created", payload=alert_payload)
                 await notify_admins("alerts", action="created", payload=alert_payload)
             if device_payload:
-                await notify_user(user_id, "devices", action="updated", payload=device_payload, throttle_seconds=10.0)
+                await _notify_patient_and_caregivers(db, user_id, "devices", action="updated", payload=device_payload, throttle_seconds=10.0)
                 await notify_admins("devices", action="updated", payload=device_payload, throttle_seconds=10.0)
         return JSONResponse(
             status_code=status.HTTP_200_OK,
@@ -1334,26 +1474,33 @@ async def ingest_device_data_batch(
         latest_motion = db.query(models.MotionSensorData).filter(models.MotionSensorData.user_id == uid).order_by(models.MotionSensorData.timestamp.desc()).first()
         motion_payload = _serialize_motion(latest_motion) if latest_motion else None
         if motion_payload:
-            await notify_user(uid, "motions", action="created", payload=motion_payload, throttle_seconds=2.0)
+            await _notify_patient_and_caregivers(db, uid, "motions", action="created", payload=motion_payload, throttle_seconds=2.0)
             await notify_admins("motions", action="created", payload=motion_payload, throttle_seconds=2.0)
         latest_prediction = db.query(Prediction).filter(Prediction.user_id == uid).order_by(Prediction.timestamp.desc()).first()
         payload = _serialize_prediction(latest_prediction) if latest_prediction else None
-        await notify_user(uid, "predictions", action="created", payload=payload, throttle_seconds=2.0)
+        await _notify_patient_and_caregivers(db, uid, "predictions", action="created", payload=payload, throttle_seconds=2.0)
         await notify_admins("predictions", action="created", payload=payload, throttle_seconds=2.0)
     for uid in vitals_users:
         latest_vital = db.query(VitalSensorData).filter(VitalSensorData.user_id == uid).order_by(VitalSensorData.timestamp.desc()).first()
         payload = _serialize_vital(latest_vital) if latest_vital else None
-        await notify_user(uid, "vitals", action="created", payload=payload, throttle_seconds=5.0)
+        await _notify_patient_and_caregivers(db, uid, "vitals", action="created", payload=payload, throttle_seconds=5.0)
         await notify_admins("vitals", action="created", payload=payload, throttle_seconds=5.0)
     for uid in alerts_users:
         latest_alert = db.query(Alert).filter(Alert.user_id == uid).order_by(Alert.timestamp.desc()).first()
         payload = _serialize_alert(latest_alert) if latest_alert else None
-        await notify_user(uid, "alerts", action="created", payload=payload)
+        await _notify_patient_and_caregivers(db, uid, "alerts", action="created", payload=payload)
         await notify_admins("alerts", action="created", payload=payload)
     for uid in touched_users:
         device_obj = db.query(Device).filter(Device.user_id == uid).order_by(Device.created_at.desc()).first()
-        payload = _serialize_device(device_obj) if device_obj else None
-        await notify_user(uid, "devices", action="updated", payload=payload, throttle_seconds=10.0)
+        payload = (
+            _serialize_device(
+                db,
+                device_obj,
+                latest_data_at=_get_latest_motion_timestamp(db, device_obj.device_id),
+            )
+            if device_obj else None
+        )
+        await _notify_patient_and_caregivers(db, uid, "devices", action="updated", payload=payload, throttle_seconds=10.0)
         await notify_admins("devices", action="updated", payload=payload, throttle_seconds=10.0)
 
     return JSONResponse(
@@ -1502,12 +1649,12 @@ async def process_vital_data(
             status_code = status.HTTP_200_OK if not is_abnormal else status.HTTP_202_ACCEPTED
 
             vital_payload = _serialize_vital(stored_vital)
-            await notify_user(user_id, "vitals", action="created", payload=vital_payload, throttle_seconds=5.0)
+            await _notify_patient_and_caregivers(db, user_id, "vitals", action="created", payload=vital_payload, throttle_seconds=5.0)
             await notify_admins("vitals", action="created", payload=vital_payload, throttle_seconds=5.0)
             if alert_id:
                 alert = db.query(Alert).filter(Alert.id == alert_id).first()
                 alert_payload = _serialize_alert(alert) if alert else None
-                await notify_user(user_id, "alerts", action="created", payload=alert_payload)
+                await _notify_patient_and_caregivers(db, user_id, "alerts", action="created", payload=alert_payload)
                 await notify_admins("alerts", action="created", payload=alert_payload)
             
             return JSONResponse(
@@ -1803,7 +1950,7 @@ async def update_alert_status(
         db.commit()
 
         payload = _serialize_alert(alert)
-        await notify_user(alert.user_id, "alerts", action="updated", payload=payload)
+        await _notify_patient_and_caregivers(db, alert.user_id, "alerts", action="updated", payload=payload)
         await notify_admins("alerts", action="updated", payload=payload)
         
         return JSONResponse(
@@ -1857,7 +2004,7 @@ async def acknowledge_alert(
             )
 
         payload = _serialize_alert(alert)
-        await notify_user(alert.user_id, "alerts", action="updated", payload=payload)
+        await _notify_patient_and_caregivers(db, alert.user_id, "alerts", action="updated", payload=payload)
         await notify_admins("alerts", action="updated", payload=payload)
 
         return JSONResponse(
@@ -1904,7 +2051,7 @@ async def resolve_alert(
             )
 
         payload = _serialize_alert(alert)
-        await notify_user(alert.user_id, "alerts", action="updated", payload=payload)
+        await _notify_patient_and_caregivers(db, alert.user_id, "alerts", action="updated", payload=payload)
         await notify_admins("alerts", action="updated", payload=payload)
 
         return JSONResponse(
@@ -2117,7 +2264,7 @@ async def update_user_profile(
         db.refresh(user)
 
         payload = _serialize_user_profile(user)
-        await notify_user(user.id, "profile", action="updated", payload=payload)
+        await _notify_patient_and_caregivers(db, user.id, "profile", action="updated", payload=payload)
         await notify_admins("users", action="updated", payload=payload)
 
         return JSONResponse(
@@ -2404,6 +2551,90 @@ async def list_incoming_care_requests(
         )
 
 
+def _encode_care_request_message(
+    request_type: str,
+    initiated_by: str,
+    user_message: Optional[str] = None,
+) -> str:
+    suffix = f" {user_message.strip()}" if user_message and user_message.strip() else ""
+    return f"[care:{request_type}:{initiated_by}]{suffix}"
+
+
+def _decode_care_request_message(raw_message: Optional[str]) -> Dict[str, Optional[str]]:
+    message = raw_message or ""
+    if message.startswith("[care:"):
+        try:
+            prefix, rest = message.split("]", 1)
+            _, request_type, initiated_by = prefix[1:].split(":")
+            return {
+                "request_type": request_type or "link",
+                "initiated_by": initiated_by or "caregiver",
+                "message": rest.strip() or None,
+            }
+        except ValueError:
+            pass
+    return {
+        "request_type": "link",
+        "initiated_by": "caregiver",
+        "message": raw_message,
+    }
+
+
+def _serialize_care_user(user_obj: Optional[User]) -> Optional[Dict[str, Any]]:
+    if not user_obj:
+        return None
+    user_email = user_obj.auth.email if getattr(user_obj, "auth", None) else None
+    return {
+        "id": user_obj.id,
+        "name": user_obj.name,
+        "email": user_email,
+        "age": user_obj.age,
+        "gender": user_obj.gender,
+    }
+
+
+def _care_request_requires_approval(req: models.CareLinkRequest, user_id: int) -> bool:
+    meta = _decode_care_request_message(req.message)
+    request_type = meta["request_type"]
+    initiated_by = meta["initiated_by"]
+
+    if request_type == "unlink":
+        approver_id = req.patient_id if initiated_by == "caregiver" else req.caregiver_id
+        return approver_id == user_id
+
+    return req.patient_id == user_id
+
+
+def _care_request_initiated_by_user(req: models.CareLinkRequest, user_id: int) -> bool:
+    meta = _decode_care_request_message(req.message)
+    request_type = meta["request_type"]
+    initiated_by = meta["initiated_by"]
+
+    if request_type == "unlink":
+        initiator_id = req.caregiver_id if initiated_by == "caregiver" else req.patient_id
+        return initiator_id == user_id
+
+    return req.caregiver_id == user_id
+
+
+def _serialize_care_request(req: models.CareLinkRequest) -> Dict[str, Any]:
+    meta = _decode_care_request_message(req.message)
+    return {
+        "id": req.id,
+        "caregiver_id": req.caregiver_id,
+        "patient_id": req.patient_id,
+        "relationship": req.relationship_type,
+        "message": meta["message"],
+        "request_type": meta["request_type"],
+        "initiated_by": meta["initiated_by"],
+        "status": req.status,
+        "created_at": req.created_at.isoformat() if req.created_at else None,
+        "responded_at": req.responded_at.isoformat() if req.responded_at else None,
+        "caregiver": _serialize_care_user(req.caregiver),
+        "patient": _serialize_care_user(req.patient),
+    }
+
+
 @router.get("/care/requests/outgoing/{caregiver_id}", response_model=Dict[str, Any])
 async def list_outgoing_care_requests(
     caregiver_id: int,
@@ -2455,6 +2686,79 @@ async def list_outgoing_care_requests(
         )
 
 
+@router.get("/care/requests/approvals/{user_id}", response_model=Dict[str, Any])
+async def list_care_requests_for_approval(
+    user_id: int,
+    db: Session = Depends(get_db)
+):
+    """List pending care requests that require this user's approval."""
+    try:
+        user_obj = crud.get_user(db, user_id)
+        if not user_obj:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"success": False, "error": "User not found"}
+            )
+
+        requests = db.query(models.CareLinkRequest).filter(
+            models.CareLinkRequest.status == "pending",
+            or_(
+                models.CareLinkRequest.patient_id == user_id,
+                models.CareLinkRequest.caregiver_id == user_id,
+            )
+        ).order_by(models.CareLinkRequest.created_at.desc()).all()
+
+        data = [_serialize_care_request(req) for req in requests if _care_request_requires_approval(req, user_id)]
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"success": True, "data": data, "timestamp": datetime.utcnow().isoformat()},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error listing care approvals: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"success": False, "error": f"Failed to list approvals: {str(e)}"}
+        )
+
+
+@router.get("/care/requests/sent/{user_id}", response_model=Dict[str, Any])
+async def list_sent_care_requests(
+    user_id: int,
+    db: Session = Depends(get_db)
+):
+    """List care requests initiated by this user."""
+    try:
+        user_obj = crud.get_user(db, user_id)
+        if not user_obj:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"success": False, "error": "User not found"}
+            )
+
+        requests = db.query(models.CareLinkRequest).filter(
+            or_(
+                models.CareLinkRequest.patient_id == user_id,
+                models.CareLinkRequest.caregiver_id == user_id,
+            )
+        ).order_by(models.CareLinkRequest.created_at.desc()).all()
+
+        data = [_serialize_care_request(req) for req in requests if _care_request_initiated_by_user(req, user_id)]
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"success": True, "data": data, "timestamp": datetime.utcnow().isoformat()},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error listing sent care requests: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"success": False, "error": f"Failed to list sent requests: {str(e)}"}
+        )
+
+
 @router.post("/care/requests/{request_id}/accept", response_model=Dict[str, Any])
 async def accept_care_link_request(
     request_id: int,
@@ -2470,7 +2774,13 @@ async def accept_care_link_request(
                 detail={"success": False, "error": "Request not found"}
             )
 
-        if action.patient_id and req.patient_id != action.patient_id:
+        request_meta = _decode_care_request_message(req.message)
+        request_type = request_meta["request_type"]
+        initiated_by = request_meta["initiated_by"]
+
+        approver_id = req.patient_id if request_type == "link" or initiated_by == "caregiver" else req.caregiver_id
+        actor_id = action.patient_id or action.caregiver_id or action.requester_id
+        if actor_id and approver_id != actor_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail={"success": False, "error": "Not authorized to accept this request"}
@@ -2482,30 +2792,67 @@ async def accept_care_link_request(
                 detail={"success": False, "error": "Request already processed"}
             )
 
-        # Create care link if not exists
-        existing_link = db.query(CareLink).filter(
-            CareLink.caregiver_id == req.caregiver_id,
-            CareLink.patient_id == req.patient_id,
-            CareLink.is_active == True
-        ).first()
-        if not existing_link:
-            crud.create_care_link(
-                db,
-                caregiver_id=req.caregiver_id,
-                patient_id=req.patient_id,
-                relationship=req.relationship_type
-            )
-        link = db.query(CareLink).filter(
-            CareLink.caregiver_id == req.caregiver_id,
-            CareLink.patient_id == req.patient_id,
-            CareLink.is_active == True
-        ).first()
+        link_payload = None
+        if request_type == "unlink":
+            link = db.query(CareLink).filter(
+                CareLink.caregiver_id == req.caregiver_id,
+                CareLink.patient_id == req.patient_id,
+                CareLink.is_active == True
+            ).first()
+            if link:
+                link_payload = {
+                    "id": link.id,
+                    "caregiver_id": link.caregiver_id,
+                    "patient_id": link.patient_id,
+                    "relationship": link.relationship_type,
+                    "is_active": False,
+                    "created_at": link.created_at.isoformat() if link.created_at else None,
+                }
+                crud.delete_care_link(db, link.id)
+        else:
+            existing_link = db.query(CareLink).filter(
+                CareLink.caregiver_id == req.caregiver_id,
+                CareLink.patient_id == req.patient_id,
+                CareLink.is_active == True
+            ).first()
+            if not existing_link:
+                crud.create_care_link(
+                    db,
+                    caregiver_id=req.caregiver_id,
+                    patient_id=req.patient_id,
+                    relationship=req.relationship_type
+                )
+            link = db.query(CareLink).filter(
+                CareLink.caregiver_id == req.caregiver_id,
+                CareLink.patient_id == req.patient_id,
+                CareLink.is_active == True
+            ).first()
+            if link and link.patient:
+                patient = link.patient
+                patient_email = patient.auth.email if getattr(patient, "auth", None) else None
+                link_payload = {
+                    "id": link.id,
+                    "caregiver_id": link.caregiver_id,
+                    "patient_id": link.patient_id,
+                    "relationship": link.relationship_type,
+                    "is_active": link.is_active,
+                    "created_at": link.created_at.isoformat() if link.created_at else None,
+                    "patient": {
+                        "id": patient.id,
+                        "name": patient.name,
+                        "email": patient_email,
+                        "age": patient.age,
+                        "gender": patient.gender,
+                    },
+                }
 
         req = crud.update_care_link_request_status(db, req, "accepted")
 
         payload = {
             "id": req.id,
             "status": req.status,
+            "request_type": request_type,
+            "initiated_by": initiated_by,
             "responded_at": req.responded_at.isoformat() if req.responded_at else None,
             "caregiver_id": req.caregiver_id,
             "patient_id": req.patient_id,
@@ -2513,24 +2860,7 @@ async def accept_care_link_request(
         await notify_users([req.caregiver_id, req.patient_id], "care", action="updated", payload=payload)
         await notify_admins("care", action="updated", payload=payload)
 
-        if link and link.patient:
-            patient = link.patient
-            patient_email = patient.auth.email if getattr(patient, "auth", None) else None
-            link_payload = {
-                "id": link.id,
-                "caregiver_id": link.caregiver_id,
-                "patient_id": link.patient_id,
-                "relationship": link.relationship_type,
-                "is_active": link.is_active,
-                "created_at": link.created_at.isoformat() if link.created_at else None,
-                "patient": {
-                    "id": patient.id,
-                    "name": patient.name,
-                    "email": patient_email,
-                    "age": patient.age,
-                    "gender": patient.gender,
-                },
-            }
+        if link_payload:
             await notify_users([req.caregiver_id, req.patient_id], "care", action="updated", payload=link_payload)
             await notify_admins("care", action="updated", payload=link_payload)
 
@@ -2539,6 +2869,7 @@ async def accept_care_link_request(
             content={"success": True, "message": "Request accepted", "data": {
                 "id": req.id,
                 "status": req.status,
+                "request_type": request_type,
                 "responded_at": req.responded_at.isoformat() if req.responded_at else None
             }},
         )
@@ -2567,7 +2898,12 @@ async def reject_care_link_request(
                 detail={"success": False, "error": "Request not found"}
             )
 
-        if action.patient_id and req.patient_id != action.patient_id:
+        request_meta = _decode_care_request_message(req.message)
+        request_type = request_meta["request_type"]
+        initiated_by = request_meta["initiated_by"]
+        approver_id = req.patient_id if request_type == "link" or initiated_by == "caregiver" else req.caregiver_id
+        actor_id = action.patient_id or action.caregiver_id or action.requester_id
+        if actor_id and approver_id != actor_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail={"success": False, "error": "Not authorized to reject this request"}
@@ -2584,6 +2920,8 @@ async def reject_care_link_request(
         payload = {
             "id": req.id,
             "status": req.status,
+            "request_type": request_type,
+            "initiated_by": initiated_by,
             "responded_at": req.responded_at.isoformat() if req.responded_at else None,
             "caregiver_id": req.caregiver_id,
             "patient_id": req.patient_id,
@@ -2624,7 +2962,13 @@ async def cancel_care_link_request(
                 detail={"success": False, "error": "Request not found"}
             )
 
-        if action.caregiver_id and req.caregiver_id != action.caregiver_id:
+        request_meta = _decode_care_request_message(req.message)
+        request_type = request_meta["request_type"]
+        initiated_by = request_meta["initiated_by"]
+        creator_id = req.caregiver_id if request_type == "link" or initiated_by == "caregiver" else req.patient_id
+        actor_id = action.requester_id or action.caregiver_id or action.patient_id
+
+        if actor_id and creator_id != actor_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail={"success": False, "error": "Not authorized to cancel this request"}
@@ -2641,6 +2985,8 @@ async def cancel_care_link_request(
         payload = {
             "id": req.id,
             "status": req.status,
+            "request_type": request_type,
+            "initiated_by": initiated_by,
             "responded_at": req.responded_at.isoformat() if req.responded_at else None,
             "caregiver_id": req.caregiver_id,
             "patient_id": req.patient_id,
@@ -2716,6 +3062,117 @@ async def list_care_links(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"success": False, "error": f"Failed to list care links: {str(e)}"}
+        )
+
+
+@router.get("/care/links/patient/{patient_id}", response_model=Dict[str, Any])
+async def list_care_links_for_patient(
+    patient_id: int,
+    db: Session = Depends(get_db)
+):
+    """List users who monitor this patient."""
+    try:
+        patient = crud.get_user(db, patient_id)
+        if not patient:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"success": False, "error": "Patient not found"}
+            )
+
+        links = crud.get_care_links_by_patient(db, patient_id)
+        data = []
+        for link in links:
+            caregiver = link.caregiver
+            caregiver_email = caregiver.auth.email if getattr(caregiver, "auth", None) else None
+            data.append({
+                "id": link.id,
+                "caregiver_id": link.caregiver_id,
+                "patient_id": link.patient_id,
+                "relationship": link.relationship_type,
+                "is_active": link.is_active,
+                "created_at": link.created_at.isoformat() if link.created_at else None,
+                "caregiver": {
+                    "id": caregiver.id,
+                    "name": caregiver.name,
+                    "email": caregiver_email,
+                    "age": caregiver.age,
+                    "gender": caregiver.gender,
+                },
+            })
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"success": True, "data": data, "timestamp": datetime.utcnow().isoformat()},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error listing patient care links: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"success": False, "error": f"Failed to list patient links: {str(e)}"}
+        )
+
+
+@router.post("/care/links/{link_id}/request-unlink", response_model=Dict[str, Any])
+async def request_care_unlink(
+    link_id: int,
+    request_data: schemas.CareLinkUnlinkRequestCreate,
+    db: Session = Depends(get_db)
+):
+    """Create a pending unlink request that requires the other party's approval."""
+    try:
+        link = db.query(CareLink).filter(CareLink.id == link_id, CareLink.is_active == True).first()
+        if not link:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"success": False, "error": "Link not found"}
+            )
+
+        if request_data.requester_id not in {link.caregiver_id, link.patient_id}:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"success": False, "error": "Not authorized to request unlink"}
+            )
+
+        initiated_by = "caregiver" if request_data.requester_id == link.caregiver_id else "patient"
+        existing_request = db.query(models.CareLinkRequest).filter(
+            models.CareLinkRequest.caregiver_id == link.caregiver_id,
+            models.CareLinkRequest.patient_id == link.patient_id,
+            models.CareLinkRequest.status == "pending"
+        ).order_by(models.CareLinkRequest.created_at.desc()).all()
+
+        for req in existing_request:
+            meta = _decode_care_request_message(req.message)
+            if meta["request_type"] == "unlink":
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={"success": False, "error": "An unlink request is already pending"}
+                )
+
+        request = crud.create_care_link_request(
+            db,
+            caregiver_id=link.caregiver_id,
+            patient_id=link.patient_id,
+            relationship=link.relationship_type,
+            message=_encode_care_request_message("unlink", initiated_by, request_data.message),
+        )
+
+        payload = _serialize_care_request(request)
+        await notify_users([link.caregiver_id, link.patient_id], "care", action="updated", payload=payload)
+        await notify_admins("care", action="updated", payload=payload)
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"success": True, "message": "Unlink request sent", "data": payload},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating unlink request: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"success": False, "error": f"Failed to create unlink request: {str(e)}"}
         )
 
 
@@ -3101,6 +3558,7 @@ async def connect_device(
 ):
     """Link a device to a user and mark it connected."""
     try:
+        _assert_device_not_deleted(db, payload.device_id)
         user = db.query(User).filter(User.id == payload.user_id).first()
         if not user:
             raise HTTPException(
@@ -3114,6 +3572,14 @@ async def connect_device(
         device = crud.get_device_by_id(db, payload.device_id)
 
         if device:
+            if device.user_id != payload.user_id:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={
+                        "success": False,
+                        "error": "Device ID already registered to another user"
+                    }
+                )
             device.user_id = payload.user_id
             device.mac_address = payload.mac_address or device.mac_address
             device.firmware_version = payload.firmware_version or device.firmware_version
@@ -3141,8 +3607,8 @@ async def connect_device(
 
         device_token = device_auth.generate_device_token(device.device_id, device.user_id)
 
-        payload = _serialize_device(device)
-        await notify_user(device.user_id, "devices", action="updated", payload=payload)
+        payload = _serialize_device(db, device)
+        await _notify_patient_and_caregivers(db, device.user_id, "devices", action="updated", payload=payload)
         await notify_admins("devices", action="updated", payload=payload)
         user = db.query(User).filter(User.id == device.user_id).first()
         if user:
@@ -3211,6 +3677,7 @@ async def request_device_pairing_token(
             detail={"success": False, "error": "Invalid session user"},
         )
 
+    _assert_device_not_deleted(db, payload.device_id)
     device = crud.get_device_by_id(db, payload.device_id)
     if device and device.user_id != user_id:
         raise HTTPException(
@@ -3244,8 +3711,8 @@ async def request_device_pairing_token(
     mqtt_topic = mqtt_topics.split(",")[0].strip() if mqtt_topics else "fall-detection/device-data"
     api_base_url = f"{str(request.base_url).rstrip('/')}/api/v1"
 
-    serialized = _serialize_device(device)
-    await notify_user(user_id, "devices", action="updated", payload=serialized)
+    serialized = _serialize_device(db, device)
+    await _notify_patient_and_caregivers(db, user_id, "devices", action="updated", payload=serialized)
 
     return schemas.DevicePairingTokenResponse(
         success=True,
@@ -3286,8 +3753,8 @@ async def disconnect_device(
         db.commit()
         db.refresh(device)
 
-        payload = _serialize_device(device)
-        await notify_user(device.user_id, "devices", action="updated", payload=payload)
+        payload = _serialize_device(db, device)
+        await _notify_patient_and_caregivers(db, device.user_id, "devices", action="updated", payload=payload)
         await notify_admins("devices", action="updated", payload=payload)
 
         return JSONResponse(
@@ -3327,9 +3794,10 @@ async def disconnect_device(
 async def remove_device(
     device_id: str,
     user_id: Optional[int] = Query(None),
+    session: Dict[str, Any] = Depends(_require_user),
     db: Session = Depends(get_db)
 ):
-    """Unlink (archive) a device without deleting its data."""
+    """Permanently delete a device and its dependent motion/prediction data."""
     try:
         device = crud.get_device_by_id(db, device_id)
         if not device:
@@ -3338,6 +3806,20 @@ async def remove_device(
                 detail={
                     "success": False,
                     "error": f"Device with ID {device_id} not found"
+                }
+            )
+
+        session_user = session.get("user") or {}
+        session_user_id = int(session_user.get("id"))
+        session_user_email = str(session_user.get("email") or "").strip().lower()
+        is_admin = session_user_email in ADMIN_EMAILS if ADMIN_EMAILS else False
+
+        if not is_admin and device.user_id != session_user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "success": False,
+                    "error": "Not authorized to delete this device"
                 }
             )
 
@@ -3350,33 +3832,43 @@ async def remove_device(
                 }
             )
 
-        device.is_connected = False
-        device.is_archived = True
-        device.last_seen = datetime.utcnow()
-        db.commit()
-        db.refresh(device)
+        payload = {
+            "id": device.id,
+            "user_id": device.user_id,
+            "device_id": device.device_id,
+            "mac_address": device.mac_address,
+            "firmware_version": device.firmware_version,
+            "battery_level": device.battery_level,
+            "is_connected": False,
+            "is_archived": True,
+            "last_seen": datetime.utcnow().isoformat(),
+            "created_at": device.created_at.isoformat() if device.created_at else None,
+        }
 
-        payload = _serialize_device(device)
-        await notify_user(device.user_id, "devices", action="updated", payload=payload)
-        await notify_admins("devices", action="updated", payload=payload)
+        deleted_device = _find_deleted_device(db, device.device_id)
+        if deleted_device is None:
+            db.add(
+                DeletedDevice(
+                    device_id=device.device_id,
+                    user_id=device.user_id,
+                    mac_address=device.mac_address,
+                )
+            )
+            db.commit()
+
+        device_auth.device_tokens.pop(device.device_id, None)
+        deleted_user_id = device.user_id
+        crud.delete_device(db, device)
+
+        await _notify_patient_and_caregivers(db, deleted_user_id, "devices", action="deleted", payload=payload)
+        await notify_admins("devices", action="deleted", payload=payload)
 
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
                 "success": True,
-                "message": "Device unlinked successfully",
-                "data": {
-                    "id": device.id,
-                    "user_id": device.user_id,
-                    "device_id": device.device_id,
-                    "mac_address": device.mac_address,
-                    "firmware_version": device.firmware_version,
-                    "battery_level": device.battery_level,
-                    "is_connected": device.is_connected,
-                    "is_archived": device.is_archived,
-                    "last_seen": device.last_seen.isoformat() if device.last_seen else None,
-                    "created_at": device.created_at.isoformat() if device.created_at else None
-                },
+                "message": "Device deleted permanently",
+                "data": payload,
                 "timestamp": datetime.utcnow().isoformat()
             }
         )
@@ -3610,8 +4102,8 @@ async def restore_device(
         db.commit()
         db.refresh(device)
 
-        payload = _serialize_device(device)
-        await notify_user(device.user_id, "devices", action="updated", payload=payload)
+        payload = _serialize_device(db, device)
+        await _notify_patient_and_caregivers(db, device.user_id, "devices", action="updated", payload=payload)
         await notify_admins("devices", action="updated", payload=payload)
 
         return JSONResponse(
@@ -3645,6 +4137,131 @@ async def restore_device(
                 "success": False,
                 "error": f"Failed to restore device: {str(e)}"
             }
+        )
+
+
+@router.post("/emergency/trigger", response_model=Dict[str, Any])
+async def trigger_emergency(
+    emergency_data: schemas.EmergencyTrigger,
+    db: Session = Depends(get_db),
+):
+    """Trigger emergency SMS delivery from the backend without requiring the iPhone Messages send button."""
+    try:
+        user = crud.get_user(db, emergency_data.user_id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"success": False, "error": f"User with ID {emergency_data.user_id} not found"},
+            )
+
+        raw_contacts = emergency_data.contacts or []
+        active_contacts = [
+            {
+                "id": str(contact.id or contact.phone),
+                "name": contact.name,
+                "phone": contact.phone,
+                "relationship": contact.relationship,
+                "priority": contact.priority,
+                "is_active": contact.is_active,
+            }
+            for contact in raw_contacts
+            if contact.is_active and str(contact.phone or "").strip()
+        ]
+
+        if not active_contacts:
+            stored_contacts = crud.get_emergency_contacts(db, emergency_data.user_id)
+            active_contacts = [
+                {
+                    "id": str(contact.id),
+                    "name": contact.name,
+                    "phone": contact.phone,
+                    "relationship": contact.relation_type,
+                    "priority": contact.priority,
+                    "is_active": contact.is_active,
+                }
+                for contact in stored_contacts
+                if contact.is_active and str(contact.phone or "").strip()
+            ]
+
+        if not active_contacts:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"success": False, "error": "No active emergency contacts available"},
+            )
+
+        sorted_contacts = sorted(active_contacts, key=lambda item: item.get("priority", 3))
+        location = emergency_data.location or {}
+        generated_message, severity = _build_emergency_message(
+            emergency_data.type,
+            emergency_data.user_name or user.name,
+            language=emergency_data.language or "en",
+            location=location,
+            fall_data=emergency_data.fall_data,
+        )
+        final_message = emergency_data.message.strip() if emergency_data.message else generated_message
+
+        responses = notification_service.send_emergency_sms_contacts(sorted_contacts, final_message)
+        successful_contacts = [
+            item for item in responses if item.get("response_type") in {"sms_sent", "sms_and_call_sent"}
+        ]
+        alert_status = "sent" if successful_contacts else "failed"
+
+        alert = Alert(
+            user_id=user.id,
+            alert_type=emergency_data.type,
+            severity=severity,
+            message=final_message,
+            status=alert_status,
+            sent_to=",".join([contact["phone"] for contact in sorted_contacts]),
+            timestamp=datetime.utcnow(),
+        )
+        db.add(alert)
+        db.commit()
+        db.refresh(alert)
+
+        emergency_log = EmergencyLog(
+            user_id=user.id,
+            emergency_type=emergency_data.type,
+            location_lat=location.get("latitude"),
+            location_lng=location.get("longitude"),
+            location_accuracy=location.get("accuracy"),
+            message=final_message,
+            sent_to=json.dumps(sorted_contacts),
+            status=alert_status,
+            responses=json.dumps(responses),
+            timestamp=datetime.utcnow(),
+        )
+        db.add(emergency_log)
+        db.commit()
+        db.refresh(emergency_log)
+
+        payload = _serialize_alert(alert)
+        await _notify_patient_and_caregivers(db, user.id, "alerts", action="created", payload=payload)
+        await notify_admins("alerts", action="created", payload=payload)
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "message": "Emergency alert processed",
+                "emergency_id": str(alert.id),
+                "sms_sent_count": len(successful_contacts),
+                "contacts_count": len(sorted_contacts),
+                "responses": responses,
+                "data": {
+                    "alert": payload,
+                    "log_id": emergency_log.id,
+                },
+                "timestamp": datetime.utcnow().isoformat(),
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error triggering emergency: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"success": False, "error": f"Failed to trigger emergency: {str(e)}"},
         )
 
 # ======================

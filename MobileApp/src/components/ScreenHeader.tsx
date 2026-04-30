@@ -1,13 +1,36 @@
 import React from 'react';
-import { View, Text } from 'react-native';
+import { View, Text, TouchableOpacity } from 'react-native';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 
 interface ScreenHeaderProps {
   title: string;
   subtitle?: string;
   compact?: boolean;
+  showBack?: boolean;
+  onBack?: () => void;
 }
 
-export const ScreenHeader: React.FC<ScreenHeaderProps> = ({ title, subtitle, compact = false }) => {
+export const ScreenHeader: React.FC<ScreenHeaderProps> = ({
+  title,
+  subtitle,
+  compact = false,
+  showBack = false,
+  onBack,
+}) => {
+  const navigation = useNavigation<any>();
+
+  const handleBack = () => {
+    if (onBack) {
+      onBack();
+      return;
+    }
+
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    }
+  };
+
   return (
     <View
       className="mx-4 overflow-hidden bg-primary/10 border border-primary/20"
@@ -36,6 +59,15 @@ export const ScreenHeader: React.FC<ScreenHeaderProps> = ({ title, subtitle, com
         }}
       />
       <View style={{ paddingHorizontal: 20, paddingVertical: compact ? 18 : 20 }}>
+        {showBack ? (
+          <TouchableOpacity
+            className="self-start mb-3 w-10 h-10 rounded-full bg-white/80 border border-primary/15 items-center justify-center"
+            onPress={handleBack}
+            activeOpacity={0.8}
+          >
+            <MaterialCommunityIcons name="arrow-left" size={20} color="#2196F3" />
+          </TouchableOpacity>
+        ) : null}
         <Text
           className="font-bold text-dark"
           style={{ fontSize: compact ? 20 : 24 }}

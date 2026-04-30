@@ -21,6 +21,7 @@ export default function UsersPage() {
   const [users, setUsers] = useState<UserItem[]>([]);
   const [search, setSearch] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const load = (query = "") => {
     const q = query ? `&search=${encodeURIComponent(query)}` : "";
@@ -32,6 +33,24 @@ export default function UsersPage() {
   useEffect(() => {
     load();
   }, []);
+
+  const deleteUser = async (user: UserItem) => {
+    const confirmed = window.confirm(
+      `Delete user "${user.name}"?\n\nThis will permanently remove the user account.`
+    );
+    if (!confirmed) return;
+
+    setDeletingId(user.id);
+    setError(null);
+    try {
+      await apiFetch(`/admin/users/${user.id}`, { method: "DELETE" });
+      setUsers((prev) => prev.filter((item) => item.id !== user.id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete user");
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const matchesSearch = (user: UserItem, query: string) => {
     if (!query) return true;
@@ -101,34 +120,49 @@ export default function UsersPage() {
 
         <div className="mt-4 grid gap-3">
           {users.map((user) => (
-            <Link
+            <div
               key={user.id}
-              href={`/admin/users/${user.id}`}
               className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 transition hover:border-cyan-400/40"
             >
-              <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold text-slate-100">{user.name}</p>
                   <p className="text-xs text-slate-400">{user.email}</p>
                 </div>
-                <span className={`text-xs ${
-                  user.presence_status === "active"
-                    ? "text-emerald-300"
-                    : user.presence_status === "login"
-                    ? "text-amber-300"
-                    : "text-red-400"
-                }`}>
-                  {user.presence_status === "active"
-                    ? "Active"
-                    : user.presence_status === "login"
-                    ? "Login"
-                    : "Logout"}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className={`text-xs ${
+                    user.presence_status === "active"
+                      ? "text-emerald-300"
+                      : user.presence_status === "login"
+                      ? "text-amber-300"
+                      : "text-red-400"
+                  }`}>
+                    {user.presence_status === "active"
+                      ? "Active"
+                      : user.presence_status === "login"
+                      ? "Login"
+                      : "Logout"}
+                  </span>
+                  <Link
+                    href={`/admin/users/${user.id}`}
+                    className="rounded-full border border-cyan-400/40 px-3 py-1 text-xs text-cyan-100 transition hover:border-cyan-300"
+                  >
+                    Open
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => deleteUser(user)}
+                    disabled={deletingId === user.id}
+                    className="rounded-full border border-rose-500/40 px-3 py-1 text-xs text-rose-200 transition hover:border-rose-400 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {deletingId === user.id ? "Deleting..." : "Delete"}
+                  </button>
+                </div>
               </div>
               <div className="mt-2 text-xs text-slate-500">
                 Devices: {user.devices} · Online devices: {user.online_devices ?? 0} · Last seen: {user.last_seen || "-"}
               </div>
-            </Link>
+            </div>
           ))}
           {!users.length && <p className="text-sm text-slate-400">No users found.</p>}
         </div>

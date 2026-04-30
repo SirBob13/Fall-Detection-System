@@ -6,8 +6,8 @@ import { useLanguage } from '../components/LanguageProvider';
 
 interface AlertCardProps {
   alert: Alert;
-  onAcknowledge: () => void;
-  onResolve: () => void;
+  onAcknowledge?: () => void;
+  onResolve?: () => void;
   onImFine?: () => void;
 }
 
@@ -43,7 +43,9 @@ export const AlertCard: React.FC<AlertCardProps> = ({
 
   const getAlertIcon = () => {
     switch (alert.alert_type) {
-      case 'fall': return 'run';
+      case 'fall':
+      case 'fall_now': return 'run';
+      case 'fall_risk': return 'alert-outline';
       case 'heart_rate': return 'heart-pulse';
       case 'blood_pressure': return 'heart-flash';
       case 'temperature': return 'thermometer';
@@ -54,7 +56,9 @@ export const AlertCard: React.FC<AlertCardProps> = ({
 
   const getAlertTypeLabel = () => {
     switch (alert.alert_type) {
-      case 'fall': return t('alerts.types.fall');
+      case 'fall':
+      case 'fall_now': return t('alerts.types.fallNow');
+      case 'fall_risk': return t('alerts.types.fallRisk');
       case 'heart_rate': return t('alerts.types.heartRate');
       case 'blood_pressure': return t('alerts.types.bloodPressure');
       case 'temperature': return t('alerts.types.temperature');
@@ -85,6 +89,8 @@ export const AlertCard: React.FC<AlertCardProps> = ({
 
   const isCritical = alert.severity === 'critical';
   const isPending = alert.status === 'pending' || alert.status === 'sent';
+  const canManageAlert = Boolean(onAcknowledge || onResolve || onImFine);
+  const statusLabel = t(`alerts.status.${alert.status}`);
 
   return (
     <Animated.View 
@@ -139,14 +145,14 @@ export const AlertCard: React.FC<AlertCardProps> = ({
       {/* Details Row */}
       <View className="flex-row justify-between mb-4 p-3 bg-gray-50 rounded-lg">
         <View className="items-center flex-1">
-          <Text className="text-xs text-gray-400 mb-1">{t('alerts.id')}</Text>
-          <Text className="text-sm font-semibold text-gray-800">#{alert.id.toString().slice(-6)}</Text>
+          <Text className="text-xs text-gray-400 mb-1">{t('alerts.alertId')}</Text>
+          <Text className="text-sm font-semibold text-gray-800">#{alert.id}</Text>
         </View>
-        <View className="items-center flex-1 border-x border-gray-200">
+        <View className="items-center flex-1">
           <Text className="text-xs text-gray-400 mb-1">{t('alerts.type')}</Text>
           <Text className="text-sm font-semibold text-gray-800">{getAlertTypeLabel()}</Text>
         </View>
-        <View className="items-center flex-1">
+        <View className="items-center flex-1 border-l border-gray-200">
           <Text className="text-xs text-gray-400 mb-1">{t('alerts.time')}</Text>
           <Text className="text-sm font-semibold text-gray-800">
             {new Date(alert.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -155,7 +161,7 @@ export const AlertCard: React.FC<AlertCardProps> = ({
       </View>
 
       {/* Actions */}
-      {isPending ? (
+      {isPending && canManageAlert ? (
         <View>
           {onImFine && (
             <TouchableOpacity
@@ -169,26 +175,41 @@ export const AlertCard: React.FC<AlertCardProps> = ({
             </TouchableOpacity>
           )}
           <View className="flex-row">
-            <TouchableOpacity
-              className="flex-1 flex-row items-center justify-center py-3 bg-blue-50 rounded-xl mr-2 border border-blue-100"
-              onPress={onAcknowledge}
-            >
-              <Text className="text-blue-600 font-bold">{t('alerts.acknowledge')}</Text>
-            </TouchableOpacity>
+            {onAcknowledge ? (
+              <TouchableOpacity
+                className="flex-1 flex-row items-center justify-center py-3 bg-blue-50 rounded-xl mr-2 border border-blue-100"
+                onPress={onAcknowledge}
+              >
+                <Text className="text-blue-600 font-bold">{t('alerts.acknowledge')}</Text>
+              </TouchableOpacity>
+            ) : (
+              <View className="flex-1 mr-2" />
+            )}
             
-            <TouchableOpacity
-              className="flex-1 flex-row items-center justify-center py-3 bg-gray-800 rounded-xl ml-2"
-              onPress={onResolve}
-            >
-              <Text className="text-white font-bold">{t('alerts.resolve')}</Text>
-            </TouchableOpacity>
+            {onResolve ? (
+              <TouchableOpacity
+                className="flex-1 flex-row items-center justify-center py-3 bg-gray-800 rounded-xl ml-2"
+                onPress={onResolve}
+              >
+                <Text className="text-white font-bold">{t('alerts.resolve')}</Text>
+              </TouchableOpacity>
+            ) : (
+              <View className="flex-1 ml-2" />
+            )}
           </View>
+        </View>
+      ) : isPending ? (
+        <View className="flex-row items-center p-3 bg-orange-50 rounded-xl border border-orange-100">
+          <MaterialCommunityIcons name="eye-outline" size={20} color="#F59E0B" />
+          <Text className="text-sm text-orange-700 ml-2 font-medium">
+            {t(`alerts.status.${alert.status}`)}
+          </Text>
         </View>
       ) : (
         <View className="flex-row items-center p-3 bg-green-50 rounded-xl border border-green-100">
           <MaterialCommunityIcons name="check-circle" size={20} color="#10B981" />
           <Text className="text-sm text-green-700 ml-2 font-medium">
-            {t('alerts.resolvedMessage')}
+            {t('alerts.resolvedMessage', { status: statusLabel })}
           </Text>
         </View>
       )}

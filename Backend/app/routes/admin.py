@@ -17,7 +17,7 @@ import io
 from ..database import get_db
 from ..models import User, UserAuth, Device, MotionSensorData, VitalSensorData, Alert, Prediction, UserSession
 from ..config import SECRET_KEY, ALGORITHM, ADMIN_EMAILS
-from ..status_utils import get_device_connection_state, is_device_online, summarize_user_presence
+from ..status_utils import build_device_status_payload, is_device_online, summarize_user_presence
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -246,6 +246,16 @@ def get_admin_devices(
     db: Session = Depends(get_db)
 ):
     devices = db.query(Device).order_by(Device.last_seen.desc()).limit(limit).all()
+    device_ids = [device.device_id for device in devices]
+    latest_motion_rows = (
+        db.query(MotionSensorData.device_id, func.max(MotionSensorData.timestamp))
+        .filter(MotionSensorData.device_id.in_(device_ids))
+        .group_by(MotionSensorData.device_id)
+        .all()
+        if device_ids
+        else []
+    )
+    latest_motion_by_device = {device_id: timestamp for device_id, timestamp in latest_motion_rows}
     data = [
         {
             "id": d.id,
@@ -254,9 +264,8 @@ def get_admin_devices(
             "battery_level": d.battery_level,
             "firmware_version": d.firmware_version,
             "is_connected": bool(d.is_connected),
-            "is_online": is_device_online(d),
-            "connection_state": get_device_connection_state(d),
             "last_seen": d.last_seen.isoformat() if d.last_seen else None,
+            **build_device_status_payload(d, latest_motion_by_device.get(d.device_id)),
         }
         for d in devices
     ]
@@ -379,9 +388,13 @@ def get_admin_user_detail(
                     "battery_level": d.battery_level,
                     "firmware_version": d.firmware_version,
                     "is_connected": bool(d.is_connected),
-                    "is_online": is_device_online(d),
-                    "connection_state": get_device_connection_state(d),
                     "last_seen": d.last_seen.isoformat() if d.last_seen else None,
+                    **build_device_status_payload(
+                        d,
+                        db.query(func.max(MotionSensorData.timestamp))
+                        .filter(MotionSensorData.device_id == d.device_id)
+                        .scalar(),
+                    ),
                 }
                 for d in devices
             ],

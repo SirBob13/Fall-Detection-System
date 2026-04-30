@@ -13,12 +13,24 @@ interface DeviceItem {
   is_connected: boolean;
   is_online?: boolean;
   connection_state?: "connected" | "disconnected" | "offline" | "archived";
+  data_state?: "streaming" | "stale" | "no_data";
+  device_status?: "active" | "connected_no_data" | "disconnected" | "offline" | "archived";
+  device_status_label?: string;
+  latest_data_at?: string | null;
   last_seen?: string | null;
 }
+
+const statusTone = (status?: DeviceItem["device_status"]) => {
+  if (status === "active") return "text-emerald-300";
+  if (status === "connected_no_data") return "text-amber-300";
+  if (status === "disconnected") return "text-rose-300";
+  return "text-slate-500";
+};
 
 export default function DevicesPage() {
   const [devices, setDevices] = useState<DeviceItem[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
 
   useEffect(() => {
     apiFetch<{ data: DeviceItem[] }>("/admin/devices?limit=100")
@@ -26,10 +38,33 @@ export default function DevicesPage() {
       .catch((err) => setError(err.message));
   }, []);
 
+  const deleteDevice = async (device: DeviceItem) => {
+    const confirmed = window.confirm(
+      `Delete device "${device.device_id}" permanently?\n\nThis will remove the device and its stored motion history from the system.`
+    );
+    if (!confirmed) return;
+
+    setDeletingId(device.id);
+    setError(null);
+    try {
+      await apiFetch(`/devices/${encodeURIComponent(device.device_id)}?user_id=${device.user_id}`, {
+        method: "DELETE",
+      });
+      setDevices((prev) => prev.filter((item) => item.id !== device.id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete device");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   useRealtimeEvents(["devices"], (event) => {
     if (!event.payload) return;
     setDevices((prev) => {
       const payload = event.payload as DeviceItem;
+      if (event.action === "deleted") {
+        return prev.filter((item) => item.id !== payload.id);
+      }
       const exists = prev.find((item) => item.id === payload.id);
       const next = exists
         ? prev.map((item) => (item.id === payload.id ? { ...item, ...payload } : item))
@@ -49,14 +84,25 @@ export default function DevicesPage() {
                 <p className="text-sm text-slate-300">
                   <span className="text-slate-100 font-semibold">{device.device_id}</span> · User {device.user_id}
                 </p>
-                <span className={`text-xs ${
-                  device.connection_state === "connected" ? "text-emerald-300" : "text-slate-500"
-                }`}>
-                  {device.connection_state === "connected" ? "Connected" : "Offline"}
-                </span>
+                <div className="flex items-center gap-3">
+                  <span className={`text-xs ${statusTone(device.device_status)}`}>
+                    {device.device_status_label || "Offline"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => deleteDevice(device)}
+                    disabled={deletingId === device.id}
+                    className="rounded-full border border-rose-500/40 px-3 py-1 text-xs text-rose-200 transition hover:border-rose-400 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {deletingId === device.id ? "Deleting..." : "Delete"}
+                  </button>
+                </div>
               </div>
               <p className="mt-2 text-sm text-slate-400">Battery {device.battery_level ?? "-"} | Firmware {device.firmware_version || "-"}</p>
-              <p className="mt-1 text-xs text-slate-500">Last seen: {device.last_seen || "-"}</p>
+              <p className="mt-1 text-xs text-slate-500">
+                Last seen: {device.last_seen || "-"}
+                {device.latest_data_at ? ` · Data: ${device.latest_data_at}` : ""}
+              </p>
             </div>
           ))}
           {!devices.length && <p className="text-sm text-slate-400">No devices yet.</p>}

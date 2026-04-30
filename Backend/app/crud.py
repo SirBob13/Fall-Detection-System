@@ -223,6 +223,17 @@ def get_care_links_by_caregiver(db: Session, caregiver_id: int) -> List[models.C
         logger.error(f"Database error getting care links for caregiver {caregiver_id}: {e}")
         return []
 
+def get_care_links_by_patient(db: Session, patient_id: int) -> List[models.CareLink]:
+    """List care links where the user is the monitored patient."""
+    try:
+        return db.query(models.CareLink).filter(
+            models.CareLink.patient_id == patient_id,
+            models.CareLink.is_active == True
+        ).all()
+    except SQLAlchemyError as e:
+        logger.error(f"Database error getting care links for patient {patient_id}: {e}")
+        return []
+
 def delete_care_link(db: Session, link_id: int, caregiver_id: Optional[int] = None) -> bool:
     """Delete a care link."""
     try:
@@ -767,13 +778,11 @@ def process_motion_and_predict(
         db.refresh(db_prediction)
         
         # 7. Create alert if needed
-        alert = None
-        if verified_prediction.get("final_verdict", False):
-            alert = verification_system.create_alert_if_needed(
-                user_id=motion_data.user_id,
-                prediction_id=db_prediction.id,
-                verification_result=verified_prediction
-            )
+        alert = verification_system.create_alert_if_needed(
+            user_id=motion_data.user_id,
+            prediction_id=db_prediction.id,
+            verification_result=verified_prediction
+        )
         
         return {
             "success": True,

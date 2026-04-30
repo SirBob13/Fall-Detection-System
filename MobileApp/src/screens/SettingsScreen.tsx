@@ -1,52 +1,72 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
   ScrollView,
-  Switch,
   TouchableOpacity,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useScrollToTop } from '@react-navigation/native';
 import { NativeStackNavigationProp as StackNavigationProp } from '@react-navigation/native-stack';
 import { useLanguage } from '../components/LanguageProvider';
 import { useSettings } from '../components/SettingsProvider';
 import { storageService } from '../services/storage';
-import { notificationService } from '../services/notifications';
 import { authService } from '../services/auth.service';
 import { User, Device } from '../types';
 import { ScreenHeader } from '../components/ScreenHeader';
-import { getUserPresenceStatus, isDeviceOnline } from '../utils/deviceStatus';
+import { getDeviceOperationalStatus, getDeviceStatusLabel, getUserPresenceStatus } from '../utils/deviceStatus';
+import { deviceService } from '../services/device.service';
 
 type SettingsScreenNavigationProp = StackNavigationProp<any>;
 
 export const SettingsScreen: React.FC = () => {
   const navigation = useNavigation<SettingsScreenNavigationProp>();
   const { t, language } = useLanguage();
-  const { settings, updateSetting, refreshSettings } = useSettings();
+  const { settings, refreshSettings, updateSettings } = useSettings();
+  const scrollRef = useRef<any>(null);
   const [user, setUser] = useState<User | null>(null);
-  const [device, setDevice] = useState<Device | null>(null);
+  const [primaryDevice, setPrimaryDevice] = useState<Device | null>(null);
+  const [devices, setDevices] = useState<Device[]>([]);
+  const [removingDeviceId, setRemovingDeviceId] = useState<string | null>(null);
+  const [isRefreshingDevices, setIsRefreshingDevices] = useState(false);
+
+  useScrollToTop(scrollRef);
 
   useEffect(() => {
     loadData();
   }, []);
 
   const loadData = async () => {
-    const sessionUser = await authService.getCurrentUser();
-    const storedUser = sessionUser || (await storageService.getUser());
-    const storedDevice = await storageService.getDevice();
-    setUser(storedUser as User);
-    setDevice(storedDevice);
-    await refreshSettings();
-  };
+    setIsRefreshingDevices(true);
+    try {
+      const sessionUser = await authService.getCurrentUser();
+      const storedUser = sessionUser || (await storageService.getUser());
+      const storedDevice = await storageService.getDevice();
 
-  const handleSettingChange = async (key: keyof typeof settings, value: any) => {
-    await updateSetting(key, value);
-    if (key === 'notifications' && !value) {
-      notificationService.cancelAllNotifications();
+      setUser(storedUser as User);
+      await refreshSettings();
+
+      const activeUserId = Number((storedUser as User | null)?.id || 0);
+      if (activeUserId) {
+        const userDevices = await deviceService.refreshUserDevices(activeUserId);
+        const mergedDevices = dedupeDevices([
+          ...userDevices,
+          ...(storedDevice ? [storedDevice] : []),
+        ]);
+        setDevices(mergedDevices);
+      } else {
+        setDevices(storedDevice ? [storedDevice] : []);
+      }
+
+      setPrimaryDevice(storedDevice);
+    } finally {
+      setIsRefreshingDevices(false);
     }
   };
+
+  const currentDeviceId = settings.defaultDeviceId || primaryDevice?.device_id || devices[0]?.device_id;
 
   const handleLogout = () => {
     Alert.alert(t('settings.logout'), t('common.confirmLogout'), [
@@ -63,11 +83,79 @@ export const SettingsScreen: React.FC = () => {
     ]);
   };
 
-  const presenceStatus = getUserPresenceStatus(!!user, device ? [device] : []);
+  const handleShowDeviceDetails = (device: Device) => {
+    navigation.navigate('DeviceDetails', { device });
+  };
+
+  const handleRemoveDevice = (device: Device) => {
+    if (!user?.id) return;
+
+    Alert.alert(t('system.removeDeviceTitle'), t('system.removeDeviceBody'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      {
+        text: t('system.removeDeviceAction'),
+        style: 'destructive',
+        onPress: async () => {
+          setRemovingDeviceId(device.device_id);
+          try {
+            const removed = await deviceService.removeDevice(device.device_id, user.id);
+            if (!removed) {
+              Alert.alert(t('common.error'), t('system.removeDeviceFailed'));
+              return;
+            }
+
+            if (settings.defaultDeviceId === device.device_id) {
+              await updateSettings({ defaultDeviceId: null });
+            }
+
+            await loadData();
+            Alert.alert(t('common.success'), t('system.deviceRemoved'));
+          } catch (error) {
+            Alert.alert(t('common.error'), t('system.removeDeviceFailed'));
+          } finally {
+            setRemovingDeviceId(null);
+          }
+        },
+      },
+    ]);
+  };
+
+  const formatRelativeTime = (dateString?: string | null) => {
+    if (!dateString) return null;
+    const date = new Date(dateString);
+    if (Number.isNaN(date.getTime())) return null;
+
+    const diffMs = Date.now() - date.getTime();
+    const diffSeconds = Math.max(0, Math.floor(diffMs / 1000));
+    if (diffSeconds < 60) return t('datetime.secondsAgo', { count: diffSeconds || 1 });
+
+    const diffMinutes = Math.floor(diffSeconds / 60);
+    if (diffMinutes < 60) return t('datetime.minutesAgo', { count: diffMinutes });
+
+    const diffHours = Math.floor(diffMinutes / 60);
+    if (diffHours < 24) return t('datetime.hoursAgo', { count: diffHours });
+
+    return t('datetime.daysAgo', { count: Math.floor(diffHours / 24) });
+  };
+
+  const getDeviceQuickStatus = (device: Device) => {
+    if (device.data_state === 'streaming') {
+      return t('system.deviceQuickLive');
+    }
+
+    const syncTime = formatRelativeTime(device.latest_data_at || device.last_seen);
+    if (syncTime) {
+      return t('system.deviceQuickLastSync', { time: syncTime });
+    }
+
+    return t('system.dataUnavailable');
+  };
+
+  const presenceStatus = getUserPresenceStatus(!!user, devices);
   const presenceLabel = presenceStatus === 'active' ? t('system.userActive') : t('system.userLoggedIn');
 
   return (
-    <ScrollView className="flex-1 bg-gray-50" showsVerticalScrollIndicator={false}>
+    <ScrollView ref={scrollRef} className="flex-1 bg-gray-50" showsVerticalScrollIndicator={false}>
       <ScreenHeader title={t('settings.title')} subtitle={t('settings.subtitle')} />
 
       {/* User Info Card */}
@@ -86,12 +174,25 @@ export const SettingsScreen: React.FC = () => {
               {user ? `${user.age} ${t('common.years')} • ${presenceLabel}` : t('settings.personalInfoDesc')}
             </Text>
           </View>
+          <View className="px-3 py-1 rounded-full bg-primary/10 mr-3">
+            <Text className="text-[10px] font-bold text-primary">{presenceLabel}</Text>
+          </View>
           <MaterialCommunityIcons name="chevron-right" size={24} color="#D1D5DB" />
         </TouchableOpacity>
       </View>
 
       {/* Main Settings Section */}
       <View className="px-5 space-y-3">
+        <Text className="text-xs font-bold text-gray-400 uppercase mb-2 ml-2">{t('settings.quickAccess')}</Text>
+        <SettingItem
+          icon="phone-alert"
+          color="#EF4444"
+          bgColor="bg-red-50"
+          title={t('emergency.contacts.title')}
+          desc={t('emergency.contacts.description')}
+          onPress={() => navigation.navigate('EmergencyContacts')}
+        />
+
         <SettingItem 
           icon="account-multiple" 
           color="#10B981" 
@@ -115,78 +216,113 @@ export const SettingsScreen: React.FC = () => {
           color="#6366F1" 
           bgColor="bg-indigo-50"
           title={t('language.title')}
-          desc={language === 'ar' ? 'العربية' : 'English'}
+          desc={language === 'ar' ? t('language.arabic') : t('language.english')}
           onPress={() => navigation.navigate('LanguageSettings')}
         />
       </View>
 
-      {/* Emergency Contacts Box */}
       <View className="px-5 mt-6">
-        <Text className="text-xs font-bold text-gray-400 uppercase mb-2 ml-2">{t('emergency.title')}</Text>
-        <TouchableOpacity
-          className="flex-row items-center bg-white p-5 rounded-3xl shadow-sm border border-red-50"
-          onPress={() => navigation.navigate('EmergencyContacts')}
-        >
-          <View className="w-12 h-12 rounded-full bg-red-50 justify-center items-center">
-            <MaterialCommunityIcons name="phone-alert" size={24} color="#EF4444" />
+        <View className="flex-row items-center justify-between mb-2 px-2">
+          <Text className="text-xs font-bold text-gray-400 uppercase">{t('settings.deviceInfo')}</Text>
+          <View className="flex-row items-center">
+            <View className="px-2.5 py-1 rounded-full bg-primary/10 mr-2">
+              <Text className="text-[10px] font-bold text-primary">
+                {t('settings.deviceCount', { count: devices.length })}
+              </Text>
+            </View>
+            <TouchableOpacity
+              className="w-8 h-8 rounded-full bg-white border border-gray-200 items-center justify-center"
+              onPress={loadData}
+              disabled={isRefreshingDevices}
+            >
+              {isRefreshingDevices ? (
+                <ActivityIndicator size="small" color="#2196F3" />
+              ) : (
+                <MaterialCommunityIcons name="refresh" size={16} color="#2196F3" />
+              )}
+            </TouchableOpacity>
           </View>
-          <View className="ml-4 flex-1">
-            <Text className="text-base font-bold text-gray-900">{t('emergency.contacts.title')}</Text>
-            <Text className="text-xs text-gray-500">{t('emergency.contacts.description')}</Text>
-          </View>
-          <MaterialCommunityIcons name="chevron-right" size={24} color="#D1D5DB" />
-        </TouchableOpacity>
-      </View>
-
-      {/* Device Status Box */}
-      {device && (
-        <View className="px-5 mt-6">
-          <Text className="text-xs font-bold text-gray-400 uppercase mb-2 ml-2">{t('system.deviceInfo')}</Text>
+        </View>
+        {devices.length === 0 ? (
           <View className="bg-white p-5 rounded-3xl shadow-sm border border-gray-100">
-            <View className="flex-row items-center justify-between mb-4">
-              <View className="flex-row items-center">
-                <MaterialCommunityIcons name="watch" size={24} color="#6B7280" />
-                <Text className="ml-2 font-bold text-gray-800">{device.device_id}</Text>
-              </View>
-              <View className={`px-3 py-1 rounded-full ${isDeviceOnline(device) ? 'bg-green-100' : 'bg-red-100'}`}>
-                <Text className={`text-[10px] font-bold ${isDeviceOnline(device) ? 'text-green-700' : 'text-red-700'}`}>
-                  {isDeviceOnline(device) ? t('common.online') : t('common.offline')}
-                </Text>
-              </View>
-            </View>
-            
-            <View className="flex-row justify-between border-t border-gray-50 pt-4">
-              <StatusMiniItem icon="battery" label={t('home.battery')} value={`${device.battery_level}%`} />
-              <StatusMiniItem icon="clock-outline" label={t('system.lastSeen')} value={device.last_seen ? new Date(device.last_seen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--'} />
-              <StatusMiniItem icon="tag-outline" label={t('system.version')} value={device.firmware_version || '1.0'} />
-            </View>
+            <Text className="text-sm font-semibold text-gray-800">{t('system.noDevicesLinkedTitle')}</Text>
+            <Text className="text-xs text-gray-500 mt-1">{t('system.noDevicesLinkedDesc')}</Text>
           </View>
-        </View>
-      )}
+        ) : (
+          devices.map((device) => {
+            const isCurrent = currentDeviceId === device.device_id;
+            const isOnlineLike = ['active', 'connected_no_data'].includes(getDeviceOperationalStatus(device));
 
-      {/* Toggles Section */}
-      <View className="px-5 mt-6">
-        <View className="bg-white rounded-3xl p-2 border border-gray-100">
-          <ToggleRow 
-            label={t('settings.notifications')} 
-            value={!!settings.notifications} 
-            onValueChange={(val: boolean) => handleSettingChange('notifications', val)} 
-          />
-          <View className="h-px bg-gray-50 mx-4" />
-          <ToggleRow 
-            label={t('settings.autoConnect')} 
-            value={!!settings.autoConnect} 
-            onValueChange={(val: boolean) => handleSettingChange('autoConnect', val)} 
-          />
-        </View>
+            return (
+              <View key={device.device_id} className="bg-white p-5 rounded-3xl shadow-sm border border-gray-100 mb-4">
+                <View className="flex-row items-center justify-between mb-4">
+                  <View className="flex-row items-center flex-1 pr-3">
+                    <MaterialCommunityIcons name="watch" size={24} color="#6B7280" />
+                    <View className="ml-2 flex-1">
+                      <Text className="font-bold text-gray-800">{device.device_id}</Text>
+                      <Text className="text-[11px] text-gray-500 mt-1">{getDeviceQuickStatus(device)}</Text>
+                      {isCurrent ? (
+                        <Text className="text-[11px] text-primary mt-1">{t('system.currentDevice')}</Text>
+                      ) : null}
+                    </View>
+                  </View>
+                  <View className={`px-3 py-1 rounded-full ${isOnlineLike ? 'bg-green-100' : 'bg-red-100'}`}>
+                    <Text className={`text-[10px] font-bold ${isOnlineLike ? 'text-green-700' : 'text-red-700'}`}>
+                      {getDeviceStatusLabel(device)}
+                    </Text>
+                  </View>
+                </View>
+
+                <View className="flex-row justify-between border-t border-gray-50 pt-4">
+                  <StatusMiniItem
+                    icon="battery"
+                    label={t('home.battery')}
+                    value={typeof device.battery_level === 'number' ? `${device.battery_level}%` : '--'}
+                  />
+                  <StatusMiniItem
+                    icon="clock-outline"
+                    label={t('system.lastSeen')}
+                    value={device.last_seen ? new Date(device.last_seen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--'}
+                  />
+                  <StatusMiniItem
+                    icon="tag-outline"
+                    label={t('system.version')}
+                    value={device.firmware_version || '--'}
+                  />
+                </View>
+
+                <View className="flex-row mt-4">
+                  <TouchableOpacity
+                    className="flex-1 mr-2 rounded-xl bg-blue-50 border border-primary/20 py-3 items-center"
+                    onPress={() => handleShowDeviceDetails(device)}
+                  >
+                    <Text className="text-xs font-semibold text-primary">{t('system.viewDetails')}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    className="flex-1 ml-2 rounded-xl bg-red-50 border border-danger/20 py-3 items-center"
+                    onPress={() => handleRemoveDevice(device)}
+                    disabled={removingDeviceId === device.device_id}
+                  >
+                    <Text className="text-xs font-semibold text-danger">
+                      {removingDeviceId === device.device_id ? t('common.loading') : t('system.removeDeviceAction')}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            );
+          })
+        )}
       </View>
 
       {/* Bottom Actions */}
       <View className="px-5 mt-6 mb-10 space-y-2">
-        <ActionRow icon="help-circle" title={t('settings.help')} color="#06B6D4" onPress={() => Alert.alert(t('settings.help'), t('settings.helpMessage'))} />
-        <ActionRow icon="shield-lock" title={t('settings.privacy')} color="#10B981" onPress={() => navigation.navigate('PrivacyPolicy')} />
-        <ActionRow icon="information" title={t('settings.about')} color="#3B82F6" onPress={() => Alert.alert(t('app.name'), `${t('app.version')} 2.0.0`)} />
-        <ActionRow icon="logout" title={t('settings.logout')} color="#EF4444" onPress={handleLogout} isLast />
+        <Text className="text-xs font-bold text-gray-400 uppercase mb-2 ml-2">{t('settings.actions')}</Text>
+        <View className="bg-white rounded-3xl border border-gray-100 overflow-hidden shadow-sm">
+          <ActionRow icon="help-circle" title={t('settings.help')} color="#06B6D4" onPress={() => Alert.alert(t('settings.help'), t('settings.helpMessage'))} />
+          <ActionRow icon="shield-lock" title={t('settings.privacy')} color="#10B981" onPress={() => navigation.navigate('PrivacyPolicy')} />
+          <ActionRow icon="information" title={t('settings.about')} color="#3B82F6" onPress={() => Alert.alert(t('settings.about'), t('settings.aboutMessage', { version: '2.0.0' }))} />
+          <ActionRow icon="logout" title={t('settings.logout')} color="#EF4444" onPress={handleLogout} isLast />
+        </View>
       </View>
 
       {/* App Branding */}
@@ -200,8 +336,11 @@ export const SettingsScreen: React.FC = () => {
 
 // --- Sub-components to keep code clean ---
 
+const dedupeDevices = (devices: Device[]): Device[] =>
+  devices.filter((device, index, list) => list.findIndex((item) => item.device_id === device.device_id) === index);
+
 const SettingItem = ({ icon, color, bgColor, title, desc, onPress }: any) => (
-  <TouchableOpacity onPress={onPress} className="flex-row items-center bg-white p-4 rounded-2xl mb-3 shadow-sm border border-gray-50">
+  <TouchableOpacity onPress={onPress} className="flex-row items-center bg-white p-4 rounded-2xl mb-3 shadow-sm border border-gray-100">
     <View className={`w-11 h-11 rounded-xl ${bgColor} justify-center items-center`}>
       <MaterialCommunityIcons name={icon} size={22} color={color} />
     </View>
@@ -221,20 +360,8 @@ const StatusMiniItem = ({ icon, label, value }: any) => (
   </View>
 );
 
-const ToggleRow = ({ label, value, onValueChange }: any) => (
-  <View className="flex-row items-center justify-between p-4">
-    <Text className="text-sm font-semibold text-gray-700">{label}</Text>
-    <Switch 
-      value={value} 
-      onValueChange={onValueChange} 
-      trackColor={{ false: '#E5E7EB', true: '#3B82F6' }}
-      thumbColor="#FFFFFF"
-    />
-  </View>
-);
-
 const ActionRow = ({ icon, title, color, onPress, isLast }: any) => (
-  <TouchableOpacity onPress={onPress} className={`flex-row items-center bg-white p-4 ${isLast ? 'rounded-b-2xl' : ''} border-b border-gray-50`}>
+  <TouchableOpacity onPress={onPress} className={`flex-row items-center bg-white p-4 ${isLast ? '' : 'border-b border-gray-50'}`}>
     <MaterialCommunityIcons name={icon} size={20} color={color} />
     <Text className="ml-3 flex-1 text-sm font-medium text-gray-700">{title}</Text>
     <MaterialCommunityIcons name="chevron-right" size={18} color="#D1D5DB" />

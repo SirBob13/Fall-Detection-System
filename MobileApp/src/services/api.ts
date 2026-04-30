@@ -7,6 +7,7 @@ import {
   Prediction, Alert, ApiResponse, CareLink, CareLinkRequest, DeviceIngestPayload, LastKnownLocation, CareDashboardItem, ReportSummary,
   DevicePairingTokenRequest, DevicePairingTokenResponse
 } from '../types';
+import { EmergencyContact, EmergencyResponse as EmergencyDispatchResponse } from './emergency.types';
 
 class ApiService {
   private client: AxiosInstance;
@@ -363,6 +364,44 @@ class ApiService {
     }
   }
 
+  async triggerEmergency(payload: {
+    user_id: number;
+    user_name?: string;
+    language?: string;
+    type: string;
+    message?: string;
+    location?: {
+      latitude: number;
+      longitude: number;
+      accuracy?: number;
+    } | null;
+    fall_data?: Record<string, any> | null;
+    contacts: EmergencyContact[];
+  }): Promise<ApiResponse<{
+    emergency_id: string;
+    sms_sent_count: number;
+    contacts_count: number;
+    responses: EmergencyDispatchResponse[];
+  }>> {
+    try {
+      const response = await this.client.post('/emergency/trigger', payload);
+      const data = response.data;
+      return {
+        success: data?.success ?? true,
+        data: {
+          emergency_id: data?.emergency_id,
+          sms_sent_count: data?.sms_sent_count ?? 0,
+          contacts_count: data?.contacts_count ?? 0,
+          responses: Array.isArray(data?.responses) ? data.responses : [],
+        },
+        message: data?.message,
+      };
+    } catch (error: any) {
+      console.error('❌ Error triggering emergency:', error.message);
+      return this.formatApiError(error, 'فشل إرسال طلب الطوارئ');
+    }
+  }
+
   async getUserReport(userId: number, days: number = 7): Promise<ApiResponse<ReportSummary>> {
     try {
       const response = await this.client.get(`/reports/${userId}?days=${days}`);
@@ -494,6 +533,14 @@ class ApiService {
         };
       }
 
+      if (status === 409) {
+        return {
+          success: false,
+          error: error.message,
+          message: 'هذا الجهاز مربوط بالفعل بمستخدم آخر أو ما زال مسجلًا على الحساب. احذفيه أولًا من المستخدم المرتبط به ثم أعيدي محاولة الربط.',
+        };
+      }
+
       return this.formatApiError(error, 'فشل إنشاء رمز ربط الجهاز');
     }
   }
@@ -587,6 +634,22 @@ class ApiService {
         success: false,
         error: error.message,
         message: 'فشل تحميل بيانات المتابعة'
+      };
+    }
+  }
+
+  async getCareLinksAsPatient(patientId: number): Promise<ApiResponse<CareLink[]>> {
+    try {
+      const response = await this.client.get(`/care/links/patient/${patientId}`);
+      const payload = response.data;
+      const links = Array.isArray(payload?.data) ? payload.data : [];
+      return { success: payload?.success ?? true, data: links };
+    } catch (error: any) {
+      console.error('❌ Error getting care links as patient:', error.message);
+      return {
+        success: false,
+        error: error.message,
+        message: 'فشل تحميل الأشخاص الذين يراقبونك'
       };
     }
   }
@@ -710,6 +773,38 @@ class ApiService {
     }
   }
 
+  async getCareRequestsApprovals(userId: number): Promise<ApiResponse<CareLinkRequest[]>> {
+    try {
+      const response = await this.client.get(`/care/requests/approvals/${userId}`);
+      const payload = response.data;
+      const requests = Array.isArray(payload?.data) ? payload.data : [];
+      return { success: payload?.success ?? true, data: requests };
+    } catch (error: any) {
+      console.error('❌ Error getting approval care requests:', error.message);
+      return {
+        success: false,
+        error: error.message,
+        message: 'فشل تحميل الطلبات التي تحتاج موافقتك'
+      };
+    }
+  }
+
+  async getCareRequestsSent(userId: number): Promise<ApiResponse<CareLinkRequest[]>> {
+    try {
+      const response = await this.client.get(`/care/requests/sent/${userId}`);
+      const payload = response.data;
+      const requests = Array.isArray(payload?.data) ? payload.data : [];
+      return { success: payload?.success ?? true, data: requests };
+    } catch (error: any) {
+      console.error('❌ Error getting sent care requests:', error.message);
+      return {
+        success: false,
+        error: error.message,
+        message: 'فشل تحميل الطلبات المرسلة'
+      };
+    }
+  }
+
   async acceptCareRequest(requestId: number, patientId: number): Promise<ApiResponse<CareLinkRequest>> {
     try {
       const response = await this.client.post(`/care/requests/${requestId}/accept`, { patient_id: patientId });
@@ -740,7 +835,7 @@ class ApiService {
 
   async cancelCareRequest(requestId: number, caregiverId: number): Promise<ApiResponse<CareLinkRequest>> {
     try {
-      const response = await this.client.post(`/care/requests/${requestId}/cancel`, { caregiver_id: caregiverId });
+      const response = await this.client.post(`/care/requests/${requestId}/cancel`, { requester_id: caregiverId });
       return response.data;
     } catch (error: any) {
       console.error('❌ Error cancelling care request:', error.message);
@@ -762,6 +857,22 @@ class ApiService {
         success: false,
         error: error.message,
         message: 'فشل حذف الربط'
+      };
+    }
+  }
+
+  async requestCareUnlink(linkId: number, requesterId: number): Promise<ApiResponse<CareLinkRequest>> {
+    try {
+      const response = await this.client.post(`/care/links/${linkId}/request-unlink`, {
+        requester_id: requesterId,
+      });
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ Error requesting care unlink:', error.message);
+      return {
+        success: false,
+        error: error.message,
+        message: 'فشل إرسال طلب إلغاء المتابعة'
       };
     }
   }

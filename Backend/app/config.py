@@ -23,9 +23,16 @@ TIME_STEPS = 100
 # Feature engineering window (must match training)
 VAR_WINDOW = 10
 
-# Thresholds (must match training)
-FALL_THRESHOLD_NOW = 0.35
-FALL_THRESHOLD_SOON = 0.30
+# Model thresholds
+# `FALL_THRESHOLD_NOW` and `FALL_THRESHOLD_SOON` are used for prediction labeling.
+# Alerting is stricter and handled in the double-verification layer.
+FALL_THRESHOLD_NOW = float(os.getenv("FALL_THRESHOLD_NOW", "0.55"))
+FALL_THRESHOLD_SOON = float(os.getenv("FALL_THRESHOLD_SOON", "0.80"))
+
+# Alerting thresholds
+# If vitals confirm stress/abnormality we can accept a lower motion score.
+FALL_ALERT_THRESHOLD = float(os.getenv("FALL_ALERT_THRESHOLD", "0.85"))
+FALL_ALERT_WITH_VITALS_THRESHOLD = float(os.getenv("FALL_ALERT_WITH_VITALS_THRESHOLD", "0.70"))
 
 print(f"🔍 AI Model Path: {MODEL_PATH}")
 print(f"🔍 AI Scaler Path: {SCALER_PATH}")
@@ -105,7 +112,7 @@ SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
 EMAIL_FROM = os.getenv("EMAIL_FROM", "noreply@falldetection.com")
 
 # Mock mode settings
-USE_MOCK_DATA = os.getenv("USE_MOCK_DATA", "true").lower() == "true"
+USE_MOCK_DATA = os.getenv("USE_MOCK_DATA", "false").lower() == "true"
 MOCK_FALL_PROBABILITY = 0.15  # 15% chance of mock fall
 
 # Admin access (comma-separated emails)

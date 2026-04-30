@@ -14,6 +14,10 @@ interface UserDevice {
   is_connected: boolean;
   is_online?: boolean;
   connection_state?: "connected" | "disconnected" | "offline" | "archived";
+  data_state?: "streaming" | "stale" | "no_data";
+  device_status?: "active" | "connected_no_data" | "disconnected" | "offline" | "archived";
+  device_status_label?: string;
+  latest_data_at?: string | null;
   last_seen?: string | null;
 }
 
@@ -92,6 +96,13 @@ interface PredictionItem {
   confidence_score?: number | null;
   timestamp?: string | null;
 }
+
+const statusTone = (status?: UserDevice["device_status"]) => {
+  if (status === "active") return "text-emerald-300";
+  if (status === "connected_no_data") return "text-amber-300";
+  if (status === "disconnected") return "text-rose-300";
+  return "text-slate-500";
+};
 
 export default function UserDetailPage() {
   const params = useParams();
@@ -376,12 +387,15 @@ export default function UserDetailPage() {
               <div key={device.id} className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
                 <div className="flex items-center justify-between">
                   <span className="font-semibold text-slate-100">{device.device_id}</span>
-                  <span className={`text-xs ${device.connection_state === "connected" ? "text-emerald-300" : "text-slate-500"}`}>
-                    {device.connection_state === "connected" ? "Connected" : "Offline"}
+                  <span className={`text-xs ${statusTone(device.device_status)}`}>
+                    {device.device_status_label || "Offline"}
                   </span>
                 </div>
                 <p className="text-xs text-slate-500">Battery {device.battery_level ?? "-"} | Firmware {device.firmware_version || "-"}</p>
-                <p className="text-xs text-slate-500">Last seen: {device.last_seen || "-"}</p>
+                <p className="text-xs text-slate-500">
+                  Last seen: {device.last_seen || "-"}
+                  {device.latest_data_at ? ` · Data: ${device.latest_data_at}` : ""}
+                </p>
               </div>
             ))}
             {!detail?.devices?.length && <p className="text-sm text-slate-400">No devices linked.</p>}

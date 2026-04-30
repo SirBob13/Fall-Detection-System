@@ -9,8 +9,8 @@ import { apiService } from '../services/api';
 import { storageService } from '../services/storage';
 import { User } from '../types';
 import { transliterateArabic } from '../utils/transliteration';
-import { realtimeService } from '../services/realtime.service';
 import type { SettingsStackParamList } from '../navigation/AppNavigator';
+import { ScreenHeader } from '../components/ScreenHeader';
 
 // دالة التطبيع لتحويل الأرقام العربية إلى إنجليزية
 const normalizeToEnglishDigits = (value: string): string =>
@@ -125,9 +125,20 @@ export const PersonalInfoScreen: React.FC = () => {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
+          {!isOnboarding ? (
+            <ScreenHeader
+              title={t('settings.personalInfo')}
+              subtitle={t('settings.personalInfoDesc')}
+              showBack
+            />
+          ) : null}
+
           <View style={styles.card}>
             <Text style={styles.title}>
               {isOnboarding ? t('auth.completeProfile.title') : t('settings.personalInfo')}
+            </Text>
+            <Text style={styles.subtitle}>
+              {isOnboarding ? t('personalInfo.setupHint') : t('personalInfo.updateHint')}
             </Text>
             
             <Label>{t('auth.register.name')}</Label>
@@ -135,7 +146,7 @@ export const PersonalInfoScreen: React.FC = () => {
               style={styles.input}
               value={form.name}
               onChangeText={(v) => setForm({...form, name: normalizeTextInput(v)})}
-              placeholder="John Doe"
+              placeholder={t('personalInfo.namePlaceholder')}
               placeholderTextColor="#9CA3AF"
               returnKeyType="done"
               onSubmitEditing={Keyboard.dismiss}
@@ -148,7 +159,7 @@ export const PersonalInfoScreen: React.FC = () => {
               onChangeText={(v) => setForm({...form, phone: normalizePhoneInput(v)})}
               keyboardType="phone-pad"
               inputAccessoryViewID={Platform.OS === 'ios' ? IOS_KEYBOARD_ACCESSORY_ID : undefined}
-              placeholder="+201234567890"
+              placeholder={t('personalInfo.phonePlaceholder')}
               placeholderTextColor="#9CA3AF"
               returnKeyType="done"
               onSubmitEditing={Keyboard.dismiss}
@@ -186,6 +197,9 @@ export const PersonalInfoScreen: React.FC = () => {
                                   size={18} 
                                   color={form.gender === g ? '#FFF' : '#6B7280'} 
                               />
+                              <Text style={[styles.genderLabel, form.gender === g && styles.genderLabelActive]}>
+                                {g === 'male' ? t('common.male') : t('common.female')}
+                              </Text>
                           </TouchableOpacity>
                       ))}
                   </View>
@@ -201,6 +215,8 @@ export const PersonalInfoScreen: React.FC = () => {
                 keyboardType="numeric"
                 inputAccessoryViewID={Platform.OS === 'ios' ? IOS_KEYBOARD_ACCESSORY_ID : undefined}
                 onChangeText={(v) => setForm({...form, height: normalizeNumericInput(v)})}
+                placeholder={t('personalInfo.heightPlaceholder')}
+                placeholderTextColor="#9CA3AF"
                 returnKeyType="done"
                 onSubmitEditing={Keyboard.dismiss}
               />
@@ -213,6 +229,8 @@ export const PersonalInfoScreen: React.FC = () => {
                 keyboardType="numeric"
                 inputAccessoryViewID={Platform.OS === 'ios' ? IOS_KEYBOARD_ACCESSORY_ID : undefined}
                 onChangeText={(v) => setForm({...form, weight: normalizeNumericInput(v)})}
+                placeholder={t('personalInfo.weightPlaceholder')}
+                placeholderTextColor="#9CA3AF"
                 returnKeyType="done"
                 onSubmitEditing={Keyboard.dismiss}
               />
@@ -226,6 +244,8 @@ export const PersonalInfoScreen: React.FC = () => {
             onChangeText={(v) => setForm({...form, emergency_contact: normalizePhoneInput(v)})}
             keyboardType="phone-pad"
             inputAccessoryViewID={Platform.OS === 'ios' ? IOS_KEYBOARD_ACCESSORY_ID : undefined}
+            placeholder={t('personalInfo.emergencyPhonePlaceholder')}
+            placeholderTextColor="#9CA3AF"
             returnKeyType="done"
             onSubmitEditing={Keyboard.dismiss}
           />
@@ -236,6 +256,8 @@ export const PersonalInfoScreen: React.FC = () => {
             value={form.medical_conditions}
             multiline
             onChangeText={(v) => setForm({...form, medical_conditions: v})}
+            placeholder={t('settings.medicalConditionsPlaceholder')}
+            placeholderTextColor="#9CA3AF"
             returnKeyType="done"
             blurOnSubmit
             onSubmitEditing={Keyboard.dismiss}
@@ -258,7 +280,7 @@ export const PersonalInfoScreen: React.FC = () => {
             <View style={styles.keyboardAccessory}>
               <View style={styles.keyboardAccessorySpacer} />
               <TouchableOpacity onPress={Keyboard.dismiss} style={styles.keyboardDoneButton}>
-                <Text style={styles.keyboardDoneText}>Done</Text>
+                <Text style={styles.keyboardDoneText}>{t('common.done')}</Text>
               </TouchableOpacity>
             </View>
           </InputAccessoryView>
@@ -294,6 +316,11 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: '800',
     color: '#111827',
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 13,
+    color: '#6B7280',
     marginBottom: 20,
   },
   input: {
@@ -315,6 +342,15 @@ const styles = StyleSheet.create({
   genderBtnActive: {
     backgroundColor: '#2196F3',
     borderColor: '#2196F3',
+  },
+  genderLabel: {
+    marginLeft: 6,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  genderLabelActive: {
+    color: '#FFFFFF',
   },
   saveBtn: {
     backgroundColor: '#2196F3',

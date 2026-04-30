@@ -3,15 +3,18 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Device, Prediction } from '../types';
 import { useLanguage } from '../components/LanguageProvider';
-import { getDeviceConnectionState, isDeviceOnline } from '../utils/deviceStatus';
+import { getDeviceOperationalStatus, getDeviceStatusLabel } from '../utils/deviceStatus';
 
 interface StatusCardProps {
   device: Device | null;
   lastPrediction: Prediction | null;
   onRefresh: () => void;
   onConnect?: () => void;
+  onRemoveDevice?: () => void;
+  isRemovingDevice?: boolean;
   isConnecting?: boolean;
   compact?: boolean;
+  canManageDevice?: boolean;
 }
 
 export const StatusCard: React.FC<StatusCardProps> = ({ 
@@ -19,29 +22,65 @@ export const StatusCard: React.FC<StatusCardProps> = ({
   lastPrediction, 
   onRefresh,
   onConnect,
+  onRemoveDevice,
+  isRemovingDevice = false,
   isConnecting = false,
   compact = false,
+  canManageDevice = true,
 }) => {
   const { t } = useLanguage();
-  const deviceOnline = isDeviceOnline(device);
-  const connectionState = getDeviceConnectionState(device);
+  const deviceStatus = getDeviceOperationalStatus(device);
+  const deviceStatusLabel = getDeviceStatusLabel(device);
+  const deviceConnected = deviceStatus === 'active' || deviceStatus === 'connected_no_data';
+
+  const formatRelativeTime = (dateString?: string | null) => {
+    if (!dateString) return null;
+    const date = new Date(dateString);
+    if (Number.isNaN(date.getTime())) return null;
+
+    const diffMs = Date.now() - date.getTime();
+    const diffSeconds = Math.max(0, Math.floor(diffMs / 1000));
+
+    if (diffSeconds < 60) return t('datetime.secondsAgo', { count: diffSeconds || 1 });
+
+    const diffMinutes = Math.floor(diffSeconds / 60);
+    if (diffMinutes < 60) return t('datetime.minutesAgo', { count: diffMinutes });
+
+    const diffHours = Math.floor(diffMinutes / 60);
+    if (diffHours < 24) return t('datetime.hoursAgo', { count: diffHours });
+
+    return t('datetime.daysAgo', { count: Math.floor(diffHours / 24) });
+  };
 
   const getStatusColor = () => {
     if (!device) return '#9E9E9E'; // Gray
-    if (!deviceOnline) return '#F44336'; // Red
-    if (device.battery_level && device.battery_level < 20) return '#FF9800'; // Orange
-    return '#4CAF50'; // Green
+    if (deviceStatus === 'active') return '#4CAF50'; // Green
+    if (deviceStatus === 'connected_no_data') return '#FF9800'; // Orange
+    if (deviceStatus === 'archived') return '#9E9E9E'; // Gray
+    return '#F44336'; // Red
+  };
+
+  const getStatusDetail = () => {
+    if (!device) return null;
+    if (deviceStatus === 'active' && device.latest_data_at) {
+      return `${t('dashboard.lastSync')}: ${formatRelativeTime(device.latest_data_at)}`;
+    }
+    if (deviceStatus === 'connected_no_data' && device.last_seen) {
+      return `${t('system.lastSeen')}: ${formatRelativeTime(device.last_seen)}`;
+    }
+    return null;
   };
 
   const getStatusText = () => {
     if (!device) return t('system.offline');
-    if (connectionState !== 'connected') return t('system.disconnected');
-    if (device.battery_level && device.battery_level < 20) return t('system.lowBattery');
-    return t('system.connected');
+    if (deviceStatus === 'archived') return t('common.inactive');
+    if (deviceStatus === 'active' && device.battery_level && device.battery_level < 20) return t('system.lowBattery');
+    return deviceStatusLabel;
   };
 
   const sectionSpacing = compact ? 12 : 20;
   const cardPadding = compact ? 16 : 20;
+  const showCompactEmptyState = !device && !lastPrediction;
 
   return (
     <View
@@ -73,6 +112,9 @@ export const StatusCard: React.FC<StatusCardProps> = ({
         <Text className="text-base font-bold text-gray-800">
           {getStatusText()}
         </Text>
+        {getStatusDetail() ? (
+          <Text className="text-xs text-gray-400 ml-2">{getStatusDetail()}</Text>
+        ) : null}
         <Text className="text-xs text-gray-400 ml-2">
           • {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </Text>
@@ -87,7 +129,7 @@ export const StatusCard: React.FC<StatusCardProps> = ({
               className="text-sm font-medium text-gray-700 flex-1 ml-2"
               numberOfLines={1}
             >
-              {device.device_id || 'Smart Device'}
+              {device.device_id || t('system.defaultDevice')}
             </Text>
             {device.mac_address ? (
               <Text className="text-[10px] text-gray-400 uppercase tracking-tighter">
@@ -114,9 +156,7 @@ export const StatusCard: React.FC<StatusCardProps> = ({
               <MaterialCommunityIcons name="update" size={14} color="#757575" />
               <Text className="text-[10px] text-gray-500 mt-1 uppercase">{t('system.lastSeen')}</Text>
               <Text className="text-sm font-bold text-gray-900">
-                {device.last_seen
-                  ? new Date(device.last_seen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                  : '--'}
+                {formatRelativeTime(device.last_seen) || '--'}
               </Text>
             </View>
           </View>
@@ -152,12 +192,24 @@ export const StatusCard: React.FC<StatusCardProps> = ({
       )}
 
       {/* Connection Actions */}
-      {(!device || (!deviceOnline && onConnect)) && (
-        <View className="items-center pt-2">
+      {canManageDevice && (!device || (!deviceConnected && onConnect)) && (
+        <View className={`items-center ${showCompactEmptyState ? 'pt-1' : 'pt-2'}`}>
           {!device && (
             <>
-              <MaterialCommunityIcons name="devices" size={40} color="#E0E0E0" />
-              <Text className="text-sm font-medium text-gray-400 mt-2">{t('system.noDevice')}</Text>
+              <MaterialCommunityIcons
+                name="devices"
+                size={showCompactEmptyState ? 30 : 40}
+                color="#D1D5DB"
+              />
+              <Text className="text-sm font-medium text-gray-500 mt-2">{t('system.noDevice')}</Text>
+              <Text className="text-xs text-gray-400 mt-1 text-center px-6">
+                {t('system.noDeviceHint')}
+              </Text>
+              <View className="mt-3 self-stretch px-6">
+                <Text className="text-[11px] text-gray-400 text-center">{t('system.noDeviceStep1')}</Text>
+                <Text className="text-[11px] text-gray-400 text-center mt-1">{t('system.noDeviceStep2')}</Text>
+                <Text className="text-[11px] text-gray-400 text-center mt-1">{t('system.noDeviceStep3')}</Text>
+              </View>
             </>
           )}
           <TouchableOpacity
@@ -166,12 +218,40 @@ export const StatusCard: React.FC<StatusCardProps> = ({
             className={`mt-4 w-full py-3 rounded-xl items-center ${
               !device ? 'bg-blue-600' : 'bg-orange-500'
             }`}
+            style={{
+              marginTop: showCompactEmptyState ? 14 : 16,
+              paddingVertical: showCompactEmptyState ? 12 : 14,
+            }}
           >
             <Text className="text-white font-bold">
               {isConnecting ? t('system.connecting') : device ? t('system.reconnect') : t('system.connectAction')}
             </Text>
           </TouchableOpacity>
         </View>
+      )}
+
+      {canManageDevice && device && onConnect && deviceConnected && (
+        <TouchableOpacity
+          onPress={onConnect}
+          disabled={isConnecting}
+          className="mt-3 w-full py-3 rounded-xl items-center border border-blue-200 bg-blue-50"
+        >
+          <Text className="font-bold text-primary">
+            {isConnecting ? t('system.connecting') : t('system.addDeviceAction')}
+          </Text>
+        </TouchableOpacity>
+      )}
+
+      {canManageDevice && device && onRemoveDevice && (
+        <TouchableOpacity
+          onPress={onRemoveDevice}
+          disabled={isRemovingDevice}
+          className="mt-3 w-full py-3 rounded-xl items-center border border-red-200 bg-red-50"
+        >
+          <Text className="font-bold text-red-600">
+            {isRemovingDevice ? t('common.loading') : t('system.removeDeviceAction')}
+          </Text>
+        </TouchableOpacity>
       )}
     </View>
   );

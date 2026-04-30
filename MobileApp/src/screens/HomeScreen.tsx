@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -27,16 +27,17 @@ import { authService } from '../services/auth.service';
 import { offlineQueueService } from '../services/offlineQueue.service';
 import { networkService, NetworkStatus } from '../services/network.service';
 import { bluetoothService, ScannedDevice, isBluetoothSupported } from '../services/bluetooth.service';
+import { bleGatewayService } from '../services/bleGateway.service';
 import { deviceService } from '../services/device.service';
 import { deviceProvisioningService } from '../services/deviceProvisioning.service';
 import { emergencyService } from '../services/emergency.service';
 import { voiceService } from '../services/voice.service';
 import { User, Device, Alert as AlertType, Prediction, VitalData } from '../types';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useScrollToTop } from '@react-navigation/native';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { realtimeService } from '../services/realtime.service';
 import { BLE_CONFIG, BLE_KNOWN_DEVICE_NAME_PATTERN, BLE_SCAN_TIMEOUT_MS } from '../utils/constants';
-import { isDeviceOnline } from '../utils/deviceStatus';
+import { getDeviceStatusLabel } from '../utils/deviceStatus';
 
 export const HomeScreen: React.FC = () => {
   const { t } = useLanguage();
@@ -50,7 +51,6 @@ export const HomeScreen: React.FC = () => {
   const [alerts, setAlerts] = useState<AlertType[]>([]);
   const [lastPrediction, setLastPrediction] = useState<Prediction | null>(null);
   const [latestVitals, setLatestVitals] = useState<VitalData | null>(null);
-  const [monitoredUser, setMonitoredUser] = useState<User | null>(null);
   const [connectionError, setConnectionError] = useState(false);
   const [pairModalVisible, setPairModalVisible] = useState(false);
   const [scanLoading, setScanLoading] = useState(false);
@@ -61,11 +61,17 @@ export const HomeScreen: React.FC = () => {
   const [wifiPassword, setWifiPassword] = useState('');
   const [provisioningMessage, setProvisioningMessage] = useState<string | null>(null);
   const [isConnectingDevice, setIsConnectingDevice] = useState(false);
+  const [isRemovingDevice, setIsRemovingDevice] = useState(false);
   const [queueSize, setQueueSize] = useState(0);
   const [networkStatus, setNetworkStatus] = useState<NetworkStatus | null>(null);
   const [healthInsight, setHealthInsight] = useState<string | null>(null);
   const [listening, setListening] = useState(false);
   const [lastCommand, setLastCommand] = useState<string | null>(null);
+  const [monitoringSummary, setMonitoringSummary] = useState({ people: 0, pending: 0, critical: 0 });
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
+  const scrollRef = useRef<any>(null);
+
+  useScrollToTop(scrollRef);
 
   const closePairModal = async () => {
     setPairModalVisible(false);
@@ -125,17 +131,15 @@ export const HomeScreen: React.FC = () => {
       const storedUser = normalizedSessionUser || (await storageService.getUser());
       const storedDevice = await storageService.getDevice();
       await refreshSettings();
-      const storedMonitoredUser = await storageService.getMonitoredUser();
 
       setUser(storedUser);
-      setMonitoredUser(storedMonitoredUser);
       if (normalizedSessionUser) {
         await storageService.saveUser(normalizedSessionUser);
       }
       setDevice(storedDevice);
       
-      // If there is a user, try to load data
-      const activeUser = storedMonitoredUser || storedUser;
+      // Home is always the signed-in user's own page.
+      const activeUser = storedUser;
       if (activeUser) {
         try {
           let apiReachable = false;
@@ -144,6 +148,20 @@ export const HomeScreen: React.FC = () => {
           if (alertsResponse.success) {
             setAlerts(alertsResponse.data || []);
             apiReachable = true;
+          }
+
+          if (storedUser?.id) {
+            const [careLinksResponse, careDashboardResponse] = await Promise.all([
+              apiService.getCareLinks(storedUser.id),
+              apiService.getCareDashboard(storedUser.id),
+            ]);
+            const people = careLinksResponse.success && careLinksResponse.data ? careLinksResponse.data.length : 0;
+            const careItems = careDashboardResponse.success && careDashboardResponse.data ? careDashboardResponse.data : [];
+            const pending = careItems.reduce((sum, item) => sum + (item.alerts?.pending ?? 0), 0);
+            const critical = careItems.filter((item) => item.alerts?.last?.severity === 'critical').length;
+            setMonitoringSummary({ people, pending, critical });
+          } else {
+            setMonitoringSummary({ people: 0, pending: 0, critical: 0 });
           }
 
           const deviceResponse = await apiService.getUserDevice(activeUser.id);
@@ -183,6 +201,9 @@ export const HomeScreen: React.FC = () => {
           }
 
           setConnectionError(!apiReachable);
+          if (apiReachable) {
+            setLastRefreshedAt(new Date());
+          }
         } catch (apiError) {
           console.warn('⚠️ (Background) Error loading data:', apiError);
           setConnectionError(true);
@@ -196,7 +217,7 @@ export const HomeScreen: React.FC = () => {
 
   useEffect(() => {
     const unsubscribe = realtimeService.subscribe('all', (event) => {
-      const activeUser = monitoredUser || user;
+      const activeUser = user;
       if (!activeUser) return;
       if (event.user_id && event.user_id !== activeUser.id) return;
       if (!event.payload) return;
@@ -208,13 +229,17 @@ export const HomeScreen: React.FC = () => {
             ? prev.map((item) => (item.id === event.payload.id ? { ...item, ...event.payload } : item))
             : [event.payload, ...prev];
 
-          if (!exists && (event.payload.status === 'pending' || event.payload.status === 'sent')) {
+          if (
+            !exists &&
+            (event.payload.status === 'pending' || event.payload.status === 'sent') &&
+            (event.payload.alert_type === 'fall' || event.payload.alert_type === 'fall_now')
+          ) {
             notificationService.sendFallAlert(event.payload);
           }
 
           if (
             settings.automaticSOS &&
-            (event.payload.alert_type === 'fall' || event.payload.severity === 'critical')
+            (event.payload.alert_type === 'fall' || event.payload.alert_type === 'fall_now')
           ) {
             emergencyService.triggerEmergency('fall', event.payload).catch(() => undefined);
           }
@@ -246,10 +271,10 @@ export const HomeScreen: React.FC = () => {
     });
 
     return unsubscribe;
-  }, [user, monitoredUser, settings.automaticSOS]);
+  }, [user, settings.automaticSOS]);
 
   const checkForNewAlerts = async () => {
-    const activeUser = monitoredUser || user;
+    const activeUser = user;
     if (!activeUser) return;
 
     try {
@@ -260,13 +285,16 @@ export const HomeScreen: React.FC = () => {
         );
 
         newAlerts.forEach((alert) => {
-          if (alert.status === 'pending' || alert.status === 'sent') {
+          if (
+            (alert.status === 'pending' || alert.status === 'sent') &&
+            (alert.alert_type === 'fall' || alert.alert_type === 'fall_now')
+          ) {
             notificationService.sendFallAlert(alert);
           }
 
           if (
             settings.automaticSOS &&
-            (alert.alert_type === 'fall' || alert.severity === 'critical')
+            (alert.alert_type === 'fall' || alert.alert_type === 'fall_now')
           ) {
             emergencyService.triggerEmergency('fall', alert).catch(() => undefined);
           }
@@ -315,8 +343,25 @@ export const HomeScreen: React.FC = () => {
 
       if (!hasUsableContacts) {
         RNAlert.alert(
-          '⚠️ No Emergency Contacts',
-          'Please add emergency contacts in settings before triggering an emergency.'
+          t('emergency.contacts.setupRequiredTitle'),
+          t('emergency.contacts.setupRequiredMessage'),
+          [
+            {
+              text: t('emergency.contacts.importNow'),
+              onPress: () =>
+                navigation.navigate('Emergency', {
+                  screen: 'EmergencyContacts',
+                  params: {
+                    requiredSetup: true,
+                    openImport: true,
+                  },
+                }),
+            },
+            {
+              text: t('common.cancel'),
+              style: 'cancel',
+            },
+          ]
         );
         return;
       }
@@ -415,7 +460,56 @@ export const HomeScreen: React.FC = () => {
   };
 
   const handleViewAllAlerts = () => {
-    navigation.navigate('Alerts');
+    navigation.navigate('Alerts', { monitoredPatient: undefined });
+  };
+
+  const handleOpenCareDashboard = () => {
+    navigation.navigate('Settings', { screen: 'CareDashboard' });
+  };
+
+  const handleRemoveDevice = () => {
+    if (!device?.device_id) {
+      return;
+    }
+
+    RNAlert.alert(
+      t('system.removeDeviceTitle'),
+      t('system.removeDeviceBody'),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('common.delete'),
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setIsRemovingDevice(true);
+              await bleGatewayService.stop();
+              await deviceProvisioningService.disconnect();
+
+              const activeUserId = user?.id;
+              const removed = await deviceService.removeDevice(device.device_id, activeUserId);
+
+              if (removed) {
+                setDevice(null);
+                setSelectedBleDeviceId(null);
+                setManualDeviceId('');
+                setScanResults([]);
+                setWifiPassword('');
+                setWifiSsid('');
+                setProvisioningMessage(null);
+                RNAlert.alert(t('success.deleted'), t('system.deviceRemoved'));
+              } else {
+                RNAlert.alert(t('common.error'), t('system.removeDeviceFailed'));
+              }
+            } catch (error: any) {
+              RNAlert.alert(t('common.error'), error?.message || t('system.removeDeviceFailed'));
+            } finally {
+              setIsRemovingDevice(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const connectionBannerTitle =
@@ -507,6 +601,7 @@ export const HomeScreen: React.FC = () => {
   return (
     <ScreenWrapper>
       <ScrollView
+        ref={scrollRef}
         className="flex-1"
         contentContainerStyle={{
           paddingHorizontal: 8,
@@ -572,31 +667,82 @@ export const HomeScreen: React.FC = () => {
           </View>
         )}
 
-        {/* Monitoring Context */}
-        {monitoredUser && user && monitoredUser.id !== user.id && (
-          <View
-            className="mx-4 mt-2 mb-2 rounded-xl p-3"
-            style={{
-                    backgroundColor: '#F5F3FF',
-                    borderColor: '#E9D5FF',
-                    borderWidth: 1,
-                  }
-            }
-          >
-            <Text className="text-xs text-gray">{t('home.monitoringUser')}</Text>
-            <Text className="text-sm font-semibold text-dark mt-1">{monitoredUser.name}</Text>
+        <View className="mx-4 mt-3 mb-1">
+          <Text className="text-lg font-bold text-dark mb-3">{t('dashboard.pages')}</Text>
+          <View className="flex-row gap-3">
+            <View className="flex-1 bg-primary rounded-2xl p-4 shadow-sm">
+              <Text className="text-white text-xs opacity-90 mb-1">{t('dashboard.myData')}</Text>
+              <Text className="text-white text-base font-bold">{t('home.title')}</Text>
+              <Text className="text-white/80 text-xs mt-2">{t('home.quickStatsDeviceTitle')}</Text>
+            </View>
+
+            <TouchableOpacity
+              className="flex-1 bg-white rounded-2xl p-4 border border-lightGray shadow-sm"
+              activeOpacity={0.8}
+              onPress={handleOpenCareDashboard}
+            >
+              <Text className="text-primary text-xs mb-1">{t('settings.careManagement')}</Text>
+              <Text className="text-dark text-base font-bold">{t('dashboard.title')}</Text>
+              <Text className="text-gray text-xs mt-2">{t('dashboard.shortDesc')}</Text>
+            </TouchableOpacity>
           </View>
-        )}
+        </View>
+
+        <TouchableOpacity
+          className="mx-4 mt-4 bg-white rounded-2xl p-4 border border-primary/15 shadow-sm"
+          activeOpacity={0.8}
+          onPress={handleOpenCareDashboard}
+        >
+          <View className="flex-row items-center justify-between mb-3">
+            <View>
+              <Text className="text-sm text-gray">{t('settings.careManagement')}</Text>
+              <Text className="text-base font-bold text-dark mt-1">{t('dashboard.summaryTitle')}</Text>
+            </View>
+            <View className="w-11 h-11 rounded-full bg-primary items-center justify-center">
+              <MaterialCommunityIcons name="account-heart-outline" size={22} color="#FFFFFF" />
+            </View>
+          </View>
+          <View className="flex-row justify-between">
+            <View className="items-center flex-1 bg-blue-50 border border-primary/20 rounded-xl py-3 mx-1">
+              <Text className="text-lg font-bold text-primary">{monitoringSummary.people}</Text>
+              <Text className="text-[10px] text-primary">{t('dashboard.summaryPeople')}</Text>
+            </View>
+            <View className="items-center flex-1 bg-orange-50 border border-warning/20 rounded-xl py-3 mx-1">
+              <Text className="text-lg font-bold text-warning">{monitoringSummary.pending}</Text>
+              <Text className="text-[10px] text-warning">{t('dashboard.summaryPending')}</Text>
+            </View>
+            <View className="items-center flex-1 bg-red-50 border border-danger/20 rounded-xl py-3 mx-1">
+              <Text className="text-lg font-bold text-danger">{monitoringSummary.critical}</Text>
+              <Text className="text-[10px] text-danger">{t('dashboard.summaryCritical')}</Text>
+            </View>
+          </View>
+          <View className="mt-3 flex-row items-center justify-between">
+            <View>
+              <Text className="text-xs text-gray">{t('dashboard.shortDesc')}</Text>
+              {lastRefreshedAt ? (
+                <Text className="text-[11px] text-lightGray mt-1">
+                  {t('dashboard.updatedNow', {
+                    time: lastRefreshedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                  })}
+                </Text>
+              ) : null}
+            </View>
+            <MaterialCommunityIcons name="arrow-right-circle-outline" size={20} color="#2196F3" />
+          </View>
+        </TouchableOpacity>
 
         {/* System Status Card */}
-        <View className="mx-4">
+        <View className="mx-4 mt-5">
           <StatusCard
             device={device}
             lastPrediction={lastPrediction}
             onRefresh={loadData}
             onConnect={openPairModal}
+            onRemoveDevice={handleRemoveDevice}
+            isRemovingDevice={isRemovingDevice}
             isConnecting={isConnectingDevice}
             compact={isAndroid}
+            canManageDevice
           />
         </View>
 
@@ -638,11 +784,12 @@ export const HomeScreen: React.FC = () => {
                 </View>
               </>
             ) : (
-              <View className="items-center py-3">
+              <View className="items-center py-4">
                 <View className="w-12 h-12 rounded-full bg-blue-50 items-center justify-center mb-3">
                   <MaterialCommunityIcons name="heart-pulse" size={24} color="#2196F3" />
                 </View>
-                <Text className="text-sm text-gray text-center">{t('vitals.noData')}</Text>
+                <Text className="text-sm font-medium text-gray text-center">{t('vitals.noData')}</Text>
+                <Text className="text-xs text-lightGray text-center mt-1 px-6">{t('vitals.noDataHint')}</Text>
               </View>
             )}
           </View>
@@ -703,11 +850,11 @@ export const HomeScreen: React.FC = () => {
               <View className="w-16 h-16 rounded-full bg-green-50 justify-center items-center mb-3">
                 <Text className="text-3xl">✅</Text>
               </View>
-              <Text className="text-lg text-gray mb-2">
+              <Text className="text-lg text-gray mb-2 font-medium">
                 {t('alerts.noAlerts')}
               </Text>
-              <Text className="text-sm text-lightGray">
-                {t('home.everythingOk')}
+              <Text className="text-sm text-lightGray text-center px-6">
+                {t('home.noAlertsHint')}
               </Text>
             </View>
           )}
@@ -797,9 +944,7 @@ export const HomeScreen: React.FC = () => {
               <Text className="text-xs text-gray mb-1">{t('home.quickStatsDeviceTitle')}</Text>
               <Text className="text-lg font-bold text-dark">
                 {device
-                  ? isDeviceOnline(device)
-                    ? t('system.connected')
-                    : t('system.disconnected')
+                  ? getDeviceStatusLabel(device)
                   : t('system.noDevice')}
               </Text>
               <Text className="text-xs text-gray mt-1">
@@ -970,6 +1115,18 @@ export const HomeScreen: React.FC = () => {
                     {isConnectingDevice ? t('system.connecting') : 'Step 3: Connect'}
                   </Text>
                 </TouchableOpacity>
+
+                {device?.device_id ? (
+                  <TouchableOpacity
+                    className="mt-3 rounded-xl py-3 items-center border border-red-200 bg-red-50"
+                    onPress={handleRemoveDevice}
+                    disabled={isRemovingDevice}
+                  >
+                    <Text className="font-semibold text-red-600">
+                      {isRemovingDevice ? t('common.loading') : t('system.removeDeviceAction')}
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
             </View>
           </View>

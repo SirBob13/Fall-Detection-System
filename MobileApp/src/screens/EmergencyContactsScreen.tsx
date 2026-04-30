@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import {
   KeyboardAvoidingView,
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useNavigation, useRoute, useScrollToTop } from '@react-navigation/native';
 import { emergencyService } from '../services/emergency.service';
 import { EmergencyContact } from '../services/emergency.types';
 import { useLanguage } from '../components/LanguageProvider';
@@ -21,6 +22,10 @@ import { ScreenHeader } from '../components/ScreenHeader';
 
 export const EmergencyContactsScreen: React.FC = () => {
   const { t } = useLanguage();
+  const navigation = useNavigation<any>();
+  const route = useRoute<any>();
+  const scrollRef = useRef<any>(null);
+  const setupPromptShownRef = useRef(false);
   const [contacts, setContacts] = useState<EmergencyContact[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
@@ -38,9 +43,56 @@ export const EmergencyContactsScreen: React.FC = () => {
     is_active: true,
   });
 
+  useScrollToTop(scrollRef);
+
+  const isSetupRequired = Boolean(route.params?.requiredSetup);
+  const shouldOpenImportOnEntry = Boolean(route.params?.openImport);
+  const hasUsableContacts = (items: EmergencyContact[]) =>
+    items.some((contact) => contact.is_active && Boolean(contact.phone?.trim()));
+
   useEffect(() => {
     loadContacts();
   }, []);
+
+  useEffect(() => {
+    if (isLoading || !isSetupRequired) {
+      return;
+    }
+
+    if (hasUsableContacts(contacts)) {
+      setupPromptShownRef.current = false;
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'MainTabs' }],
+      });
+      return;
+    }
+
+    if (setupPromptShownRef.current) {
+      return;
+    }
+
+    setupPromptShownRef.current = true;
+    Alert.alert(
+      t('emergency.contacts.setupRequiredTitle'),
+      t('emergency.contacts.setupRequiredMessage'),
+      [
+        {
+          text: t('emergency.contacts.importNow'),
+          onPress: () => {
+            if (shouldOpenImportOnEntry) {
+              void beginImportContacts(false);
+            }
+          },
+        },
+        {
+          text: t('emergency.contacts.addManually'),
+          onPress: handleAddContact,
+        },
+      ],
+      { cancelable: false }
+    );
+  }, [contacts, isLoading, isSetupRequired, navigation, shouldOpenImportOnEntry, t]);
 
   const loadContacts = async () => {
     try {
@@ -146,8 +198,69 @@ export const EmergencyContactsScreen: React.FC = () => {
     }
   };
 
-  const handleImportContacts = async () => {
+  const beginImportContacts = async (withConfirmation: boolean = true) => {
     try {
+      const startImport = async () => {
+        const importResult = await emergencyService.importPhoneContacts();
+        if (importResult.permissionStatus === 'denied') {
+          Alert.alert(
+            t('emergency.contacts.permissionDeniedTitle'),
+            t('emergency.contacts.permissionDeniedMessage'),
+            [
+              { text: t('common.cancel'), style: 'cancel' },
+              {
+                text: t('emergency.contacts.openSettings'),
+                onPress: () => Linking.openSettings(),
+              },
+            ]
+          );
+          return;
+        }
+
+        if (importResult.permissionStatus === 'limited') {
+          Alert.alert(
+            t('emergency.contacts.limitedAccessTitle'),
+            t('emergency.contacts.limitedAccessMessage'),
+            [
+              { text: t('common.ok') },
+              {
+                text: t('emergency.contacts.openSettings'),
+                onPress: () => Linking.openSettings(),
+              },
+            ]
+          );
+        }
+
+        if (importResult.contacts.length > 0) {
+          const missingPhoneCount = importResult.contacts.filter(
+            (contact) => !contact.phone || contact.phone.trim().length === 0
+          ).length;
+          if (missingPhoneCount > 0) {
+            Alert.alert(
+              t('emergency.contacts.missingPhoneTitle'),
+              t('emergency.contacts.missingPhoneMessage', { count: missingPhoneCount })
+            );
+          }
+          setPhoneContacts(importResult.contacts);
+          setSelectedContactIds(new Set());
+          setEditablePhones(
+            importResult.contacts.reduce<Record<string, string>>((acc, contact) => {
+              acc[contact.id] = contact.phone || '';
+              return acc;
+            }, {})
+          );
+          setContactSearch('');
+          setImportModalVisible(true);
+        } else {
+          Alert.alert(t('common.note'), t('emergency.contacts.noPhoneContacts'));
+        }
+      };
+
+      if (!withConfirmation) {
+        await startImport();
+        return;
+      }
+
       Alert.alert(
         t('emergency.contacts.importTitle'),
         t('emergency.contacts.importConfirm'),
@@ -155,60 +268,8 @@ export const EmergencyContactsScreen: React.FC = () => {
           { text: t('common.cancel'), style: 'cancel' },
           {
             text: t('common.import'),
-            onPress: async () => {
-              const importResult = await emergencyService.importPhoneContacts();
-              if (importResult.permissionStatus === 'denied') {
-                Alert.alert(
-                  t('emergency.contacts.permissionDeniedTitle'),
-                  t('emergency.contacts.permissionDeniedMessage'),
-                  [
-                    { text: t('common.cancel'), style: 'cancel' },
-                    {
-                      text: t('emergency.contacts.openSettings'),
-                      onPress: () => Linking.openSettings(),
-                    },
-                  ]
-                );
-                return;
-              }
-
-              if (importResult.permissionStatus === 'limited') {
-                Alert.alert(
-                  t('emergency.contacts.limitedAccessTitle'),
-                  t('emergency.contacts.limitedAccessMessage'),
-                  [
-                    { text: t('common.ok') },
-                    {
-                      text: t('emergency.contacts.openSettings'),
-                      onPress: () => Linking.openSettings(),
-                    },
-                  ]
-                );
-              }
-
-              if (importResult.contacts.length > 0) {
-                const missingPhoneCount = importResult.contacts.filter(
-                  (contact) => !contact.phone || contact.phone.trim().length === 0
-                ).length;
-                if (missingPhoneCount > 0) {
-                  Alert.alert(
-                    t('emergency.contacts.missingPhoneTitle'),
-                    t('emergency.contacts.missingPhoneMessage', { count: missingPhoneCount })
-                  );
-                }
-                setPhoneContacts(importResult.contacts);
-                setSelectedContactIds(new Set());
-                setEditablePhones(
-                  importResult.contacts.reduce<Record<string, string>>((acc, contact) => {
-                    acc[contact.id] = contact.phone || '';
-                    return acc;
-                  }, {})
-                );
-                setContactSearch('');
-                setImportModalVisible(true);
-              } else {
-                Alert.alert(t('common.note'), t('emergency.contacts.noPhoneContacts'));
-              }
+            onPress: () => {
+              void startImport();
             },
           },
         ]
@@ -216,6 +277,10 @@ export const EmergencyContactsScreen: React.FC = () => {
     } catch (error) {
       Alert.alert(t('common.error'), t('emergency.contacts.importFailed'));
     }
+  };
+
+  const handleImportContacts = async () => {
+    await beginImportContacts(true);
   };
 
   const normalizePhoneInput = (value: string): string => {
@@ -313,7 +378,11 @@ export const EmergencyContactsScreen: React.FC = () => {
 
   return (
     <View className={`flex-1 bg-light ${Platform.OS === 'android' ? 'pb-20' : ''}`} >
-      <ScreenHeader title={t('emergency.contacts.title')} subtitle={t('emergency.contacts.description')} />
+      <ScreenHeader
+        title={t('emergency.contacts.title')}
+        subtitle={t('emergency.contacts.description')}
+        showBack
+      />
 
       {/* Quick Stats */}
       <View className="mx-5 mt-1 bg-white rounded-2xl shadow-lg border border-lightGray p-4">
@@ -349,6 +418,7 @@ export const EmergencyContactsScreen: React.FC = () => {
 
       {/* Contacts List */}
       <ScrollView 
+        ref={scrollRef}
         className="flex-1 p-4" 
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: Platform.OS === 'android' ? 50 : 20 }}
@@ -447,7 +517,7 @@ export const EmergencyContactsScreen: React.FC = () => {
                   activeOpacity={0.7}
                 >
                   <MaterialCommunityIcons name="pencil" size={16} color="#2196F3" />
-                  <Text className="text-sm font-medium text-primary ml-1">Edit</Text>
+                  <Text className="text-sm font-medium text-primary ml-1">{t('common.edit')}</Text>
                 </TouchableOpacity>
                 
                 <TouchableOpacity
@@ -456,7 +526,7 @@ export const EmergencyContactsScreen: React.FC = () => {
                   activeOpacity={0.7}
                 >
                   <MaterialCommunityIcons name="delete" size={16} color="#F44336" />
-                  <Text className="text-sm font-medium text-danger ml-1">Delete</Text>
+                  <Text className="text-sm font-medium text-danger ml-1">{t('common.delete')}</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -468,16 +538,16 @@ export const EmergencyContactsScreen: React.FC = () => {
           <View className="mt-6 mb-4 p-4 bg-blue-50 rounded-2xl border border-blue-200">
             <View className="flex-row items-center mb-2">
               <MaterialCommunityIcons name="lightbulb" size={20} color="#2196F3" />
-              <Text className="text-base font-semibold text-dark ml-2">Tips</Text>
+              <Text className="text-base font-semibold text-dark ml-2">{t('emergency.contacts.tipsTitle')}</Text>
             </View>
             <Text className="text-sm text-gray">
-              • High priority contacts are called first in emergencies
+              • {t('emergency.contacts.tipPriority')}
             </Text>
             <Text className="text-sm text-gray mt-1">
-              • Keep at least 2-3 active contacts
+              • {t('emergency.contacts.tipActive')}
             </Text>
             <Text className="text-sm text-gray mt-1">
-              • Inform your contacts about their emergency role
+              • {t('emergency.contacts.tipInform')}
             </Text>
           </View>
         )}
@@ -491,7 +561,7 @@ export const EmergencyContactsScreen: React.FC = () => {
           activeOpacity={0.7}
         >
           <MaterialCommunityIcons name="import" size={20} color="#FFFFFF" />
-          <Text className="text-white font-semibold ml-2">Import from Phone</Text>
+          <Text className="text-white font-semibold ml-2">{t('emergency.contacts.import')}</Text>
         </TouchableOpacity>
         
         <TouchableOpacity
@@ -500,7 +570,7 @@ export const EmergencyContactsScreen: React.FC = () => {
           activeOpacity={0.7}
         >
           <MaterialCommunityIcons name="plus" size={24} color="#FFFFFF" />
-          <Text className="text-white font-bold text-lg ml-2">Add New Contact</Text>
+          <Text className="text-white font-bold text-lg ml-2">{t('emergency.contacts.addNewContact')}</Text>
         </TouchableOpacity>
       </View>
 
@@ -532,13 +602,13 @@ export const EmergencyContactsScreen: React.FC = () => {
                     />
                   </View>
                   <Text className="text-xl font-bold text-dark">
-                    {editingContact ? 'Edit Contact' : 'Add New Contact'}
+                    {editingContact ? t('emergency.contacts.editCurrentContact') : t('emergency.contacts.addNewContact')}
                   </Text>
                 </View>
 
                 <TextInput
                   className="input-field mb-4"
-                  placeholder="Full Name"
+                  placeholder={t('emergency.contacts.fullNamePlaceholder')}
                   value={formData.name}
                   onChangeText={text => setFormData({ ...formData, name: text })}
                   placeholderTextColor="#BDBDBD"
@@ -547,7 +617,7 @@ export const EmergencyContactsScreen: React.FC = () => {
 
                 <TextInput
                   className="input-field mb-4"
-                  placeholder="Phone Number (e.g., +201234567890)"
+                  placeholder={t('emergency.contacts.phonePlaceholder')}
                   value={formData.phone}
                   onChangeText={text => setFormData({ ...formData, phone: text })}
                   keyboardType="phone-pad"
@@ -556,12 +626,12 @@ export const EmergencyContactsScreen: React.FC = () => {
 
                 {/* Priority Selection */}
                 <View className="mb-6">
-                  <Text className="text-base font-medium text-dark mb-3">Priority Level</Text>
+                  <Text className="text-base font-medium text-dark mb-3">{t('emergency.contacts.priorityLevel')}</Text>
                   <View className="flex-row justify-between">
                     {[
-                      { value: 1, label: 'High', color: 'bg-danger', textColor: 'text-danger' },
-                      { value: 2, label: 'Medium', color: 'bg-warning', textColor: 'text-warning' },
-                      { value: 3, label: 'Low', color: 'bg-success', textColor: 'text-success' },
+                      { value: 1, label: t('emergency.contacts.priorityHigh'), color: 'bg-danger', textColor: 'text-danger' },
+                      { value: 2, label: t('emergency.contacts.priorityMedium'), color: 'bg-warning', textColor: 'text-warning' },
+                      { value: 3, label: t('emergency.contacts.priorityLow'), color: 'bg-success', textColor: 'text-success' },
                     ].map((priority) => (
                       <TouchableOpacity
                         key={priority.value}
@@ -595,21 +665,21 @@ export const EmergencyContactsScreen: React.FC = () => {
                   </View>
                   
                   <Text className="text-xs text-gray mt-2">
-                    {formData.priority === 1 && 'High: Called first in emergencies'}
-                    {formData.priority === 2 && 'Medium: Called if high priority fails'}
-                    {formData.priority === 3 && 'Low: Called as last resort'}
+                    {formData.priority === 1 && t('emergency.contacts.priorityHighHint')}
+                    {formData.priority === 2 && t('emergency.contacts.priorityMediumHint')}
+                    {formData.priority === 3 && t('emergency.contacts.priorityLowHint')}
                   </Text>
                 </View>
 
                 {/* Relationship Selection */}
                 <View className="mb-6">
-                  <Text className="text-base font-medium text-dark mb-3">Relationship</Text>
+                  <Text className="text-base font-medium text-dark mb-3">{t('emergency.contacts.relationshipLabel')}</Text>
                   <View className="flex-row flex-wrap justify-between">
                     {[
-                      { value: 'family', label: 'Family', icon: 'account-group' },
-                      { value: 'doctor', label: 'Doctor', icon: 'doctor' },
-                      { value: 'friend', label: 'Friend', icon: 'account' },
-                      { value: 'neighbor', label: 'Neighbor', icon: 'home' },
+                      { value: 'family', label: t('emergency.contacts.family'), icon: 'account-group' },
+                      { value: 'doctor', label: t('emergency.contacts.doctor'), icon: 'doctor' },
+                      { value: 'friend', label: t('emergency.contacts.friend'), icon: 'account' },
+                      { value: 'neighbor', label: t('emergency.contacts.neighbor'), icon: 'home' },
                     ].map((rel) => (
                       <TouchableOpacity
                         key={rel.value}
@@ -645,7 +715,7 @@ export const EmergencyContactsScreen: React.FC = () => {
                     onPress={() => setModalVisible(false)}
                     activeOpacity={0.7}
                   >
-                    <Text className="text-dark font-semibold">Cancel</Text>
+                    <Text className="text-dark font-semibold">{t('common.cancel')}</Text>
                   </TouchableOpacity>
                   
                   <TouchableOpacity
@@ -658,12 +728,12 @@ export const EmergencyContactsScreen: React.FC = () => {
                       size={20} 
                       color="#FFFFFF" 
                     />
-                    <Text className="text-white font-bold ml-2">Save</Text>
+                    <Text className="text-white font-bold ml-2">{t('common.save')}</Text>
                   </TouchableOpacity>
                 </View>
                 
                 <Text className="text-xs text-center text-gray mt-4">
-                  This contact will be notified during emergency situations
+                  {t('emergency.contacts.notifyHint')}
                 </Text>
               </ScrollView>
             </View>
@@ -686,7 +756,7 @@ export const EmergencyContactsScreen: React.FC = () => {
           <View className="flex-1 justify-center items-center bg-black/50 px-4">
             <View className="bg-white rounded-2xl w-full max-w-md max-h-[88%] p-6">
               <View className="flex-row items-center justify-between mb-4">
-                <Text className="text-lg font-bold text-dark">Import a contact</Text>
+                <Text className="text-lg font-bold text-dark">{t('emergency.contacts.import')}</Text>
                 <TouchableOpacity onPress={() => setImportModalVisible(false)}>
                   <MaterialCommunityIcons name="close" size={22} color="#757575" />
                 </TouchableOpacity>
@@ -695,7 +765,7 @@ export const EmergencyContactsScreen: React.FC = () => {
               <View className="mb-3">
                 <TextInput
                   className="input-field"
-                  placeholder="Search contacts"
+                  placeholder={t('emergency.contacts.searchPlaceholder')}
                   value={contactSearch}
                   onChangeText={setContactSearch}
                   placeholderTextColor="#BDBDBD"
@@ -743,7 +813,7 @@ export const EmergencyContactsScreen: React.FC = () => {
                           onChangeText={(text) =>
                             setEditablePhones((prev) => ({ ...prev, [contact.id]: text }))
                           }
-                          placeholder="Phone Number"
+                          placeholder={t('emergency.contacts.phone')}
                           keyboardType="phone-pad"
                           placeholderTextColor="#BDBDBD"
                         />
@@ -758,14 +828,14 @@ export const EmergencyContactsScreen: React.FC = () => {
                   onPress={() => setImportModalVisible(false)}
                   activeOpacity={0.7}
                 >
-                  <Text className="text-dark font-semibold">Cancel</Text>
+                  <Text className="text-dark font-semibold">{t('common.cancel')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   className="flex-1 bg-primary py-3 rounded-lg ml-2 items-center"
                   onPress={handleSaveSelectedContacts}
                   activeOpacity={0.7}
                 >
-                  <Text className="text-white font-bold">Add Selected</Text>
+                  <Text className="text-white font-bold">{t('emergency.contacts.addSelected')}</Text>
                 </TouchableOpacity>
               </View>
             </View>

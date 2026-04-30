@@ -302,6 +302,11 @@ class CareLinkRequestResponse(BaseModel):
 class CareLinkRequestAction(BaseModel):
     patient_id: Optional[int] = None
     caregiver_id: Optional[int] = None
+    requester_id: Optional[int] = None
+
+class CareLinkUnlinkRequestCreate(BaseModel):
+    requester_id: int
+    message: Optional[str] = None
 
 # ==================== Device Schemas ====================
 
@@ -539,11 +544,23 @@ class EmergencySettings(BaseModel):
     sos_countdown: int = Field(default=5, ge=3, le=30)
     max_retries: int = Field(default=3, ge=1, le=5)
 
+class EmergencyTriggerContact(BaseModel):
+    id: Optional[str] = None
+    name: str
+    phone: str
+    relationship: Optional[str] = None
+    priority: int = Field(default=3, ge=1, le=3)
+    is_active: bool = True
+
 class EmergencyTrigger(BaseModel):
     user_id: int
     type: str
+    user_name: Optional[str] = None
+    language: Optional[str] = None
+    message: Optional[str] = None
     location: Optional[Dict[str, Any]] = None
     fall_data: Optional[Dict[str, Any]] = None
+    contacts: List[EmergencyTriggerContact] = []
 
 class EmergencyResponse(BaseModel):
     success: bool

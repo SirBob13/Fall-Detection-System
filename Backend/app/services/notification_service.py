@@ -65,12 +65,12 @@ class NotificationService:
         except Exception as e:
             logger.warning("Expo push error: %s", e)
 
-    def _send_sms(self, to_number: str, body: str) -> None:
+    def _send_sms(self, to_number: str, body: str) -> bool:
         if not ENABLE_SMS_ALERTS:
-            return
+            return False
         if not (TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN and TWILIO_FROM_NUMBER):
             logger.warning("Twilio is not configured; SMS skipped.")
-            return
+            return False
 
         url = f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_ACCOUNT_SID}/Messages.json"
         data = {"From": TWILIO_FROM_NUMBER, "To": to_number, "Body": body}
@@ -80,8 +80,40 @@ class NotificationService:
                 resp = client.post(url, data=data, auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN))
                 if resp.status_code >= 400:
                     logger.warning("Twilio SMS failed: %s %s", resp.status_code, resp.text[:200])
+                    return False
+                return True
         except Exception as e:
             logger.warning("SMS error: %s", e)
+            return False
+
+    def send_emergency_sms_contacts(
+        self,
+        contacts: List[Dict[str, Any]],
+        body: str,
+    ) -> List[Dict[str, Any]]:
+        responses: List[Dict[str, Any]] = []
+
+        for contact in contacts:
+            phone = str(contact.get("phone") or "").strip()
+            if not phone:
+                responses.append({
+                    "contact_id": str(contact.get("id") or contact.get("phone") or "unknown"),
+                    "contact_name": contact.get("name") or "Emergency Contact",
+                    "response_type": "failed",
+                    "attempts": 1,
+                    "error": "Missing phone number",
+                })
+                continue
+
+            sent = self._send_sms(phone, body)
+            responses.append({
+                "contact_id": str(contact.get("id") or phone),
+                "contact_name": contact.get("name") or "Emergency Contact",
+                "response_type": "sms_sent" if sent else "sms_failed",
+                "attempts": 1,
+            })
+
+        return responses
 
     def notify_caregivers_alert(
         self,
@@ -119,8 +151,12 @@ class NotificationService:
         alert_type = getattr(alert, "alert_type", "alert")
         severity = getattr(alert, "severity", "unknown")
         message = reason or getattr(alert, "message", None) or f"New {alert_type} alert"
-        title = f"⚠️ {alert_type.upper()} Alert"
-        body = f"{patient_name}: {message} (severity: {severity})"
+        if alert_type in {"fall", "fall_now"}:
+            title = f"🚨 Danger Alert: {patient_name}"
+            body = f"Confirmed fall detected for {patient_name}. {message}"
+        else:
+            title = f"⚠️ {alert_type.upper()} Alert"
+            body = f"{patient_name}: {message} (severity: {severity})"
 
         push_messages: List[Dict[str, Any]] = []
 
