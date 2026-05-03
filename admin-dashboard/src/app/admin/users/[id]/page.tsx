@@ -15,10 +15,13 @@ interface UserDevice {
   is_online?: boolean;
   connection_state?: "connected" | "disconnected" | "offline" | "archived";
   data_state?: "streaming" | "stale" | "no_data";
-  device_status?: "active" | "connected_no_data" | "disconnected" | "offline" | "archived";
+  device_status?: "active" | "warming_up" | "connected_no_data" | "disconnected" | "offline" | "archived";
   device_status_label?: string;
   latest_data_at?: string | null;
   last_seen?: string | null;
+  ai_warmup?: boolean;
+  ai_samples_collected?: number;
+  ai_min_samples_for_alert?: number;
 }
 
 interface UserDetail {
@@ -46,6 +49,7 @@ interface UserDetail {
 
 interface AlertItem {
   id: number;
+  device_id?: string | null;
   prediction_id?: number | null;
   type: string;
   severity: string;
@@ -56,6 +60,7 @@ interface AlertItem {
 
 interface VitalItem {
   id: number;
+  device_id?: string | null;
   heart_rate?: number | null;
   blood_pressure_systolic?: number | null;
   blood_pressure_diastolic?: number | null;
@@ -99,9 +104,16 @@ interface PredictionItem {
 
 const statusTone = (status?: UserDevice["device_status"]) => {
   if (status === "active") return "text-emerald-300";
+  if (status === "warming_up") return "text-sky-300";
   if (status === "connected_no_data") return "text-amber-300";
   if (status === "disconnected") return "text-rose-300";
   return "text-slate-500";
+};
+
+const formatDeviceId = (deviceId?: string | null) => {
+  if (!deviceId) return "-";
+  if (deviceId.length <= 16) return deviceId;
+  return `${deviceId.slice(0, 8)}…${deviceId.slice(-4)}`;
 };
 
 export default function UserDetailPage() {
@@ -386,7 +398,7 @@ export default function UserDetailPage() {
             {detail?.devices?.map((device) => (
               <div key={device.id} className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
                 <div className="flex items-center justify-between">
-                  <span className="font-semibold text-slate-100">{device.device_id}</span>
+                  <span className="font-semibold font-mono text-slate-100">{formatDeviceId(device.device_id)}</span>
                   <span className={`text-xs ${statusTone(device.device_status)}`}>
                     {device.device_status_label || "Offline"}
                   </span>
@@ -396,6 +408,11 @@ export default function UserDetailPage() {
                   Last seen: {device.last_seen || "-"}
                   {device.latest_data_at ? ` · Data: ${device.latest_data_at}` : ""}
                 </p>
+                {device.ai_warmup ? (
+                  <p className="text-xs text-sky-300">
+                    AI warming up: {device.ai_samples_collected ?? 0}/{device.ai_min_samples_for_alert ?? 0} readings collected
+                  </p>
+                ) : null}
               </div>
             ))}
             {!detail?.devices?.length && <p className="text-sm text-slate-400">No devices linked.</p>}
@@ -409,6 +426,7 @@ export default function UserDetailPage() {
               <div key={alert.id} className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
                 <p className="text-xs text-slate-500">{alert.timestamp || "-"}</p>
                 <p className="text-sm text-slate-200">{alert.type} · {alert.severity} · {alert.status}</p>
+                <p className="text-xs text-cyan-200">Source device: <span className="font-mono">{formatDeviceId(alert.device_id)}</span></p>
                 <p className="text-xs text-slate-400">{alert.message || "-"}</p>
               </div>
             ))}
@@ -424,6 +442,7 @@ export default function UserDetailPage() {
             {vitals.map((vital) => (
               <div key={vital.id} className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
                 <p className="text-xs text-slate-500">{vital.timestamp || "-"}</p>
+                <p className="text-xs text-cyan-200">Source device: <span className="font-mono">{formatDeviceId(vital.device_id)}</span></p>
                 <p className="text-sm text-slate-200">
                   HR {vital.heart_rate ?? "-"} | SpO2 {vital.oxygen_saturation ?? "-"} | Temp {vital.body_temperature ?? "-"}
                 </p>
@@ -440,7 +459,7 @@ export default function UserDetailPage() {
             {motions.map((motion) => (
               <div key={motion.id} className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
                 <p className="text-xs text-slate-500">{motion.timestamp || "-"}</p>
-                <p className="text-sm text-slate-200">Device {motion.device_id || "-"} | Fall suspected: {motion.is_fall_suspected ? "Yes" : "No"}</p>
+                <p className="text-sm text-slate-200">Device {formatDeviceId(motion.device_id)} | Fall suspected: {motion.is_fall_suspected ? "Yes" : "No"}</p>
                 <p className="text-xs text-slate-400">acc({motion.acc_x ?? "-"}, {motion.acc_y ?? "-"}, {motion.acc_z ?? "-"}) gyro({motion.gyro_x ?? "-"}, {motion.gyro_y ?? "-"}, {motion.gyro_z ?? "-"})</p>
               </div>
             ))}

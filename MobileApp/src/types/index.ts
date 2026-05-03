@@ -28,9 +28,12 @@ export interface Device {
   is_online?: boolean;
   connection_state?: 'connected' | 'disconnected' | 'offline' | 'archived';
   data_state?: 'streaming' | 'stale' | 'no_data';
-  device_status?: 'active' | 'connected_no_data' | 'disconnected' | 'offline' | 'archived';
+  device_status?: 'active' | 'warming_up' | 'connected_no_data' | 'disconnected' | 'offline' | 'archived';
   device_status_label?: string;
   latest_data_at?: string;
+  ai_warmup?: boolean;
+  ai_samples_collected?: number;
+  ai_min_samples_for_alert?: number;
   is_archived?: boolean;
   last_seen?: string;
   created_at?: string;
@@ -59,6 +62,7 @@ export interface MotionData {
 export interface VitalData {
   id: number;
   user_id: number;
+  device_id?: string;
   timestamp: string;
   heart_rate?: number;
   blood_pressure_systolic?: number;
@@ -90,6 +94,7 @@ export interface Prediction {
 export interface Alert {
   id: number;
   user_id: number;
+  device_id?: string;
   prediction_id?: number;
   timestamp: string;
   alert_type: 'fall' | 'fall_now' | 'fall_risk' | 'vital_abnormal' | 'device_offline' | 'heart_rate' | 'blood_pressure' | 'temperature' | 'battery';

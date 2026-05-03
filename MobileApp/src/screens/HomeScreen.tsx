@@ -235,13 +235,9 @@ export const HomeScreen: React.FC = () => {
             (event.payload.alert_type === 'fall' || event.payload.alert_type === 'fall_now')
           ) {
             notificationService.sendFallAlert(event.payload);
-          }
-
-          if (
-            settings.automaticSOS &&
-            (event.payload.alert_type === 'fall' || event.payload.alert_type === 'fall_now')
-          ) {
-            emergencyService.triggerEmergency('fall', event.payload).catch(() => undefined);
+            if (settings.automaticSOS) {
+              emergencyService.triggerEmergency('fall', event.payload).catch(() => undefined);
+            }
           }
 
           return next.slice(0, 5);
@@ -257,10 +253,16 @@ export const HomeScreen: React.FC = () => {
       }
 
       if (event.resource === 'vitals') {
-        setLatestVitals(event.payload);
-        if (settings.automaticSOS && event.payload?.is_abnormal) {
-          emergencyService.triggerEmergency('vital_abnormal', event.payload).catch(() => undefined);
-        }
+        setLatestVitals((prev) => {
+          if (
+            settings.automaticSOS &&
+            event.payload?.is_abnormal &&
+            prev?.id !== event.payload?.id
+          ) {
+            emergencyService.triggerEmergency('vital_abnormal', event.payload).catch(() => undefined);
+          }
+          return event.payload;
+        });
       }
 
       if (event.resource === 'profile') {

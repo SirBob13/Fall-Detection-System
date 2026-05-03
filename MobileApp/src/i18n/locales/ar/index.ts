@@ -638,6 +638,8 @@ export default {
     dataStatus: "حالة البيانات",
     dataStreaming: "البيانات تصل الآن",
     dataStreamingDesc: "السوار يرسل قراءات حديثة إلى السيرفر الآن.",
+    aiWarmup: "الذكاء الاصطناعي يجهز نفسه",
+    aiWarmupDesc: "السوار يجمع سياق الحركة أولًا ({{count}}/{{min}} قراءة) قبل السماح بتنبيهات السقوط.",
     dataStale: "آخر قراءة قديمة",
     dataStaleDesc: "السوار اتصل من قبل، لكن آخر بيانات حساسات ليست حديثة.",
     dataUnavailable: "لا توجد قراءات بعد",

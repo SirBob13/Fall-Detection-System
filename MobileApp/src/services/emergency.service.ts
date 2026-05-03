@@ -298,7 +298,9 @@ export class EmergencyService {
       const canTrigger = await this.canTriggerEmergency(type, fallData);
       if (!canTrigger) {
         console.warn('⚠️ [Emergency] Too many consecutive emergencies');
-        this.showRateLimitWarning(type);
+        if (type === 'manual') {
+          this.showRateLimitWarning(type);
+        }
         return false;
       }
 
@@ -345,6 +347,7 @@ export class EmergencyService {
       if (activeUser?.id) {
         const serverResult = await apiService.triggerEmergency({
           user_id: Number(activeUser.id),
+          device_id: fallData?.device_id || undefined,
           user_name: activeUser.name,
           language: getCurrentLanguage(),
           type,

@@ -419,10 +419,12 @@ class VitalDataBase(BaseModel):
 
 class VitalDataCreate(VitalDataBase):
     user_id: int
+    device_id: Optional[str] = None
 
 class VitalDataResponse(VitalDataBase):
     id: int
     user_id: int
+    device_id: Optional[str] = None
     is_abnormal: bool
     abnormality_type: Optional[str]
     timestamp: datetime
@@ -497,11 +499,13 @@ class AlertBase(BaseModel):
 class AlertCreate(AlertBase):
     user_id: int
     prediction_id: Optional[int] = None
+    device_id: Optional[str] = None
 
 class AlertResponse(AlertBase):
     id: int
     user_id: int
     prediction_id: Optional[int]
+    device_id: Optional[str] = None
     status: AlertStatus
     sent_to: Optional[str]
     acknowledged_by: Optional[str]
@@ -554,6 +558,7 @@ class EmergencyTriggerContact(BaseModel):
 
 class EmergencyTrigger(BaseModel):
     user_id: int
+    device_id: Optional[str] = None
     type: str
     user_name: Optional[str] = None
     language: Optional[str] = None

@@ -41,6 +41,8 @@ static const unsigned long WIFI_RETRY_INTERVAL_MS = 10000;
 static const unsigned long MQTT_RETRY_INTERVAL_MS = 5000;
 static const unsigned long PUBLISH_INTERVAL_MS = 5000;
 static const unsigned long BACKUP_BLE_PUBLISH_INTERVAL_MS = 2000;
+static const unsigned long PROVISIONING_CHUNK_TIMEOUT_MS = 15000;
+static const size_t PROVISIONING_CHUNK_BUFFER_LIMIT = 2048;
 
 Preferences preferences;
 BLECharacteristic *deviceInfoChar = nullptr;
@@ -75,11 +77,16 @@ int pendingProvisionedUserId = 0;
 
 String lastErrorStage = "";
 String lastErrorMessage = "";
+String provisioningTransferId = "";
+String provisioningChunkBuffer = "";
+int provisioningChunkExpectedTotal = 0;
+int provisioningChunkNextIndex = 0;
 
 unsigned long lastWifiAttemptMs = 0;
 unsigned long lastMqttAttemptMs = 0;
 unsigned long lastPublishMs = 0;
 unsigned long lastBackupBlePublishMs = 0;
+unsigned long provisioningChunkStartedAtMs = 0;
 
 enum BleMode {
   BLE_MODE_OFF,
@@ -170,6 +177,152 @@ String decodeBase64Payload(const String &encoded) {
   String decoded = String((char *)buffer);
   free(buffer);
   return decoded;
+}
+
+void resetProvisioningTransfer() {
+  provisioningTransferId = "";
+  provisioningChunkBuffer = "";
+  provisioningChunkExpectedTotal = 0;
+  provisioningChunkNextIndex = 0;
+  provisioningChunkStartedAtMs = 0;
+}
+
+bool applyProvisioningPayload(const String &value) {
+  Serial.printf("📥 Provisioning payload bytes=%u\n", value.length());
+  Serial.println("📥 Provisioning payload:");
+  Serial.println(value);
+
+  StaticJsonDocument<1024> doc;
+  DeserializationError err = deserializeJson(doc, value);
+  if (err) {
+    Serial.printf("❌ Provisioning JSON parse failed: %s\n", err.c_str());
+    notifyStatus("invalid_json", false, String("Invalid provisioning payload: ") + err.c_str());
+    return false;
+  }
+
+  JsonObject wifi = doc["wifi"].is<JsonObject>() ? doc["wifi"].as<JsonObject>() : doc["w"].as<JsonObject>();
+  JsonObject mqtt = doc["mqtt"].is<JsonObject>() ? doc["mqtt"].as<JsonObject>() : doc["m"].as<JsonObject>();
+
+  pendingWifiSsid = wifi["ssid"] | wifi["s"] | "";
+  pendingWifiPassword = wifi["password"] | wifi["p"] | "";
+  pendingProvisionedDeviceId = doc["device_id"] | doc["d"] | fallbackDeviceId();
+  pendingPairingToken = doc["pairing_token"] | doc["pt"] | "";
+  pendingMqttHost = mqtt["host"] | mqtt["h"] | "";
+  pendingMqttTopic = mqtt["topic"] | mqtt["t"] | "fall-detection/device-data";
+  pendingMqttPort = mqtt["port"] | mqtt["o"] | 1883;
+  pendingProvisionedUserId = doc["user_id"] | doc["u"] | 0;
+
+  pendingWifiSsid.trim();
+  pendingWifiPassword.trim();
+  pendingProvisionedDeviceId.trim();
+  pendingMqttHost.trim();
+  pendingMqttTopic.trim();
+  pendingPairingToken.trim();
+
+  if (pendingWifiSsid.isEmpty()) {
+    notifyStatus("missing_ssid", false, "WiFi SSID is missing");
+    return false;
+  }
+
+  if (pendingWifiPassword.isEmpty()) {
+    notifyStatus("missing_password", false, "WiFi password is missing");
+    return false;
+  }
+
+  if (pendingProvisionedDeviceId.isEmpty()) {
+    notifyStatus("invalid_device_id", false, "device_id is missing");
+    return false;
+  }
+
+  if (pendingProvisionedUserId <= 0) {
+    notifyStatus("invalid_user_id", false, "user_id must be greater than 0");
+    return false;
+  }
+
+  if (pendingMqttHost.isEmpty()) {
+    notifyStatus("mqtt_failed", false, "MQTT host missing from provisioning data");
+    return false;
+  }
+
+  hasPendingProvisioning = true;
+  updateDeviceInfoCharacteristic();
+  notifyStatus("provisioning_received", true, "Provisioning data received, connecting to WiFi");
+  shouldApplyProvisioning = true;
+  return true;
+}
+
+bool handleProvisioningChunkEnvelope(JsonObject envelope) {
+  const String type = envelope["type"] | "";
+  const String transferId = envelope["id"] | "";
+
+  if (type == "chunk") {
+    const int index = envelope["index"] | -1;
+    const int total = envelope["total"] | 0;
+    const String data = envelope["data"] | "";
+
+    if (transferId.isEmpty() || index < 0 || total <= 0 || data.isEmpty()) {
+      notifyStatus("invalid_data", false, "Invalid chunk metadata");
+      return false;
+    }
+
+    if (index == 0 || provisioningTransferId != transferId) {
+      resetProvisioningTransfer();
+      provisioningTransferId = transferId;
+      provisioningChunkExpectedTotal = total;
+      provisioningChunkStartedAtMs = millis();
+    }
+
+    if (provisioningChunkExpectedTotal != total) {
+      notifyStatus("invalid_data", false, "Chunk total mismatch");
+      resetProvisioningTransfer();
+      return false;
+    }
+
+    if (index != provisioningChunkNextIndex) {
+      notifyStatus("invalid_data", false, "Chunk order mismatch");
+      resetProvisioningTransfer();
+      return false;
+    }
+
+    if (provisioningChunkBuffer.length() + data.length() > PROVISIONING_CHUNK_BUFFER_LIMIT) {
+      notifyStatus("invalid_data", false, "Provisioning payload too large");
+      resetProvisioningTransfer();
+      return false;
+    }
+
+    provisioningChunkBuffer += data;
+    provisioningChunkNextIndex++;
+    provisioningChunkStartedAtMs = millis();
+
+    Serial.printf("📦 Provisioning chunk %d/%d received\n", index + 1, total);
+    return true;
+  }
+
+  if (type == "commit") {
+    if (transferId.isEmpty() || provisioningTransferId != transferId) {
+      notifyStatus("invalid_data", false, "Commit transfer id mismatch");
+      resetProvisioningTransfer();
+      return false;
+    }
+
+    if (provisioningChunkExpectedTotal <= 0 || provisioningChunkNextIndex != provisioningChunkExpectedTotal) {
+      notifyStatus("invalid_data", false, "Incomplete chunked provisioning payload");
+      resetProvisioningTransfer();
+      return false;
+    }
+
+    String decodedPayload = decodeBase64Payload(provisioningChunkBuffer);
+    resetProvisioningTransfer();
+
+    if (decodedPayload.isEmpty()) {
+      notifyStatus("invalid_data", false, "Failed to decode chunked provisioning payload");
+      return false;
+    }
+
+    return applyProvisioningPayload(decodedPayload);
+  }
+
+  return false;
 }
 
 void notifyStatus(const char *stage, bool success, const String &message, int code = 0) {
@@ -471,11 +624,7 @@ class WriteCallbacks : public BLECharacteristicCallbacks {
       }
     }
 
-    Serial.printf("📥 Provisioning payload bytes=%u\n", value.length());
-    Serial.println("📥 Provisioning payload:");
-    Serial.println(value);
-
-    StaticJsonDocument<768> doc;
+    StaticJsonDocument<1024> doc;
     DeserializationError err = deserializeJson(doc, value);
     if (err) {
       Serial.printf("❌ Provisioning JSON parse failed: %s\n", err.c_str());
@@ -483,54 +632,12 @@ class WriteCallbacks : public BLECharacteristicCallbacks {
       return;
     }
 
-    JsonObject wifi = doc["wifi"].is<JsonObject>() ? doc["wifi"].as<JsonObject>() : doc["w"].as<JsonObject>();
-    JsonObject mqtt = doc["mqtt"].is<JsonObject>() ? doc["mqtt"].as<JsonObject>() : doc["m"].as<JsonObject>();
-
-    pendingWifiSsid = wifi["ssid"] | wifi["s"] | "";
-    pendingWifiPassword = wifi["password"] | wifi["p"] | "";
-    pendingProvisionedDeviceId = doc["device_id"] | doc["d"] | fallbackDeviceId();
-    pendingPairingToken = doc["pairing_token"] | doc["pt"] | "";
-    pendingMqttHost = mqtt["host"] | mqtt["h"] | "";
-    pendingMqttTopic = mqtt["topic"] | mqtt["t"] | "fall-detection/device-data";
-    pendingMqttPort = mqtt["port"] | mqtt["o"] | 1883;
-    pendingProvisionedUserId = doc["user_id"] | doc["u"] | 0;
-
-    pendingWifiSsid.trim();
-    pendingWifiPassword.trim();
-    pendingProvisionedDeviceId.trim();
-    pendingMqttHost.trim();
-    pendingMqttTopic.trim();
-    pendingPairingToken.trim();
-
-    if (pendingWifiSsid.isEmpty()) {
-      notifyStatus("missing_ssid", false, "WiFi SSID is missing");
+    if (doc["type"].is<const char*>()) {
+      handleProvisioningChunkEnvelope(doc.as<JsonObject>());
       return;
     }
 
-    if (pendingWifiPassword.isEmpty()) {
-      notifyStatus("missing_password", false, "WiFi password is missing");
-      return;
-    }
-
-    if (pendingProvisionedDeviceId.isEmpty()) {
-      notifyStatus("invalid_device_id", false, "device_id is missing");
-      return;
-    }
-
-    if (pendingProvisionedUserId <= 0) {
-      notifyStatus("invalid_user_id", false, "user_id must be greater than 0");
-      return;
-    }
-
-    if (pendingMqttHost.isEmpty()) {
-      notifyStatus("mqtt_failed", false, "MQTT host missing from provisioning data");
-      return;
-    }
-
-    hasPendingProvisioning = true;
-    updateDeviceInfoCharacteristic();
-    notifyStatus("provisioning_received", true, "Provisioning data received, connecting to WiFi");
-    shouldApplyProvisioning = true;
+    applyProvisioningPayload(value);
   }
 };
 
@@ -641,6 +748,15 @@ void setup() {
 
 void loop() {
   unsigned long now = millis();
+
+  if (
+    provisioningChunkStartedAtMs > 0 &&
+    provisioningChunkExpectedTotal > 0 &&
+    now - provisioningChunkStartedAtMs >= PROVISIONING_CHUNK_TIMEOUT_MS
+  ) {
+    notifyStatus("invalid_data", false, "Provisioning chunks timed out");
+    resetProvisioningTransfer();
+  }
 
   if (shouldApplyProvisioning) {
     shouldApplyProvisioning = false;

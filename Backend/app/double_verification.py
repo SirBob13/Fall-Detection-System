@@ -240,12 +240,18 @@ class DoubleVerificationSystem:
             severity = "high" if risk_probability >= 0.9 else "medium"
             message = f"High fall risk detected for {user.name}. Probability: {risk_probability:.2%}"
 
+        prediction = self.db.query(models.Prediction).filter(models.Prediction.id == prediction_id).first()
+        device_id = None
+        if prediction and prediction.motion_data:
+            device_id = prediction.motion_data.device_id
+
         if recent_alert:
             logger.info(f"Updating existing alert {recent_alert.id} for user {user_id}")
             recent_alert.severity = severity
             recent_alert.message = message
             recent_alert.timestamp = datetime.utcnow()
             recent_alert.prediction_id = prediction_id
+            recent_alert.device_id = recent_alert.device_id or device_id
             self.db.commit()
             self.db.refresh(recent_alert)
             return recent_alert
@@ -253,6 +259,7 @@ class DoubleVerificationSystem:
         alert = models.Alert(
             user_id=user_id,
             prediction_id=prediction_id,
+            device_id=device_id,
             alert_type=alert_type,
             severity=severity,
             message=message,

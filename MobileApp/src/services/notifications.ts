@@ -1,6 +1,7 @@
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { Platform, Vibration } from 'react-native';
 import { Alert } from '../types';
+import { apiService } from './api';
 import { API_CONFIG } from '../utils/constants';
 
 const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
@@ -34,6 +35,7 @@ const getNotificationsModule = async () => {
 
 export class NotificationService {
   private static instance: NotificationService;
+  private deviceCountCache = new Map<number, { count: number; cachedAt: number }>();
 
   static getInstance(): NotificationService {
     if (!NotificationService.instance) {
@@ -120,13 +122,42 @@ export class NotificationService {
     }
   }
 
+  private formatDeviceSuffix(deviceId?: string | null): string {
+    if (!deviceId) return '';
+    const compactId = deviceId.length > 16 ? `${deviceId.slice(0, 8)}…${deviceId.slice(-4)}` : deviceId;
+    return `\nDevice: ${compactId}`;
+  }
+
+  private async shouldShowDeviceId(userId?: number, deviceId?: string | null): Promise<boolean> {
+    if (!userId || !deviceId) return false;
+
+    const cached = this.deviceCountCache.get(userId);
+    const now = Date.now();
+    if (cached && now - cached.cachedAt < 60_000) {
+      return cached.count > 1;
+    }
+
+    try {
+      const response = await apiService.getUserDevices(userId);
+      const count = Array.isArray(response.data) ? response.data.length : 0;
+      this.deviceCountCache.set(userId, { count, cachedAt: now });
+      return count > 1;
+    } catch (error) {
+      console.warn('Error checking user device count for notification:', error);
+      return false;
+    }
+  }
+
   async sendFallAlert(alert: Alert, monitoredPersonName?: string, monitoredUserId?: number) {
     try {
       const Notifications = await getNotificationsModule();
+      const targetUserId = monitoredUserId ?? alert.user_id;
+      const includeDeviceId = await this.shouldShowDeviceId(targetUserId, alert.device_id);
+      const deviceSuffix = includeDeviceId ? this.formatDeviceSuffix(alert.device_id) : '';
       const title = monitoredPersonName ? `🚨 خطر: ${monitoredPersonName}` : '🚨 خطر: سقوط مؤكد';
       const body = monitoredPersonName
-        ? `تم رصد سقوط مؤكد لـ ${monitoredPersonName}. ${alert.message}`
-        : `تم رصد سقوط مؤكد. ${alert.message}`;
+        ? `تم رصد سقوط مؤكد لـ ${monitoredPersonName}. ${alert.message}${deviceSuffix}`
+        : `تم رصد سقوط مؤكد. ${alert.message}${deviceSuffix}`;
       if (!Notifications) {
         Vibration.vibrate([500, 500, 500]);
         return;

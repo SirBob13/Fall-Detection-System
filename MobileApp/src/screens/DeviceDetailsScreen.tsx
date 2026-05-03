@@ -21,6 +21,12 @@ export const DeviceDetailsScreen: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [removing, setRemoving] = useState(false);
 
+  const formatDeviceId = (deviceId?: string | null) => {
+    if (!deviceId) return '--';
+    if (deviceId.length <= 16) return deviceId;
+    return `${deviceId.slice(0, 8)}…${deviceId.slice(-4)}`;
+  };
+
   useEffect(() => {
     loadLatestDevice();
   }, [route.params.device.device_id]);
@@ -82,12 +88,18 @@ export const DeviceDetailsScreen: React.FC = () => {
   };
 
   const getDataStateLabel = () => {
+    if (device.ai_warmup) return t('system.aiWarmup');
     if (device.data_state === 'streaming') return t('system.dataStreaming');
     if (device.data_state === 'stale') return t('system.dataStale');
     return t('system.dataUnavailable');
   };
 
   const getDataStateDescription = () => {
+    if (device.ai_warmup) {
+      const count = device.ai_samples_collected ?? 0;
+      const min = device.ai_min_samples_for_alert ?? 0;
+      return t('system.aiWarmupDesc', { count, min });
+    }
     if (device.data_state === 'streaming') return t('system.dataStreamingDesc');
     if (device.data_state === 'stale') return t('system.dataStaleDesc');
     return t('system.dataUnavailableDesc');
@@ -109,8 +121,10 @@ export const DeviceDetailsScreen: React.FC = () => {
                 <MaterialCommunityIcons name="watch" size={24} color="#6B7280" />
               </View>
               <View className="ml-3 flex-1">
-                <Text className="text-lg font-bold text-gray-900">{device.device_id}</Text>
-                <Text className="text-xs text-gray-500 mt-1">{t('system.deviceIdLabel')}</Text>
+                <Text className="text-lg font-bold text-gray-900">{formatDeviceId(device.device_id)}</Text>
+                <Text className="text-xs text-gray-500 mt-1">
+                  {t('system.deviceIdLabel')}: {device.device_id}
+                </Text>
               </View>
             </View>
             <View className={`px-3 py-1 rounded-full ${isOnlineLike ? 'bg-green-100' : 'bg-red-100'}`}>

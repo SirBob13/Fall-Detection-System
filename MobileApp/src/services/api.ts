@@ -195,6 +195,7 @@ class ApiService {
     return {
       id: raw?.id,
       user_id: raw?.user_id ?? userId ?? 0,
+      device_id: raw?.device_id ?? undefined,
       prediction_id: raw?.prediction_id ?? undefined,
       timestamp: raw?.timestamp,
       alert_type: raw?.alert_type || raw?.type || 'fall',
@@ -366,6 +367,7 @@ class ApiService {
 
   async triggerEmergency(payload: {
     user_id: number;
+    device_id?: string;
     user_name?: string;
     language?: string;
     type: string;

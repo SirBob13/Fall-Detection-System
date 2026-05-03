@@ -7,12 +7,19 @@ import { useRealtimeEvents } from "../_lib/realtime";
 interface AlertItem {
   id: number;
   user_id: number;
+  device_id?: string | null;
   type: string;
   severity: string;
   status: string;
   message: string;
   timestamp?: string | null;
 }
+
+const formatDeviceId = (deviceId?: string | null) => {
+  if (!deviceId) return "-";
+  if (deviceId.length <= 16) return deviceId;
+  return `${deviceId.slice(0, 8)}…${deviceId.slice(-4)}`;
+};
 
 export default function AlertsPage() {
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
@@ -85,6 +92,7 @@ export default function AlertsPage() {
                 </p>
                 <span className="text-xs text-slate-500">User {alert.user_id}</span>
               </div>
+              <p className="mt-2 text-xs text-cyan-200">Source device: <span className="font-mono">{formatDeviceId(alert.device_id)}</span></p>
               <p className="mt-2 text-sm text-slate-400">{alert.message}</p>
               <p className="mt-2 text-xs text-slate-500">{alert.timestamp || "-"}</p>
             </div>

@@ -93,7 +93,7 @@ export default function OverviewPage() {
           { title: "Users", value: data?.users?.total ?? "-", sub: `Active: ${data?.users?.active ?? "-"} · Login: ${data?.users?.login ?? "-"}` },
           { title: "Devices", value: data?.devices?.total ?? "-", sub: `Connected: ${data?.devices?.connected ?? "-"} · Offline: ${data?.devices?.offline ?? "-"}` },
           { title: "Alerts", value: data?.alerts?.total ?? "-", sub: `Active: ${data?.alerts?.active ?? "-"}` },
-          { title: "Signals", value: `${data?.motions ?? 0} motions`, sub: `${data?.vitals ?? 0} vitals` },
+          { title: "Stored Signals", value: `${data?.motions ?? 0} motion samples`, sub: `${data?.vitals ?? 0} vital snapshots stored` },
         ].map((card) => (
           <div key={card.title} className="rounded-2xl border border-slate-800 bg-slate-950/70 p-5 shadow-lg shadow-cyan-500/5">
             <p className="text-xs uppercase tracking-[0.3em] text-cyan-300/70">{card.title}</p>
@@ -113,14 +113,17 @@ export default function OverviewPage() {
           </div>
         </div>
         <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-6">
-          <h3 className="font-display text-xl">Signals Volume</h3>
+          <h3 className="font-display text-xl">Stored Signals Volume</h3>
+          <p className="mt-2 text-sm text-slate-400">
+            Stored database records, not live sensor readings per second.
+          </p>
           <div className="mt-4 grid gap-3 text-sm text-slate-300">
             <div className="flex items-center justify-between">
-              <span>Motions</span>
+              <span>Motion samples</span>
               <span className="text-cyan-200">{data?.motions ?? 0}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span>Vitals</span>
+              <span>Vital snapshots</span>
               <span className="text-emerald-200">{data?.vitals ?? 0}</span>
             </div>
             <div className="flex items-center justify-between">

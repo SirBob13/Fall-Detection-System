@@ -42,28 +42,63 @@ const encodeBase64 = (value: string): string => {
 };
 
 const buildProvisioningWritePayload = (payload: DeviceProvisioningPayload): string => {
-  // Keep the BLE write payload compact so it fits within common ESP32/Android MTU limits.
-  const mqttPayload: { h: string; o?: number; t?: string } = {
-    h: payload.mqtt.host,
-  };
-
-  if (payload.mqtt.port !== 1883) {
-    mqttPayload.o = payload.mqtt.port;
-  }
-
-  if (payload.mqtt.topic !== 'fall-detection/device-data') {
-    mqttPayload.t = payload.mqtt.topic;
-  }
-
   return JSON.stringify({
     d: payload.device_id,
     u: payload.user_id,
+    pt: payload.pairing_token,
     w: {
       s: payload.wifi.ssid,
       p: payload.wifi.password,
     },
-    m: mqttPayload,
+    m: {
+      h: payload.mqtt.host,
+      o: payload.mqtt.port,
+      t: payload.mqtt.topic,
+    },
+    a: {
+      b: payload.api.base_url,
+    },
   });
+};
+
+const PROVISIONING_CHUNK_DATA_CHARS = 120;
+const PROVISIONING_CHUNK_DELAY_MS = 25;
+
+type ProvisioningBleMessage = {
+  payload: string;
+  requiresResponse: boolean;
+};
+
+const buildChunkedProvisioningMessages = (rawPayload: string): ProvisioningBleMessage[] => {
+  const encoded = encodeBase64(rawPayload);
+  const total = Math.ceil(encoded.length / PROVISIONING_CHUNK_DATA_CHARS);
+  const transferId = `prov-${Date.now()}`;
+  const messages: ProvisioningBleMessage[] = [];
+
+  for (let index = 0; index < total; index += 1) {
+    const start = index * PROVISIONING_CHUNK_DATA_CHARS;
+    const data = encoded.slice(start, start + PROVISIONING_CHUNK_DATA_CHARS);
+    messages.push({
+      payload: JSON.stringify({
+        type: 'chunk',
+        id: transferId,
+        index,
+        total,
+        data,
+      }),
+      requiresResponse: false,
+    });
+  }
+
+  messages.push({
+    payload: JSON.stringify({
+      type: 'commit',
+      id: transferId,
+    }),
+    requiresResponse: true,
+  });
+
+  return messages;
 };
 
 class DeviceProvisioningService {
@@ -78,14 +113,25 @@ class DeviceProvisioningService {
 
   private async writeProvisioningPayloadWithFallback(
     device: BleDevice,
-    encodedPayload: string
+    rawPayload: string,
+    requiresResponse: boolean
   ): Promise<void> {
+    const encodedPayload = encodeBase64(rawPayload);
+
     try {
-      await device.writeCharacteristicWithResponseForService(
-        BLE_CONFIG.PROVISIONING_SERVICE_UUID,
-        BLE_CONFIG.PROVISIONING_CHARACTERISTIC_UUID,
-        encodedPayload
-      );
+      if (requiresResponse) {
+        await device.writeCharacteristicWithResponseForService(
+          BLE_CONFIG.PROVISIONING_SERVICE_UUID,
+          BLE_CONFIG.PROVISIONING_CHARACTERISTIC_UUID,
+          encodedPayload
+        );
+      } else {
+        await device.writeCharacteristicWithoutResponseForService(
+          BLE_CONFIG.PROVISIONING_SERVICE_UUID,
+          BLE_CONFIG.PROVISIONING_CHARACTERISTIC_UUID,
+          encodedPayload
+        );
+      }
       return;
     } catch (primaryError) {
       console.warn('⚠️ [BLE Provisioning] Direct service write failed, trying characteristic fallback:', primaryError);
@@ -105,7 +151,11 @@ class DeviceProvisioningService {
           characteristicUuid: characteristic.uuid,
         });
 
-        await characteristic.writeWithResponse(encodedPayload);
+        if (requiresResponse) {
+          await characteristic.writeWithResponse(encodedPayload);
+        } else {
+          await characteristic.writeWithoutResponse(encodedPayload);
+        }
         return;
       }
     }
@@ -164,26 +214,28 @@ class DeviceProvisioningService {
   ): Promise<void> {
     const device = await this.ensureReadyDevice(deviceId);
     const rawPayload = buildProvisioningWritePayload(payload);
-    const encoded = encodeBase64(rawPayload);
-    const maxWriteBytes = 180;
-
-    if (rawPayload.length > maxWriteBytes) {
-      throw new Error(
-        `Provisioning payload is too large for the current BLE firmware (${rawPayload.length} bytes > ${maxWriteBytes}).`
-      );
-    }
+    const messages = buildChunkedProvisioningMessages(rawPayload);
 
     console.log('📤 [BLE Provisioning] Writing payload to bracelet...', {
       deviceId,
       rawBytes: rawPayload.length,
-      base64Bytes: encoded.length,
-      compact: true,
+      chunked: true,
+      chunkCount: messages.length - 1,
     });
 
     try {
       await this.settleDevice(device, 1200);
-      await this.writeProvisioningPayloadWithFallback(device, encoded);
-      console.log('✅ [BLE Provisioning] Payload written successfully');
+      for (const [index, message] of messages.entries()) {
+        await this.writeProvisioningPayloadWithFallback(
+          device,
+          message.payload,
+          message.requiresResponse
+        );
+        if (index < messages.length - 1) {
+          await this.settleDevice(device, PROVISIONING_CHUNK_DELAY_MS);
+        }
+      }
+      console.log('✅ [BLE Provisioning] Chunked payload written successfully');
     } catch (error) {
       console.error('❌ [BLE Provisioning] Payload write failed:', error);
       throw new Error(

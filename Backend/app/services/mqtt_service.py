@@ -25,6 +25,7 @@ MQTT_TOPICS_RAW = os.getenv("MQTT_TOPICS", "fall-detection/device-data")
 MQTT_QOS = int(os.getenv("MQTT_QOS", "0"))
 MQTT_CLIENT_ID = os.getenv("MQTT_CLIENT_ID", "fall-detection-mqtt-worker")
 MQTT_INGEST_URL = os.getenv("MQTT_INGEST_URL", "http://127.0.0.1:8000/api/v1/device-data")
+MQTT_BATCH_INGEST_URL = os.getenv("MQTT_BATCH_INGEST_URL", "")
 _client: Optional[mqtt.Client] = None
 _thread: Optional[threading.Thread] = None
 
@@ -42,10 +43,19 @@ def _on_connect(client: mqtt.Client, userdata, flags, rc) -> None:  # type: igno
     logger.info("✅ MQTT connected and subscribed to %s", ", ".join(_topics()))
 
 
+def _resolve_ingest_url(payload: dict) -> str:
+    if isinstance(payload.get("items"), list):
+        if MQTT_BATCH_INGEST_URL:
+            return MQTT_BATCH_INGEST_URL
+        if MQTT_INGEST_URL.endswith("/device-data"):
+            return f"{MQTT_INGEST_URL}/batch"
+    return MQTT_INGEST_URL
+
+
 def _forward_payload(payload: dict) -> dict:
     body = json.dumps(payload).encode("utf-8")
     req = urllib_request.Request(
-        MQTT_INGEST_URL,
+        _resolve_ingest_url(payload),
         data=body,
         headers={"Content-Type": "application/json"},
         method="POST",

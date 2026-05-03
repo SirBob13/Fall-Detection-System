@@ -67,6 +67,7 @@ async def trigger_emergency(
         try:
             alert = Alert(
                 user_id=emergency_data.user_id,
+                device_id=emergency_data.device_id or (emergency_data.fall_data or {}).get("device_id"),
                 alert_type=emergency_data.type,
                 severity="critical",
                 message=f"Emergency triggered: {emergency_data.type}",
@@ -82,6 +83,7 @@ async def trigger_emergency(
             payload = {
                 "id": alert.id,
                 "user_id": alert.user_id,
+                "device_id": getattr(alert, "device_id", None),
                 "alert_type": alert.alert_type,
                 "severity": alert.severity,
                 "message": alert.message,
@@ -194,6 +196,7 @@ async def get_emergency_history(
             for alert in alerts:
                 emergency_history.append({
                     "id": alert.id,
+                    "device_id": getattr(alert, "device_id", None),
                     "timestamp": alert.timestamp.isoformat() if alert.timestamp else None,
                     "type": alert.alert_type,
                     "severity": alert.severity,

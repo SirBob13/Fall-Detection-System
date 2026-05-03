@@ -18,12 +18,12 @@ import math
 import time
 
 from ..database import get_db
-from ..services.ai_model import load_model_and_scaler, predict_from_sample
+from ..services.ai_model import load_model_and_scaler, predict_from_sample, get_raw_buffer_size
 from .. import crud, schemas, models
 from ..services.auth_service import AuthService
 from ..models import User, UserAuth, Alert, Prediction, Device, DeletedDevice, CareLink, VitalSensorData, EmergencyLog, UserPushToken
 from ..device_auth import device_auth
-from ..config import SECRET_KEY, ALGORITHM, ADMIN_EMAILS
+from ..config import SECRET_KEY, ALGORITHM, ADMIN_EMAILS, MIN_REALTIME_SAMPLES_FOR_ALERT
 from ..double_verification import DoubleVerificationSystem
 from ..services.notification_service import NotificationService
 from ..realtime import notify_user, notify_users, notify_admins
@@ -60,6 +60,7 @@ def _serialize_alert(alert: Alert) -> Dict[str, Any]:
         "id": alert.id,
         "user_id": alert.user_id,
         "prediction_id": alert.prediction_id,
+        "device_id": getattr(alert, "device_id", None),
         "type": alert.alert_type,
         "alert_type": alert.alert_type,
         "severity": alert.severity,
@@ -125,9 +126,24 @@ def _find_deleted_device(db: Session, device_id: str) -> Optional[DeletedDevice]
     return db.query(DeletedDevice).filter(DeletedDevice.device_id == device_id).first()
 
 
-def _assert_device_not_deleted(db: Session, device_id: str) -> None:
+def _assert_device_not_deleted(
+    db: Session,
+    device_id: str,
+    reconnecting_user_id: Optional[int] = None,
+) -> None:
     deleted_device = _find_deleted_device(db, device_id)
     if deleted_device is not None:
+        # Allow the same user who previously removed the device to reclaim it.
+        if reconnecting_user_id is not None and deleted_device.user_id == reconnecting_user_id:
+            db.delete(deleted_device)
+            db.commit()
+            logger.info(
+                "Reclaimed previously deleted device_id=%s for user_id=%s",
+                device_id,
+                reconnecting_user_id,
+            )
+            return
+
         raise HTTPException(
             status_code=status.HTTP_410_GONE,
             detail={
@@ -142,9 +158,15 @@ def _serialize_device(
     device: Device,
     latest_data_at: Optional[datetime] = None,
 ) -> Dict[str, Any]:
+    buffer_key = f"{device.user_id}:{device.device_id}" if device and device.user_id and device.device_id else ""
+    ai_samples_collected = get_raw_buffer_size(buffer_key) if buffer_key else 0
+    ai_warmup = 0 < ai_samples_collected < MIN_REALTIME_SAMPLES_FOR_ALERT
     status_payload = build_device_status_payload(
         device,
         latest_data_at=latest_data_at or _get_latest_motion_timestamp(db, device.device_id),
+        ai_warmup=ai_warmup,
+        ai_samples_collected=ai_samples_collected,
+        ai_min_samples_for_alert=MIN_REALTIME_SAMPLES_FOR_ALERT,
     )
     return {
         "id": device.id,
@@ -210,6 +232,7 @@ def _serialize_vital(vital: VitalSensorData) -> Dict[str, Any]:
     return {
         "id": vital.id,
         "user_id": vital.user_id,
+        "device_id": getattr(vital, "device_id", None),
         "heart_rate": vital.heart_rate,
         "blood_pressure_systolic": vital.blood_pressure_systolic,
         "blood_pressure_diastolic": vital.blood_pressure_diastolic,
@@ -331,7 +354,7 @@ def _ensure_device_for_ingest(
                 detail={"success": False, "error": "Device ID already registered to another user"}
             )
 
-    # Update device metadata if provided
+    # Update device metadata if provided and always refresh presence on ingest.
     updated = False
     if battery_level is not None:
         device.battery_level = battery_level
@@ -343,9 +366,14 @@ def _ensure_device_for_ingest(
         device.is_archived = False
         updated = True
 
-    if updated:
-        device.is_connected = True
-        device.last_seen = datetime.utcnow()
+    presence_changed = not bool(device.is_connected)
+    device.is_connected = True
+    device.last_seen = datetime.utcnow()
+
+    if updated or presence_changed:
+        db.commit()
+        db.refresh(device)
+    else:
         db.commit()
         db.refresh(device)
 
@@ -391,13 +419,14 @@ def _handle_device_payload(
         vitals_dict = payload.vitals.dict(exclude_unset=True)
         if payload.timestamp and not vitals_dict.get("timestamp"):
             vitals_dict["timestamp"] = payload.timestamp
-        vital_schema = schemas.VitalDataCreate(user_id=user_id, **vitals_dict)
+        vital_schema = schemas.VitalDataCreate(user_id=user_id, device_id=device.device_id, **vitals_dict)
         stored_vital = crud.create_vital_data(db, vital_schema)
 
         alert_id = None
         if stored_vital.is_abnormal:
             alert = Alert(
                 user_id=user_id,
+                device_id=device.device_id,
                 alert_type="vital_abnormal",
                 severity="high",
                 message=f"Abnormal {stored_vital.abnormality_type} detected",
@@ -1263,12 +1292,30 @@ def _process_motion_data_internal(
     )
     stored_motion = crud.create_motion_data(db, motion_data_schema)
 
-    verification_system = DoubleVerificationSystem(db)
-    verified = verification_system.verify_fall_with_vitals(
-        user_id=user_id,
-        fall_prediction=ai_result,
-        current_vitals=None
-    )
+    prediction_metadata = ai_result.get("metadata", {}) or {}
+    sample_count = int(prediction_metadata.get("samples", 0) or 0)
+    warmup = bool(prediction_metadata.get("warmup", False))
+    alert_eligible = sample_count >= MIN_REALTIME_SAMPLES_FOR_ALERT
+
+    if alert_eligible:
+        verification_system = DoubleVerificationSystem(db)
+        verified = verification_system.verify_fall_with_vitals(
+            user_id=user_id,
+            fall_prediction=ai_result,
+            current_vitals=None
+        )
+    else:
+        verification_system = None
+        verified = {
+            "fall_now_probability": ai_result.get("fall_now_probability", 0.0),
+            "fall_soon_probability": ai_result.get("fall_soon_probability", 0.0),
+            "fall_now_prediction": False,
+            "fall_soon_prediction": False,
+            "vital_check_performed": False,
+            "vital_check_result": None,
+            "final_verdict": False,
+            "confidence_score": ai_result.get("confidence_score", 0.0),
+        }
 
     db_pred = Prediction(
         user_id=user_id,
@@ -1287,11 +1334,13 @@ def _process_motion_data_internal(
     db.commit()
     db.refresh(db_pred)
 
-    alert = verification_system.create_alert_if_needed(
-        user_id=user_id,
-        prediction_id=db_pred.id,
-        verification_result=verified
-    )
+    alert = None
+    if verification_system is not None:
+        alert = verification_system.create_alert_if_needed(
+            user_id=user_id,
+            prediction_id=db_pred.id,
+            verification_result=verified
+        )
     if alert and alert.alert_type == "fall_now":
         notification_service.notify_caregivers_alert(
             db=db,
@@ -1314,7 +1363,12 @@ def _process_motion_data_internal(
             "vital_check_result": verified.get("vital_check_result"),
             "timestamp": datetime.utcnow().isoformat(),
             "is_mock": ai_result.get("is_mock", False),
-            "model_type": "dual_output" if "fall_soon_probability" in ai_result else "single_output"
+            "model_type": "dual_output" if "fall_soon_probability" in ai_result else "single_output",
+            "warmup": warmup,
+            "samples_collected": sample_count,
+            "min_samples_for_alert": MIN_REALTIME_SAMPLES_FOR_ALERT,
+            "alert_eligible": alert_eligible,
+            "warmup_reason": None if alert_eligible else "collecting_motion_context",
         },
         "is_test_data": ai_result.get("is_mock", False),
         "timestamp": datetime.utcnow().isoformat(),
@@ -1586,6 +1640,7 @@ async def process_vital_data(
             # Store in database
             vital_data = schemas.VitalDataCreate(
                 user_id=user_id,
+                device_id=data.get('device_id'),
                 **vital_readings,
                 timestamp=data.get('timestamp')
             )
@@ -1600,6 +1655,7 @@ async def process_vital_data(
                 # Create vital alert
                 alert = Alert(
                     user_id=user_id,
+                    device_id=data.get('device_id'),
                     alert_type="vital_abnormal",
                     severity="high",
                     message=f"Abnormal {abnormality_type.replace('_', ' ')} detected",
@@ -3677,7 +3733,7 @@ async def request_device_pairing_token(
             detail={"success": False, "error": "Invalid session user"},
         )
 
-    _assert_device_not_deleted(db, payload.device_id)
+    _assert_device_not_deleted(db, payload.device_id, reconnecting_user_id=user_id)
     device = crud.get_device_by_id(db, payload.device_id)
     if device and device.user_id != user_id:
         raise HTTPException(
@@ -3832,6 +3888,12 @@ async def remove_device(
                 }
             )
 
+        user_active_devices = crud.get_devices_by_user(db, device.user_id)
+        remaining_active_devices = [
+            user_device for user_device in user_active_devices if user_device.device_id != device.device_id
+        ]
+        should_purge_user_level_sensor_data = len(remaining_active_devices) == 0
+
         payload = {
             "id": device.id,
             "user_id": device.user_id,
@@ -3843,6 +3905,7 @@ async def remove_device(
             "is_archived": True,
             "last_seen": datetime.utcnow().isoformat(),
             "created_at": device.created_at.isoformat() if device.created_at else None,
+            "purged_user_level_sensor_data": should_purge_user_level_sensor_data,
         }
 
         deleted_device = _find_deleted_device(db, device.device_id)
@@ -3858,6 +3921,34 @@ async def remove_device(
 
         device_auth.device_tokens.pop(device.device_id, None)
         deleted_user_id = device.user_id
+
+        db.query(VitalSensorData).filter(
+            VitalSensorData.device_id == device.device_id
+        ).delete(synchronize_session=False)
+        db.query(Alert).filter(
+            Alert.device_id == device.device_id
+        ).delete(synchronize_session=False)
+        db.query(EmergencyLog).filter(
+            EmergencyLog.device_id == device.device_id
+        ).delete(synchronize_session=False)
+
+        if should_purge_user_level_sensor_data:
+            db.query(VitalSensorData).filter(
+                VitalSensorData.user_id == deleted_user_id,
+                VitalSensorData.device_id.is_(None),
+            ).delete(synchronize_session=False)
+            db.query(Alert).filter(
+                Alert.user_id == deleted_user_id,
+                Alert.device_id.is_(None),
+                Alert.alert_type == "vital_abnormal",
+            ).delete(synchronize_session=False)
+            db.query(EmergencyLog).filter(
+                EmergencyLog.user_id == deleted_user_id,
+                EmergencyLog.device_id.is_(None),
+                EmergencyLog.emergency_type.in_(["fall", "vital_abnormal", "inactivity"]),
+            ).delete(synchronize_session=False)
+            db.commit()
+
         crud.delete_device(db, device)
 
         await _notify_patient_and_caregivers(db, deleted_user_id, "devices", action="deleted", payload=payload)
@@ -3906,18 +3997,7 @@ async def get_device(
             status_code=status.HTTP_200_OK,
             content={
                 "success": True,
-                "data": {
-                    "id": device.id,
-                    "user_id": device.user_id,
-                    "device_id": device.device_id,
-                    "mac_address": device.mac_address,
-                    "firmware_version": device.firmware_version,
-                    "battery_level": device.battery_level,
-                    "is_connected": device.is_connected,
-                    "is_archived": device.is_archived,
-                    "last_seen": device.last_seen.isoformat() if device.last_seen else None,
-                    "created_at": device.created_at.isoformat() if device.created_at else None
-                },
+                "data": _serialize_device(db, device),
                 "timestamp": datetime.utcnow().isoformat()
             }
         )
@@ -3955,18 +4035,7 @@ async def get_device_for_user(
             status_code=status.HTTP_200_OK,
             content={
                 "success": True,
-                "data": {
-                    "id": device.id,
-                    "user_id": device.user_id,
-                    "device_id": device.device_id,
-                    "mac_address": device.mac_address,
-                    "firmware_version": device.firmware_version,
-                    "battery_level": device.battery_level,
-                    "is_connected": device.is_connected,
-                    "is_archived": device.is_archived,
-                    "last_seen": device.last_seen.isoformat() if device.last_seen else None,
-                    "created_at": device.created_at.isoformat() if device.created_at else None
-                },
+                "data": _serialize_device(db, device),
                 "timestamp": datetime.utcnow().isoformat()
             }
         )
@@ -3996,21 +4065,7 @@ async def get_devices_for_user(
             status_code=status.HTTP_200_OK,
             content={
                 "success": True,
-                "data": [
-                    {
-                        "id": device.id,
-                        "user_id": device.user_id,
-                        "device_id": device.device_id,
-                        "mac_address": device.mac_address,
-                        "firmware_version": device.firmware_version,
-                        "battery_level": device.battery_level,
-                        "is_connected": device.is_connected,
-                        "is_archived": device.is_archived,
-                        "last_seen": device.last_seen.isoformat() if device.last_seen else None,
-                        "created_at": device.created_at.isoformat() if device.created_at else None
-                    }
-                    for device in devices
-                ],
+                "data": [_serialize_device(db, device) for device in devices],
                 "count": len(devices),
                 "timestamp": datetime.utcnow().isoformat()
             }
@@ -4039,21 +4094,7 @@ async def get_archived_devices_for_user(
             status_code=status.HTTP_200_OK,
             content={
                 "success": True,
-                "data": [
-                    {
-                        "id": device.id,
-                        "user_id": device.user_id,
-                        "device_id": device.device_id,
-                        "mac_address": device.mac_address,
-                        "firmware_version": device.firmware_version,
-                        "battery_level": device.battery_level,
-                        "is_connected": device.is_connected,
-                        "is_archived": device.is_archived,
-                        "last_seen": device.last_seen.isoformat() if device.last_seen else None,
-                        "created_at": device.created_at.isoformat() if device.created_at else None
-                    }
-                    for device in devices
-                ],
+                "data": [_serialize_device(db, device) for device in devices],
                 "count": len(devices),
                 "timestamp": datetime.utcnow().isoformat()
             }
@@ -4208,6 +4249,7 @@ async def trigger_emergency(
 
         alert = Alert(
             user_id=user.id,
+            device_id=emergency_data.device_id or (emergency_data.fall_data or {}).get("device_id"),
             alert_type=emergency_data.type,
             severity=severity,
             message=final_message,
@@ -4221,6 +4263,7 @@ async def trigger_emergency(
 
         emergency_log = EmergencyLog(
             user_id=user.id,
+            device_id=emergency_data.device_id or (emergency_data.fall_data or {}).get("device_id"),
             emergency_type=emergency_data.type,
             location_lat=location.get("latitude"),
             location_lng=location.get("longitude"),

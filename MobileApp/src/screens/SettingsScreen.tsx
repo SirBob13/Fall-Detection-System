@@ -259,7 +259,8 @@ export const SettingsScreen: React.FC = () => {
                   <View className="flex-row items-center flex-1 pr-3">
                     <MaterialCommunityIcons name="watch" size={24} color="#6B7280" />
                     <View className="ml-2 flex-1">
-                      <Text className="font-bold text-gray-800">{device.device_id}</Text>
+                      <Text className="font-bold text-gray-800">{formatDeviceId(device.device_id)}</Text>
+                      <Text className="text-[11px] text-gray-400 mt-1">{device.device_id}</Text>
                       <Text className="text-[11px] text-gray-500 mt-1">{getDeviceQuickStatus(device)}</Text>
                       {isCurrent ? (
                         <Text className="text-[11px] text-primary mt-1">{t('system.currentDevice')}</Text>
@@ -338,6 +339,12 @@ export const SettingsScreen: React.FC = () => {
 
 const dedupeDevices = (devices: Device[]): Device[] =>
   devices.filter((device, index, list) => list.findIndex((item) => item.device_id === device.device_id) === index);
+
+const formatDeviceId = (deviceId?: string | null) => {
+  if (!deviceId) return '--';
+  if (deviceId.length <= 16) return deviceId;
+  return `${deviceId.slice(0, 8)}…${deviceId.slice(-4)}`;
+};
 
 const SettingItem = ({ icon, color, bgColor, title, desc, onPress }: any) => (
   <TouchableOpacity onPress={onPress} className="flex-row items-center bg-white p-4 rounded-2xl mb-3 shadow-sm border border-gray-100">

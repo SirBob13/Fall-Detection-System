@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
 import { Platform, Alert } from 'react-native';
 import * as LocalAuthentication from 'expo-local-authentication';
+import Constants from 'expo-constants';
 import { API_CONFIG } from '../utils/constants';
 import { AUTH_CONFIG } from '../constants/auth';
 import { notificationService } from './notifications';
@@ -153,6 +154,44 @@ class AuthService {
       AuthService.instance = new AuthService();
     }
     return AuthService.instance;
+  }
+
+  private async clearGoogleSession(): Promise<void> {
+    const isExpoGo =
+      Constants.executionEnvironment === 'storeClient' ||
+      Constants.appOwnership === 'expo';
+
+    if (isExpoGo) {
+      return;
+    }
+
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const googleModule = require('@react-native-google-signin/google-signin') as {
+        GoogleSignin?: {
+          signOut?: () => Promise<void>;
+          revokeAccess?: () => Promise<void>;
+        };
+      };
+
+      if (!googleModule?.GoogleSignin) {
+        return;
+      }
+
+      try {
+        await googleModule.GoogleSignin.revokeAccess?.();
+      } catch (error) {
+        console.warn('⚠️ [Logout] Google revokeAccess failed:', error);
+      }
+
+      try {
+        await googleModule.GoogleSignin.signOut?.();
+      } catch (error) {
+        console.warn('⚠️ [Logout] Google signOut failed:', error);
+      }
+    } catch (error) {
+      console.warn('⚠️ [Logout] Google native module unavailable during logout:', error);
+    }
   }
 
   // ==================== Enhanced Session Validation Functions ====================
@@ -1340,6 +1379,8 @@ class AuthService {
           console.warn('⚠️ [Logout] Server logout failed:', error);
         });
       }
+
+      await this.clearGoogleSession();
       
       // Clear session locally
       await this.clearSession();

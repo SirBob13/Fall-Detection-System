@@ -62,12 +62,15 @@ def get_device_data_state(
 def get_device_operational_status(
     device: Optional[Device],
     latest_data_at: Optional[datetime] = None,
+    ai_warmup: bool = False,
     now: Optional[datetime] = None,
 ) -> str:
     connection_state = get_device_connection_state(device, now)
     if connection_state in {"archived", "disconnected"}:
         return connection_state
     if connection_state == "connected":
+        if ai_warmup:
+            return "warming_up"
         return "active" if is_device_streaming(latest_data_at, now) else "connected_no_data"
     return "offline"
 
@@ -75,6 +78,7 @@ def get_device_operational_status(
 def get_device_status_label(device_status: str) -> str:
     return {
         "active": "Active",
+        "warming_up": "Warming up",
         "connected_no_data": "Connected, no data",
         "connected": "Connected",
         "disconnected": "Disconnected",
@@ -86,12 +90,15 @@ def get_device_status_label(device_status: str) -> str:
 def build_device_status_payload(
     device: Optional[Device],
     latest_data_at: Optional[datetime] = None,
+    ai_warmup: bool = False,
+    ai_samples_collected: int = 0,
+    ai_min_samples_for_alert: int = 0,
     now: Optional[datetime] = None,
 ) -> Dict[str, Any]:
     current = now or datetime.utcnow()
     connection_state = get_device_connection_state(device, current)
     data_state = get_device_data_state(latest_data_at, current)
-    device_status = get_device_operational_status(device, latest_data_at, current)
+    device_status = get_device_operational_status(device, latest_data_at, ai_warmup=ai_warmup, now=current)
     return {
         "is_online": connection_state == "connected",
         "connection_state": connection_state,
@@ -99,6 +106,9 @@ def build_device_status_payload(
         "device_status": device_status,
         "device_status_label": get_device_status_label(device_status),
         "latest_data_at": latest_data_at.isoformat() if latest_data_at else None,
+        "ai_warmup": ai_warmup,
+        "ai_samples_collected": ai_samples_collected,
+        "ai_min_samples_for_alert": ai_min_samples_for_alert,
     }
 
 

@@ -586,6 +586,7 @@ def create_vital_data(db: Session, vital_data: schemas.VitalDataCreate) -> model
         
         db_vital = models.VitalSensorData(
             user_id=vital_data.user_id,
+            device_id=vital_data.device_id,
             heart_rate=heart_rate,
             blood_pressure_systolic=vital_data.blood_pressure_systolic,
             blood_pressure_diastolic=vital_data.blood_pressure_diastolic,
@@ -829,6 +830,7 @@ def create_alert(db: Session, alert_data: schemas.AlertCreate) -> models.Alert:
         db_alert = models.Alert(
             user_id=alert_data.user_id,
             prediction_id=alert_data.prediction_id,
+            device_id=alert_data.device_id,
             alert_type=alert_data.alert_type,
             severity=alert_data.severity,
             message=alert_data.message,

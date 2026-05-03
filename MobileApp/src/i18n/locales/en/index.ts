@@ -636,6 +636,8 @@ export default {
     dataStatus: "Data status",
     dataStreaming: "Live data is arriving",
     dataStreamingDesc: "The bracelet is sending fresh readings to the server now.",
+    aiWarmup: "AI is warming up",
+    aiWarmupDesc: "The bracelet is collecting motion context ({{count}}/{{min}} readings) before fall alerts are allowed.",
     dataStale: "Last reading is old",
     dataStaleDesc: "The bracelet connected before, but the latest sensor data is not recent.",
     dataUnavailable: "No readings yet",

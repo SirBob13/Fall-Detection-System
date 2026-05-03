@@ -23,6 +23,12 @@ TIME_STEPS = 100
 # Feature engineering window (must match training)
 VAR_WINDOW = 10
 
+# Realtime gating:
+# The model was trained on a 100-step sequence. With the firmware now sending
+# 50 Hz raw-motion batches, waiting for the full sequence means only ~2 seconds
+# of warmup, which is a reasonable tradeoff for higher confidence alerts.
+MIN_REALTIME_SAMPLES_FOR_ALERT = int(os.getenv("MIN_REALTIME_SAMPLES_FOR_ALERT", "100"))
+
 # Model thresholds
 # `FALL_THRESHOLD_NOW` and `FALL_THRESHOLD_SOON` are used for prediction labeling.
 # Alerting is stricter and handled in the double-verification layer.

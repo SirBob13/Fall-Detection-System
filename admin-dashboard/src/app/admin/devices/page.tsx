@@ -14,17 +14,27 @@ interface DeviceItem {
   is_online?: boolean;
   connection_state?: "connected" | "disconnected" | "offline" | "archived";
   data_state?: "streaming" | "stale" | "no_data";
-  device_status?: "active" | "connected_no_data" | "disconnected" | "offline" | "archived";
+  device_status?: "active" | "warming_up" | "connected_no_data" | "disconnected" | "offline" | "archived";
   device_status_label?: string;
   latest_data_at?: string | null;
   last_seen?: string | null;
+  ai_warmup?: boolean;
+  ai_samples_collected?: number;
+  ai_min_samples_for_alert?: number;
 }
 
 const statusTone = (status?: DeviceItem["device_status"]) => {
   if (status === "active") return "text-emerald-300";
+  if (status === "warming_up") return "text-sky-300";
   if (status === "connected_no_data") return "text-amber-300";
   if (status === "disconnected") return "text-rose-300";
   return "text-slate-500";
+};
+
+const formatDeviceId = (deviceId?: string | null) => {
+  if (!deviceId) return "-";
+  if (deviceId.length <= 16) return deviceId;
+  return `${deviceId.slice(0, 8)}…${deviceId.slice(-4)}`;
 };
 
 export default function DevicesPage() {
@@ -82,7 +92,7 @@ export default function DevicesPage() {
             <div key={device.id} className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm text-slate-300">
-                  <span className="text-slate-100 font-semibold">{device.device_id}</span> · User {device.user_id}
+                  <span className="text-slate-100 font-semibold font-mono">{formatDeviceId(device.device_id)}</span> · User {device.user_id}
                 </p>
                 <div className="flex items-center gap-3">
                   <span className={`text-xs ${statusTone(device.device_status)}`}>
@@ -99,10 +109,16 @@ export default function DevicesPage() {
                 </div>
               </div>
               <p className="mt-2 text-sm text-slate-400">Battery {device.battery_level ?? "-"} | Firmware {device.firmware_version || "-"}</p>
+              <p className="mt-1 text-xs text-cyan-200">Full device ID: <span className="font-mono">{device.device_id}</span></p>
               <p className="mt-1 text-xs text-slate-500">
                 Last seen: {device.last_seen || "-"}
                 {device.latest_data_at ? ` · Data: ${device.latest_data_at}` : ""}
               </p>
+              {device.ai_warmup ? (
+                <p className="mt-1 text-xs text-sky-300">
+                  AI warming up: {device.ai_samples_collected ?? 0}/{device.ai_min_samples_for_alert ?? 0} readings collected
+                </p>
+              ) : null}
             </div>
           ))}
           {!devices.length && <p className="text-sm text-slate-400">No devices yet.</p>}

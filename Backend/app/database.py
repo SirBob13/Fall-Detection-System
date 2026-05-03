@@ -109,6 +109,9 @@ def init_db():
         Base.metadata.create_all(bind=engine)
         ensure_user_phone_column()
         ensure_device_archived_column()
+        ensure_vital_device_id_column()
+        ensure_alert_device_id_column()
+        ensure_emergency_log_device_id_column()
         print("✅ Database initialized successfully")
         
         # إنشاء بيانات تجريبية إذا كانت قاعدة البيانات فارغة
@@ -157,6 +160,123 @@ def ensure_device_archived_column():
         print("✅ Added devices.is_archived column")
     except Exception as e:
         print(f"⚠️ Unable to add devices.is_archived column: {e}")
+
+def ensure_vital_device_id_column():
+    """
+    Ensure vital_sensor_data.device_id column exists (safe, additive migration).
+    """
+    try:
+        inspector = inspect(engine)
+        if not inspector.has_table("vital_sensor_data"):
+            return
+
+        columns = [col["name"] for col in inspector.get_columns("vital_sensor_data")]
+        if "device_id" not in columns:
+            ddl = "ALTER TABLE vital_sensor_data ADD COLUMN device_id VARCHAR(50)"
+            if engine.dialect.name != "sqlite":
+                ddl = "ALTER TABLE vital_sensor_data ADD COLUMN device_id VARCHAR(50) NULL"
+            with engine.begin() as conn:
+                conn.execute(text(ddl))
+            print("✅ Added vital_sensor_data.device_id column")
+
+        vital_indexes = {index["name"] for index in inspector.get_indexes("vital_sensor_data")}
+        if "idx_vital_device_timestamp" not in vital_indexes:
+            with engine.begin() as conn:
+                if engine.dialect.name == "sqlite":
+                    conn.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_vital_device_timestamp "
+                            "ON vital_sensor_data (device_id, timestamp)"
+                        )
+                    )
+                else:
+                    conn.execute(
+                        text(
+                            "CREATE INDEX idx_vital_device_timestamp "
+                            "ON vital_sensor_data (device_id, timestamp)"
+                        )
+                    )
+            print("✅ Added vital_sensor_data device/timestamp index")
+    except Exception as e:
+        print(f"⚠️ Unable to add vital_sensor_data.device_id column/index: {e}")
+
+def ensure_alert_device_id_column():
+    """
+    Ensure alerts.device_id column exists (safe, additive migration).
+    """
+    try:
+        inspector = inspect(engine)
+        if not inspector.has_table("alerts"):
+            return
+
+        columns = [col["name"] for col in inspector.get_columns("alerts")]
+        if "device_id" not in columns:
+            ddl = "ALTER TABLE alerts ADD COLUMN device_id VARCHAR(50)"
+            if engine.dialect.name != "sqlite":
+                ddl = "ALTER TABLE alerts ADD COLUMN device_id VARCHAR(50) NULL"
+            with engine.begin() as conn:
+                conn.execute(text(ddl))
+            print("✅ Added alerts.device_id column")
+
+        indexes = {index["name"] for index in inspector.get_indexes("alerts")}
+        if "idx_alert_device_timestamp" not in indexes:
+            with engine.begin() as conn:
+                if engine.dialect.name == "sqlite":
+                    conn.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_alert_device_timestamp "
+                            "ON alerts (device_id, timestamp)"
+                        )
+                    )
+                else:
+                    conn.execute(
+                        text(
+                            "CREATE INDEX idx_alert_device_timestamp "
+                            "ON alerts (device_id, timestamp)"
+                        )
+                    )
+            print("✅ Added alerts device/timestamp index")
+    except Exception as e:
+        print(f"⚠️ Unable to add alerts.device_id column/index: {e}")
+
+def ensure_emergency_log_device_id_column():
+    """
+    Ensure emergency_logs.device_id column exists (safe, additive migration).
+    """
+    try:
+        inspector = inspect(engine)
+        if not inspector.has_table("emergency_logs"):
+            return
+
+        columns = [col["name"] for col in inspector.get_columns("emergency_logs")]
+        if "device_id" not in columns:
+            ddl = "ALTER TABLE emergency_logs ADD COLUMN device_id VARCHAR(50)"
+            if engine.dialect.name != "sqlite":
+                ddl = "ALTER TABLE emergency_logs ADD COLUMN device_id VARCHAR(50) NULL"
+            with engine.begin() as conn:
+                conn.execute(text(ddl))
+            print("✅ Added emergency_logs.device_id column")
+
+        indexes = {index["name"] for index in inspector.get_indexes("emergency_logs")}
+        if "idx_emergencylog_device_timestamp" not in indexes:
+            with engine.begin() as conn:
+                if engine.dialect.name == "sqlite":
+                    conn.execute(
+                        text(
+                            "CREATE INDEX IF NOT EXISTS idx_emergencylog_device_timestamp "
+                            "ON emergency_logs (device_id, timestamp)"
+                        )
+                    )
+                else:
+                    conn.execute(
+                        text(
+                            "CREATE INDEX idx_emergencylog_device_timestamp "
+                            "ON emergency_logs (device_id, timestamp)"
+                        )
+                    )
+            print("✅ Added emergency_logs device/timestamp index")
+    except Exception as e:
+        print(f"⚠️ Unable to add emergency_logs.device_id column/index: {e}")
 
 def create_test_data():
     """

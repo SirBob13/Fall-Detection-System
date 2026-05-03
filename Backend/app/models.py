@@ -409,6 +409,7 @@ class VitalSensorData(Base):
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    device_id = Column(String(50), ForeignKey("devices.device_id", ondelete="CASCADE"), nullable=True, index=True)
     
     # Vital Signs
     heart_rate = Column(Float)  # BPM
@@ -433,6 +434,7 @@ class VitalSensorData(Base):
     __table_args__ = (
         # New composite index for frequent queries
         Index('idx_vital_user_abnormal_time', 'user_id', 'is_abnormal', 'timestamp'),
+        Index('idx_vital_device_timestamp', 'device_id', 'timestamp'),
         
         # Indexes for specific vital signs
         Index('idx_vital_bp_systolic', 'blood_pressure_systolic'),
@@ -502,6 +504,7 @@ class Alert(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     prediction_id = Column(Integer, ForeignKey("predictions.id", ondelete="CASCADE"))
+    device_id = Column(String(50), ForeignKey("devices.device_id", ondelete="CASCADE"), nullable=True, index=True)
     
     # Alert Details
     alert_type = Column(String(50), nullable=False)  # 'fall', 'vital_abnormal', 'device_offline'
@@ -525,6 +528,7 @@ class Alert(Base):
     # Indexes
     __table_args__ = (
         Index('idx_alert_user_timestamp', 'user_id', 'timestamp'),
+        Index('idx_alert_device_timestamp', 'device_id', 'timestamp'),
         Index('idx_alert_status', 'status'),
         Index('idx_alert_severity', 'severity'),
         Index('idx_alert_type', 'alert_type'),
@@ -573,6 +577,7 @@ class EmergencyLog(Base):
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    device_id = Column(String(50), ForeignKey("devices.device_id", ondelete="CASCADE"), nullable=True, index=True)
     
     # Emergency Details
     emergency_type = Column(String(50), nullable=False)  # 'fall', 'manual', 'vital_abnormal'
@@ -594,6 +599,7 @@ class EmergencyLog(Base):
     # Indexes
     __table_args__ = (
         Index('idx_emergencylog_user_timestamp', 'user_id', 'timestamp'),
+        Index('idx_emergencylog_device_timestamp', 'device_id', 'timestamp'),
         Index('idx_emergencylog_type', 'emergency_type'),
         Index('idx_emergencylog_status', 'status'),
         Index('idx_emergencylog_location', 'location_lat', 'location_lng'),

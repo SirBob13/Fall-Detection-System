@@ -156,6 +156,13 @@ def clear_raw_buffer(buffer_key: str) -> None:
     if buffer_key in _raw_buffers:
         _raw_buffers[buffer_key].clear()
 
+
+def get_raw_buffer_size(buffer_key: str) -> int:
+    """Return the current sample count for a specific realtime stream."""
+    if buffer_key not in _raw_buffers:
+        return 0
+    return len(_raw_buffers[buffer_key])
+
 def load_model_and_scaler() -> Tuple[Optional[Any], Optional[Any]]:
     """
     Load AI model and scaler.

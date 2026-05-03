@@ -191,6 +191,7 @@ def get_admin_alerts(
         {
             "id": a.id,
             "user_id": a.user_id,
+            "device_id": getattr(a, "device_id", None),
             "prediction_id": a.prediction_id,
             "type": a.alert_type,
             "severity": a.severity,
@@ -224,6 +225,7 @@ def get_admin_vitals(
         {
             "id": v.id,
             "user_id": v.user_id,
+            "device_id": getattr(v, "device_id", None),
             "heart_rate": v.heart_rate,
             "blood_pressure_systolic": v.blood_pressure_systolic,
             "blood_pressure_diastolic": v.blood_pressure_diastolic,
@@ -427,6 +429,7 @@ def get_admin_user_alerts(
     data = [
         {
             "id": a.id,
+            "device_id": getattr(a, "device_id", None),
             "prediction_id": a.prediction_id,
             "type": a.alert_type,
             "severity": a.severity,
@@ -459,6 +462,7 @@ def get_admin_user_vitals(
     data = [
         {
             "id": v.id,
+            "device_id": getattr(v, "device_id", None),
             "heart_rate": v.heart_rate,
             "blood_pressure_systolic": v.blood_pressure_systolic,
             "blood_pressure_diastolic": v.blood_pressure_diastolic,

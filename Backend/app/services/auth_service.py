@@ -212,6 +212,7 @@ class AuthService:
             self.db.commit()
             
             logger.info(f"✅ Login successful: {email_clean}")
+            is_admin = user_auth.email.lower() in ADMIN_EMAILS if ADMIN_EMAILS else False
             
             return {
                 "success": True,

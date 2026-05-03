@@ -38,6 +38,8 @@ type GoogleSigninModule = {
     configure: (options: Record<string, unknown>) => void;
     hasPlayServices: (options?: Record<string, unknown>) => Promise<void>;
     signIn: () => Promise<any>;
+    signOut?: () => Promise<void>;
+    revokeAccess?: () => Promise<void>;
   };
   isErrorWithCode: (error: unknown) => error is { code?: string; message?: string };
   isSuccessResponse: (result: any) => result is { data: { user: { id: string; email: string; name?: string | null; photo?: string | null }; idToken?: string | null } };
@@ -512,6 +514,12 @@ export const LoginScreen: React.FC = () => {
           offlineAccess: false,
           scopes: ['openid', 'profile', 'email'],
         });
+
+        try {
+          await GoogleSignin.signOut?.();
+        } catch (error) {
+          console.warn('⚠️ [Google Login] Pre-login Google signOut failed:', error);
+        }
 
         if (Platform.OS === 'android') {
           await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });

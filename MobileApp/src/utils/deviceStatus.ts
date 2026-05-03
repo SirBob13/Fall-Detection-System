@@ -3,7 +3,7 @@ import { Device } from '../types';
 const DEVICE_ONLINE_WINDOW_MS = 2 * 60 * 1000;
 
 export type UserPresenceStatus = 'active' | 'login' | 'logout';
-export type DeviceOperationalStatus = 'active' | 'connected_no_data' | 'disconnected' | 'offline' | 'archived';
+export type DeviceOperationalStatus = 'active' | 'warming_up' | 'connected_no_data' | 'disconnected' | 'offline' | 'archived';
 
 export const isDeviceOnline = (device?: Device | null): boolean => {
   if (!device) return false;
@@ -34,6 +34,7 @@ export const getDeviceOperationalStatus = (device?: Device | null): DeviceOperat
 
   const connectionState = getDeviceConnectionState(device);
   if (connectionState === 'connected') {
+    if (device.ai_warmup) return 'warming_up';
     return device.data_state === 'streaming' ? 'active' : 'connected_no_data';
   }
   if (connectionState === 'archived') return 'archived';
@@ -49,6 +50,8 @@ export const getDeviceStatusLabel = (device?: Device | null): string => {
   switch (status) {
     case 'active':
       return 'Active';
+    case 'warming_up':
+      return 'Warming up';
     case 'connected_no_data':
       return 'Connected, no data';
     case 'disconnected':
