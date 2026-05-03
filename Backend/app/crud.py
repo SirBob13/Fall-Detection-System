@@ -1020,38 +1020,16 @@ def get_system_stats(db: Session) -> Dict:
         }
 
 def cleanup_old_data(db: Session, days_to_keep: int = 30) -> Dict:
-    """Clean up old data to maintain database performance."""
+    """Backward-compatible wrapper around the runtime retention policy."""
     try:
-        cutoff_date = datetime.utcnow() - timedelta(days=days_to_keep)
-        
-        # Delete old motion data
-        motion_deleted = db.query(models.MotionSensorData)\
-            .filter(models.MotionSensorData.timestamp < cutoff_date)\
-            .delete(synchronize_session=False)
-        
-        # Delete old vital data
-        vital_deleted = db.query(models.VitalSensorData)\
-            .filter(models.VitalSensorData.timestamp < cutoff_date)\
-            .delete(synchronize_session=False)
-        
-        # Delete old system logs (keep 7 days only)
-        logs_cutoff = datetime.utcnow() - timedelta(days=7)
-        logs_deleted = db.query(models.SystemLog)\
-            .filter(models.SystemLog.timestamp < logs_cutoff)\
-            .delete(synchronize_session=False)
-        
-        db.commit()
-        
+        from .services.retention_service import cleanup_runtime_data
+
+        result = cleanup_runtime_data(db)
         return {
             "success": True,
-            "message": "Old data cleaned up successfully",
-            "deleted_records": {
-                "motion_data": motion_deleted,
-                "vital_data": vital_deleted,
-                "system_logs": logs_deleted
-            }
+            "message": "Runtime data cleaned up successfully",
+            "deleted_records": result,
         }
-        
     except Exception as e:
         db.rollback()
         logger.error(f"Error cleaning up old data: {e}")

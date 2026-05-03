@@ -41,12 +41,41 @@ export default function DevicesPage() {
   const [devices, setDevices] = useState<DeviceItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [resettingId, setResettingId] = useState<number | null>(null);
+
+  const loadDevices = async () => {
+    setError(null);
+    try {
+      const res = await apiFetch<{ data: DeviceItem[] }>("/admin/devices?limit=100");
+      setDevices(res.data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load devices");
+    }
+  };
 
   useEffect(() => {
-    apiFetch<{ data: DeviceItem[] }>("/admin/devices?limit=100")
-      .then((res) => setDevices(res.data))
-      .catch((err) => setError(err.message));
+    void loadDevices();
   }, []);
+
+  const resetDeviceData = async (device: DeviceItem) => {
+    const confirmed = window.confirm(
+      `Reset stored data for device "${device.device_id}"?\n\nThis will keep the device linked to the account, but remove its stored motions, vitals, predictions, alerts, and emergency logs.`
+    );
+    if (!confirmed) return;
+
+    setResettingId(device.id);
+    setError(null);
+    try {
+      await apiFetch(`/devices/${encodeURIComponent(device.device_id)}/reset?user_id=${device.user_id}`, {
+        method: "POST",
+      });
+      await loadDevices();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to reset device data");
+    } finally {
+      setResettingId(null);
+    }
+  };
 
   const deleteDevice = async (device: DeviceItem) => {
     const confirmed = window.confirm(
@@ -100,8 +129,16 @@ export default function DevicesPage() {
                   </span>
                   <button
                     type="button"
+                    onClick={() => resetDeviceData(device)}
+                    disabled={resettingId === device.id || deletingId === device.id}
+                    className="rounded-full border border-amber-500/40 px-3 py-1 text-xs text-amber-200 transition hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {resettingId === device.id ? "Resetting..." : "Reset data"}
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => deleteDevice(device)}
-                    disabled={deletingId === device.id}
+                    disabled={deletingId === device.id || resettingId === device.id}
                     className="rounded-full border border-rose-500/40 px-3 py-1 text-xs text-rose-200 transition hover:border-rose-400 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {deletingId === device.id ? "Deleting..." : "Delete"}

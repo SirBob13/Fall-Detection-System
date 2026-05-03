@@ -18,7 +18,7 @@ import math
 import time
 
 from ..database import get_db
-from ..services.ai_model import load_model_and_scaler, predict_from_sample, get_raw_buffer_size
+from ..services.ai_model import load_model_and_scaler, predict_from_sample, get_raw_buffer_size, clear_raw_buffer
 from .. import crud, schemas, models
 from ..services.auth_service import AuthService
 from ..models import User, UserAuth, Alert, Prediction, Device, DeletedDevice, CareLink, VitalSensorData, EmergencyLog, UserPushToken
@@ -3973,6 +3973,158 @@ async def remove_device(
             detail={
                 "success": False,
                 "error": f"Failed to remove device: {str(e)}"
+            }
+        )
+
+
+@router.post("/devices/{device_id}/reset", response_model=Dict[str, Any])
+async def reset_device_data(
+    device_id: str,
+    user_id: Optional[int] = Query(None),
+    session: Dict[str, Any] = Depends(_require_user),
+    db: Session = Depends(get_db)
+):
+    """Clear stored telemetry/history for a device without deleting the device itself."""
+    try:
+        device = crud.get_device_by_id(db, device_id)
+        if not device:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "success": False,
+                    "error": f"Device with ID {device_id} not found"
+                }
+            )
+
+        session_user = session.get("user") or {}
+        session_user_id = int(session_user.get("id"))
+        session_user_email = str(session_user.get("email") or "").strip().lower()
+        is_admin = session_user_email in ADMIN_EMAILS if ADMIN_EMAILS else False
+
+        if not is_admin and device.user_id != session_user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "success": False,
+                    "error": "Not authorized to reset this device"
+                }
+            )
+
+        if user_id is not None and device.user_id != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "success": False,
+                    "error": "Device does not belong to this user"
+                }
+            )
+
+        motion_ids = [
+            motion_id
+            for (motion_id,) in db.query(models.MotionSensorData.id)
+            .filter(models.MotionSensorData.device_id == device.device_id)
+            .all()
+        ]
+        prediction_ids = []
+        if motion_ids:
+            prediction_ids = [
+                prediction_id
+                for (prediction_id,) in db.query(Prediction.id)
+                .filter(Prediction.motion_data_id.in_(motion_ids))
+                .all()
+            ]
+
+        motion_count = len(motion_ids)
+        prediction_count = len(prediction_ids)
+        vital_count = db.query(VitalSensorData).filter(
+            VitalSensorData.device_id == device.device_id
+        ).count()
+        alert_count_query = db.query(Alert).filter(Alert.device_id == device.device_id)
+        if prediction_ids:
+            alert_count_query = db.query(Alert).filter(
+                or_(
+                    Alert.device_id == device.device_id,
+                    Alert.prediction_id.in_(prediction_ids),
+                )
+            )
+        alert_count = alert_count_query.count()
+        emergency_log_count = db.query(EmergencyLog).filter(
+            EmergencyLog.device_id == device.device_id
+        ).count()
+
+        if prediction_ids:
+            db.query(Alert).filter(
+                Alert.prediction_id.in_(prediction_ids)
+            ).delete(synchronize_session=False)
+            db.query(Prediction).filter(
+                Prediction.id.in_(prediction_ids)
+            ).delete(synchronize_session=False)
+
+        db.query(Alert).filter(
+            Alert.device_id == device.device_id
+        ).delete(synchronize_session=False)
+        db.query(EmergencyLog).filter(
+            EmergencyLog.device_id == device.device_id
+        ).delete(synchronize_session=False)
+        db.query(VitalSensorData).filter(
+            VitalSensorData.device_id == device.device_id
+        ).delete(synchronize_session=False)
+        db.query(models.MotionSensorData).filter(
+            models.MotionSensorData.device_id == device.device_id
+        ).delete(synchronize_session=False)
+        db.commit()
+
+        clear_raw_buffer(f"{device.user_id}:{device.device_id}")
+
+        payload = _serialize_device(db, device, latest_data_at=None)
+        reset_counts = {
+            "motions": motion_count,
+            "predictions": prediction_count,
+            "vitals": vital_count,
+            "alerts": alert_count,
+            "emergency_logs": emergency_log_count,
+        }
+        payload["reset_counts"] = reset_counts
+
+        await _notify_patient_and_caregivers(
+            db,
+            device.user_id,
+            "devices",
+            action="updated",
+            payload=payload,
+            throttle_seconds=1.0,
+        )
+        await notify_admins(
+            "devices",
+            action="updated",
+            payload=payload,
+            throttle_seconds=1.0,
+        )
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "message": "Device data reset successfully",
+                "data": {
+                    "device_id": device.device_id,
+                    "user_id": device.user_id,
+                    "reset_counts": reset_counts,
+                },
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error resetting device data: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "success": False,
+                "error": f"Failed to reset device data: {str(e)}"
             }
         )
 

@@ -67,6 +67,18 @@ VITAL_CHANGE_THRESHOLD = 0.2  # 20% change threshold
 ALERT_COOLDOWN = 300  # 5 minutes between alerts for same user
 EMERGENCY_CONTACTS = ["+201234567890"]  # Example contacts
 
+# Data retention settings
+# With 50 Hz motion ingest, raw motion grows very quickly. Keep raw telemetry
+# only for short-term debugging unless it is tied to an alert-worthy incident.
+ENABLE_DATA_RETENTION = os.getenv("ENABLE_DATA_RETENTION", "true").lower() == "true"
+DATA_RETENTION_RUN_ON_STARTUP = os.getenv("DATA_RETENTION_RUN_ON_STARTUP", "true").lower() == "true"
+DATA_RETENTION_INTERVAL_MINUTES = int(os.getenv("DATA_RETENTION_INTERVAL_MINUTES", "60"))
+MOTION_RETENTION_HOURS = int(os.getenv("MOTION_RETENTION_HOURS", "24"))
+PREDICTION_RETENTION_HOURS = int(os.getenv("PREDICTION_RETENTION_HOURS", "24"))
+VITAL_RETENTION_DAYS = int(os.getenv("VITAL_RETENTION_DAYS", "30"))
+SYSTEM_LOG_RETENTION_DAYS = int(os.getenv("SYSTEM_LOG_RETENTION_DAYS", "7"))
+USER_SESSION_RETENTION_DAYS = int(os.getenv("USER_SESSION_RETENTION_DAYS", "30"))
+
 # Sensor thresholds
 ACCELERATION_THRESHOLD = 2.5  # g
 GYRO_THRESHOLD = 200  # degrees/second
