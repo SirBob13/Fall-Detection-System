@@ -74,6 +74,24 @@ export interface VitalData {
   abnormality_type?: string;
 }
 
+export interface VitalsStatus {
+  message_type?: 'vitals_status';
+  device_id: string;
+  user_id?: number;
+  request_id?: string;
+  vitals_trigger?: 'manual' | 'fall_alert' | string;
+  state: 'requested' | 'measuring' | 'complete' | 'stopped' | 'error' | string;
+  progress_percent?: number;
+  finger_detected?: boolean;
+  heart_rate?: number | null;
+  spo2?: number | null;
+  heart_rate_valid?: boolean;
+  spo2_valid?: boolean;
+  max_powered?: boolean;
+  signal_status?: string | null;
+  timestamp?: string;
+}
+
 // Prediction Types
 export interface Prediction {
   id: number;

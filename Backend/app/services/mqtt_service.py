@@ -26,6 +26,7 @@ MQTT_QOS = int(os.getenv("MQTT_QOS", "0"))
 MQTT_CLIENT_ID = os.getenv("MQTT_CLIENT_ID", "fall-detection-mqtt-worker")
 MQTT_INGEST_URL = os.getenv("MQTT_INGEST_URL", "http://127.0.0.1:8000/api/v1/device-data")
 MQTT_BATCH_INGEST_URL = os.getenv("MQTT_BATCH_INGEST_URL", "")
+MQTT_VITALS_STATUS_URL = os.getenv("MQTT_VITALS_STATUS_URL", "")
 _client: Optional[mqtt.Client] = None
 _thread: Optional[threading.Thread] = None
 
@@ -44,6 +45,11 @@ def _on_connect(client: mqtt.Client, userdata, flags, rc) -> None:  # type: igno
 
 
 def _resolve_ingest_url(payload: dict) -> str:
+    if payload.get("message_type") == "vitals_status":
+        if MQTT_VITALS_STATUS_URL:
+            return MQTT_VITALS_STATUS_URL
+        if MQTT_INGEST_URL.endswith("/device-data"):
+            return f"{MQTT_INGEST_URL}/vitals-status"
     if isinstance(payload.get("items"), list):
         if MQTT_BATCH_INGEST_URL:
             return MQTT_BATCH_INGEST_URL
@@ -84,6 +90,27 @@ def _on_message(client: mqtt.Client, userdata, msg: mqtt.MQTTMessage) -> None:  
             logger.error("❌ Payload validation/processing error: %s", exc)
     except Exception as exc:
         logger.error("MQTT message error: %s", exc)
+
+
+def publish_device_command(device_id: str, payload: dict) -> bool:
+    """Publish a command to a provisioned device command topic."""
+    if not MQTT_ENABLED:
+        logger.warning("MQTT command publish skipped because MQTT is disabled")
+        return False
+    if not _client:
+        logger.warning("MQTT command publish skipped because client is not initialized")
+        return False
+    topic = f"devices/{device_id}/commands"
+    try:
+        info = _client.publish(topic, json.dumps(payload), qos=MQTT_QOS, retain=False)
+        if hasattr(info, "rc") and info.rc != mqtt.MQTT_ERR_SUCCESS:
+            logger.error("MQTT command publish failed rc=%s topic=%s", info.rc, topic)
+            return False
+        logger.info("✅ MQTT command published to %s", topic)
+        return True
+    except Exception as exc:
+        logger.error("MQTT command publish error: %s", exc)
+        return False
 
 
 def start_mqtt_service() -> None:

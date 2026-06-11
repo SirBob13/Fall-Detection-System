@@ -452,6 +452,41 @@ class VitalSensorData(Base):
     def __repr__(self):
         return f"<VitalSensorData(id={self.id}, user_id={self.user_id}, timestamp={self.timestamp})>"
 
+
+class VitalsMeasurement(Base):
+    """On-demand MAX30102 measurement requests and final readings."""
+    __tablename__ = "vitals_measurements"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    request_id = Column(String(100), nullable=False, unique=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    device_id = Column(String(50), ForeignKey("devices.device_id", ondelete="CASCADE"), nullable=False, index=True)
+    vital_id = Column(Integer, ForeignKey("vital_sensor_data.id", ondelete="SET NULL"), nullable=True, index=True)
+
+    vitals_trigger = Column(String(30), default="manual", nullable=False)
+    state = Column(String(30), default="requested", nullable=False, index=True)
+    progress_percent = Column(Integer, default=0)
+    finger_detected = Column(Boolean, default=False)
+    signal_status = Column(String(50))
+
+    heart_rate = Column(Float)
+    oxygen_saturation = Column(Float)
+    heart_rate_valid = Column(Boolean, default=False)
+    spo2_valid = Column(Boolean, default=False)
+    max_powered = Column(Boolean, default=False)
+
+    started_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    completed_at = Column(DateTime)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        Index('idx_vitals_measurement_user_time', 'user_id', 'updated_at'),
+        Index('idx_vitals_measurement_device_time', 'device_id', 'updated_at'),
+    )
+
+    def __repr__(self):
+        return f"<VitalsMeasurement(request_id={self.request_id}, state={self.state})>"
+
 # ==================== AI Prediction Models ====================
 
 class Prediction(Base):

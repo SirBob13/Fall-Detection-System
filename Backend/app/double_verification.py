@@ -89,12 +89,13 @@ class DoubleVerificationSystem:
                 decision_reason = "motion_plus_vitals"
                 logger.info(f"Double verification confirmed fall for user {user_id}")
 
-            elif fall_detected and not is_abnormal:
-                # Motion indicates a possible fall but vitals do not support it strongly enough.
-                final_verdict = False
-                confidence_score = fall_probability * 0.6
-                decision_reason = "warning_only_motion"
-                logger.warning(f"Possible fall rejected due to normal vitals for user {user_id}")
+            elif fall_detected:
+                # Fall alerts must be motion-first. Vitals are collected after the
+                # alert for context, but they must not block alert creation.
+                final_verdict = True
+                confidence_score = fall_probability
+                decision_reason = "motion_only_prediction"
+                logger.info(f"Motion-only fall confirmation for user {user_id}")
 
             elif not fall_detected and is_abnormal:
                 # Vitals abnormal but no fall detected; keep as in-app health warning only.

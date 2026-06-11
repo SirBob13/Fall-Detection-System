@@ -112,6 +112,7 @@ def init_db():
         ensure_vital_device_id_column()
         ensure_alert_device_id_column()
         ensure_emergency_log_device_id_column()
+        ensure_vitals_measurements_schema()
         print("✅ Database initialized successfully")
         
         # إنشاء بيانات تجريبية إذا كانت قاعدة البيانات فارغة
@@ -277,6 +278,47 @@ def ensure_emergency_log_device_id_column():
             print("✅ Added emergency_logs device/timestamp index")
     except Exception as e:
         print(f"⚠️ Unable to add emergency_logs.device_id column/index: {e}")
+
+def ensure_vitals_measurements_schema():
+    """
+    Ensure vitals_measurements additive columns/indexes exist.
+    """
+    try:
+        inspector = inspect(engine)
+        if not inspector.has_table("vitals_measurements"):
+            return
+
+        columns = [col["name"] for col in inspector.get_columns("vitals_measurements")]
+        if "vital_id" not in columns:
+            ddl = "ALTER TABLE vitals_measurements ADD COLUMN vital_id INTEGER"
+            if engine.dialect.name != "sqlite":
+                ddl = "ALTER TABLE vitals_measurements ADD COLUMN vital_id INT NULL"
+            with engine.begin() as conn:
+                conn.execute(text(ddl))
+            print("✅ Added vitals_measurements.vital_id column")
+
+        indexes = {index["name"] for index in inspector.get_indexes("vitals_measurements")}
+        index_statements = {
+            "idx_vitals_measurements_vital_id": "CREATE INDEX {if_not_exists}idx_vitals_measurements_vital_id ON vitals_measurements (vital_id)",
+            "idx_vitals_measurement_user_time": "CREATE INDEX {if_not_exists}idx_vitals_measurement_user_time ON vitals_measurements (user_id, updated_at)",
+            "idx_vitals_measurement_device_time": "CREATE INDEX {if_not_exists}idx_vitals_measurement_device_time ON vitals_measurements (device_id, updated_at)",
+        }
+        for index_name, statement in index_statements.items():
+            if index_name == "idx_vitals_measurements_vital_id" and "ix_vitals_measurements_vital_id" in indexes:
+                continue
+            if index_name in indexes:
+                continue
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        statement.format(
+                            if_not_exists="IF NOT EXISTS " if engine.dialect.name == "sqlite" else ""
+                        )
+                    )
+                )
+            print(f"✅ Added {index_name} index")
+    except Exception as e:
+        print(f"⚠️ Unable to ensure vitals_measurements schema: {e}")
 
 def create_test_data():
     """

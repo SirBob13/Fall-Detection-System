@@ -32,7 +32,7 @@ import { deviceService } from '../services/device.service';
 import { deviceProvisioningService } from '../services/deviceProvisioning.service';
 import { emergencyService } from '../services/emergency.service';
 import { voiceService } from '../services/voice.service';
-import { User, Device, Alert as AlertType, Prediction, VitalData } from '../types';
+import { User, Device, Alert as AlertType, Prediction, VitalData, VitalsStatus } from '../types';
 import { useNavigation, useScrollToTop } from '@react-navigation/native';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { realtimeService } from '../services/realtime.service';
@@ -51,6 +51,9 @@ export const HomeScreen: React.FC = () => {
   const [alerts, setAlerts] = useState<AlertType[]>([]);
   const [lastPrediction, setLastPrediction] = useState<Prediction | null>(null);
   const [latestVitals, setLatestVitals] = useState<VitalData | null>(null);
+  const [vitalsStatus, setVitalsStatus] = useState<VitalsStatus | null>(null);
+  const [lastValidVitals, setLastValidVitals] = useState<{ heartRate?: number; spo2?: number }>({});
+  const [vitalsRequesting, setVitalsRequesting] = useState(false);
   const [connectionError, setConnectionError] = useState(false);
   const [pairModalVisible, setPairModalVisible] = useState(false);
   const [scanLoading, setScanLoading] = useState(false);
@@ -265,6 +268,16 @@ export const HomeScreen: React.FC = () => {
         });
       }
 
+      if (event.resource === 'vitals_status') {
+        const payload = event.payload as VitalsStatus;
+        setVitalsStatus(payload);
+        setVitalsRequesting(payload.state === 'requested' || payload.state === 'measuring');
+        setLastValidVitals((current) => ({
+          heartRate: payload.heart_rate_valid && payload.heart_rate ? payload.heart_rate : current.heartRate,
+          spo2: payload.spo2_valid && payload.spo2 ? payload.spo2 : current.spo2,
+        }));
+      }
+
       if (event.resource === 'profile') {
         if (event.payload?.id === activeUser.id) {
           setUser((prev) => ({ ...(prev || {}), ...event.payload }));
@@ -421,6 +434,26 @@ export const HomeScreen: React.FC = () => {
         },
       ]
     );
+  };
+
+  const handleMeasureVitals = async () => {
+    if (!device?.device_id) {
+      RNAlert.alert(t('common.error'), t('system.noDevice'));
+      return;
+    }
+
+    setVitalsRequesting(true);
+    try {
+      const response = await apiService.startDeviceVitals(device.device_id, 60000);
+      if (!response.success || !response.data) {
+        RNAlert.alert(t('common.error'), response.message || 'Device is offline or cannot start vitals measurement.');
+        setVitalsRequesting(false);
+        return;
+      }
+      setVitalsStatus(response.data);
+    } finally {
+      setVitalsRequesting(false);
+    }
   };
 
   const handleVoiceResult = (text: string) => {
@@ -600,6 +633,22 @@ export const HomeScreen: React.FC = () => {
     }
   };
 
+  const isMeasuringVitals = vitalsStatus?.state === 'requested' || vitalsStatus?.state === 'measuring';
+  const vitalsProgress = Math.max(0, Math.min(100, Math.round(vitalsStatus?.progress_percent ?? 0)));
+  const displayHeartRate = vitalsStatus?.heart_rate_valid
+    ? vitalsStatus.heart_rate
+    : lastValidVitals.heartRate ?? latestVitals?.heart_rate;
+  const displaySpo2 = vitalsStatus?.spo2_valid
+    ? vitalsStatus.spo2
+    : lastValidVitals.spo2 ?? latestVitals?.oxygen_saturation;
+  const vitalsHint = isMeasuringVitals
+    ? vitalsStatus?.finger_detected
+      ? vitalsStatus?.signal_status || 'Measuring...'
+      : 'Place finger properly'
+    : vitalsStatus?.state === 'complete'
+    ? 'Measurement complete'
+    : 'Start a 60s reading from the bracelet';
+
   return (
     <ScreenWrapper>
       <ScrollView
@@ -750,20 +799,35 @@ export const HomeScreen: React.FC = () => {
 
         {/* Vital Signs */}
         <View className="mx-4 mt-6">
-          <Text className="text-lg font-bold text-dark mb-3">{t('vitals.title')}</Text>
+          <View className="flex-row items-center justify-between mb-3">
+            <Text className="text-lg font-bold text-dark">{t('vitals.title')}</Text>
+            <TouchableOpacity
+              className={`px-4 py-2 rounded-full ${isMeasuringVitals || vitalsRequesting ? 'bg-gray-200' : 'bg-primary'}`}
+              onPress={handleMeasureVitals}
+              disabled={isMeasuringVitals || vitalsRequesting}
+            >
+              {vitalsRequesting ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Text className={`text-xs font-bold ${isMeasuringVitals ? 'text-gray' : 'text-white'}`}>
+                  {isMeasuringVitals ? 'Measuring...' : 'Measure Vitals'}
+                </Text>
+              )}
+            </TouchableOpacity>
+          </View>
           <View className="bg-white rounded-2xl shadow-lg border border-lightGray p-4">
-            {latestVitals ? (
+            {latestVitals || displayHeartRate || displaySpo2 ? (
               <>
                 <View className="flex-row justify-between mb-3">
                   <Text className="text-sm text-gray">{t('vitals.heartRate')}</Text>
                   <Text className="text-sm font-semibold text-dark">
-                    {latestVitals.heart_rate ?? '--'} {t('vitals.bpm')}
+                    {displayHeartRate ?? '--'} {t('vitals.bpm')}
                   </Text>
                 </View>
                 <View className="flex-row justify-between mb-3">
                   <Text className="text-sm text-gray">{t('vitals.bloodPressure')}</Text>
                   <Text className="text-sm font-semibold text-dark">
-                    {latestVitals.blood_pressure_systolic && latestVitals.blood_pressure_diastolic
+                    {latestVitals?.blood_pressure_systolic && latestVitals?.blood_pressure_diastolic
                       ? `${latestVitals.blood_pressure_systolic}/${latestVitals.blood_pressure_diastolic}`
                       : '--'}
                   </Text>
@@ -771,15 +835,15 @@ export const HomeScreen: React.FC = () => {
                 <View className="flex-row justify-between mb-3">
                   <Text className="text-sm text-gray">{t('vitals.oxygenSaturation')}</Text>
                   <Text className="text-sm font-semibold text-dark">
-                    {latestVitals.oxygen_saturation !== undefined && latestVitals.oxygen_saturation !== null
-                      ? `${latestVitals.oxygen_saturation} ${t('vitals.percent')}`
+                    {displaySpo2 !== undefined && displaySpo2 !== null
+                      ? `${displaySpo2} ${t('vitals.percent')}`
                       : '--'}
                   </Text>
                 </View>
                 <View className="flex-row justify-between">
                   <Text className="text-sm text-gray">{t('vitals.temperature')}</Text>
                   <Text className="text-sm font-semibold text-dark">
-                    {latestVitals.body_temperature !== undefined && latestVitals.body_temperature !== null
+                    {latestVitals?.body_temperature !== undefined && latestVitals?.body_temperature !== null
                       ? `${latestVitals.body_temperature} ${t('vitals.celsius')}`
                       : '--'}
                   </Text>
@@ -792,6 +856,16 @@ export const HomeScreen: React.FC = () => {
                 </View>
                 <Text className="text-sm font-medium text-gray text-center">{t('vitals.noData')}</Text>
                 <Text className="text-xs text-lightGray text-center mt-1 px-6">{t('vitals.noDataHint')}</Text>
+              </View>
+            )}
+            {(isMeasuringVitals || vitalsStatus?.state === 'complete') && (
+              <View className="mt-4 pt-4 border-t border-lightGray">
+                <View className="h-2 rounded-full bg-blue-50 overflow-hidden">
+                  <View className="h-2 rounded-full bg-primary" style={{ width: `${vitalsProgress}%` }} />
+                </View>
+                <Text className="text-xs text-gray mt-2">
+                  {vitalsHint} {isMeasuringVitals ? `· ${vitalsProgress}%` : ''}
+                </Text>
               </View>
             )}
           </View>

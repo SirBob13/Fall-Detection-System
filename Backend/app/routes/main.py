@@ -8,6 +8,7 @@ import io
 import json
 import os
 import jwt
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional, Tuple
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Query, Header, Request
@@ -26,8 +27,9 @@ from ..device_auth import device_auth
 from ..config import SECRET_KEY, ALGORITHM, ADMIN_EMAILS, MIN_REALTIME_SAMPLES_FOR_ALERT
 from ..double_verification import DoubleVerificationSystem
 from ..services.notification_service import NotificationService
+from ..services.mqtt_service import publish_device_command
 from ..realtime import notify_user, notify_users, notify_admins
-from ..status_utils import build_device_status_payload, summarize_user_presence
+from ..status_utils import build_device_status_payload, is_device_online, summarize_user_presence
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -148,7 +150,7 @@ def _assert_device_not_deleted(
             status_code=status.HTTP_410_GONE,
             detail={
                 "success": False,
-                "error": "Device was permanently deleted and cannot reconnect automatically",
+                "error": "Device was permanently blocked and cannot reconnect automatically",
             },
         )
 
@@ -242,6 +244,75 @@ def _serialize_vital(vital: VitalSensorData) -> Dict[str, Any]:
         "is_abnormal": bool(vital.is_abnormal),
         "abnormality_type": vital.abnormality_type,
         "timestamp": vital.timestamp.isoformat() if vital.timestamp else None,
+    }
+
+
+def _safe_float(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(parsed) or math.isinf(parsed):
+        return None
+    return parsed
+
+
+def _safe_bool(value: Any, fallback: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y"}
+    if value is None:
+        return fallback
+    return bool(value)
+
+
+def _normalize_vitals_status_payload(payload: Dict[str, Any], device: Optional[Device] = None) -> Dict[str, Any]:
+    heart_rate = _safe_float(payload.get("heart_rate"))
+    spo2 = _safe_float(payload.get("spo2", payload.get("oxygen_saturation")))
+    hr_valid = _safe_bool(payload.get("heart_rate_valid"), heart_rate is not None and heart_rate > 0)
+    spo2_valid = _safe_bool(payload.get("spo2_valid"), spo2 is not None and spo2 > 0)
+    return {
+        "message_type": "vitals_status",
+        "device_id": payload.get("device_id") or (device.device_id if device else None),
+        "user_id": payload.get("user_id") or (device.user_id if device else None),
+        "request_id": payload.get("request_id"),
+        "vitals_trigger": payload.get("vitals_trigger") or "manual",
+        "state": payload.get("state") or "unknown",
+        "progress_percent": payload.get("progress_percent", 0),
+        "finger_detected": _safe_bool(payload.get("finger_detected")),
+        "heart_rate": heart_rate,
+        "spo2": spo2,
+        "heart_rate_valid": hr_valid and heart_rate is not None and heart_rate > 0,
+        "spo2_valid": spo2_valid and spo2 is not None and spo2 > 0,
+        "max_powered": _safe_bool(payload.get("max_powered")),
+        "signal_status": payload.get("signal_status"),
+        "timestamp": payload.get("timestamp") or datetime.utcnow().isoformat(),
+    }
+
+
+def _serialize_vitals_measurement(measurement: models.VitalsMeasurement) -> Dict[str, Any]:
+    return {
+        "id": measurement.id,
+        "request_id": measurement.request_id,
+        "device_id": measurement.device_id,
+        "user_id": measurement.user_id,
+        "vital_id": measurement.vital_id,
+        "vitals_trigger": measurement.vitals_trigger,
+        "state": measurement.state,
+        "progress_percent": measurement.progress_percent,
+        "finger_detected": bool(measurement.finger_detected),
+        "heart_rate": measurement.heart_rate,
+        "spo2": measurement.oxygen_saturation,
+        "heart_rate_valid": bool(measurement.heart_rate_valid),
+        "spo2_valid": bool(measurement.spo2_valid),
+        "max_powered": bool(measurement.max_powered),
+        "signal_status": measurement.signal_status,
+        "started_at": measurement.started_at.isoformat() if measurement.started_at else None,
+        "completed_at": measurement.completed_at.isoformat() if measurement.completed_at else None,
+        "updated_at": measurement.updated_at.isoformat() if measurement.updated_at else None,
     }
 
 def _serialize_prediction(pred: Prediction) -> Dict[str, Any]:
@@ -1342,6 +1413,17 @@ def _process_motion_data_internal(
             verification_result=verified
         )
     if alert and alert.alert_type == "fall_now":
+        publish_device_command(
+            device_id,
+            {
+                "message_type": "device_command",
+                "command": "vitals_start",
+                "request_id": f"fall-{alert.id}",
+                "duration_ms": 60000,
+                "source": "fall_alert",
+                "vitals_trigger": "fall_alert",
+            },
+        )
         notification_service.notify_caregivers_alert(
             db=db,
             patient_id=user_id,
@@ -1568,6 +1650,119 @@ async def ingest_device_data_batch(
         }
     )
 
+
+@router.post("/device-data/vitals-status", response_model=Dict[str, Any])
+async def ingest_vitals_status(
+    payload: Dict[str, Any],
+    db: Session = Depends(get_db)
+):
+    """Receive live vitals measurement status from MQTT/device."""
+    device_id = str(payload.get("device_id") or "").strip()
+    if not device_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"success": False, "error": "device_id is required"},
+        )
+
+    device = crud.get_device_by_id(db, device_id)
+    if not device:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"success": False, "error": f"Device {device_id} not found"},
+        )
+
+    device.is_connected = True
+    device.last_seen = datetime.utcnow()
+    db.commit()
+    db.refresh(device)
+
+    status_payload = _normalize_vitals_status_payload(payload, device)
+    stored_vital = None
+    measurement = None
+    request_id = str(status_payload.get("request_id") or "").strip()
+
+    if request_id:
+        measurement = (
+            db.query(models.VitalsMeasurement)
+            .filter(models.VitalsMeasurement.request_id == request_id)
+            .first()
+        )
+        if measurement is None:
+            measurement = models.VitalsMeasurement(
+                request_id=request_id,
+                user_id=device.user_id,
+                device_id=device.device_id,
+                started_at=datetime.utcnow(),
+            )
+            db.add(measurement)
+
+        measurement.user_id = device.user_id
+        measurement.device_id = device.device_id
+        measurement.vitals_trigger = str(status_payload.get("vitals_trigger") or "manual")
+        measurement.state = str(status_payload.get("state") or "unknown")
+        measurement.progress_percent = max(0, min(100, int(status_payload.get("progress_percent") or 0)))
+        measurement.finger_detected = bool(status_payload.get("finger_detected"))
+        measurement.signal_status = status_payload.get("signal_status")
+        measurement.heart_rate = status_payload.get("heart_rate") if status_payload.get("heart_rate_valid") else measurement.heart_rate
+        measurement.oxygen_saturation = status_payload.get("spo2") if status_payload.get("spo2_valid") else measurement.oxygen_saturation
+        measurement.heart_rate_valid = bool(status_payload.get("heart_rate_valid"))
+        measurement.spo2_valid = bool(status_payload.get("spo2_valid"))
+        measurement.max_powered = bool(status_payload.get("max_powered"))
+        measurement.updated_at = datetime.utcnow()
+        if measurement.state in {"complete", "stopped", "error"}:
+            measurement.completed_at = datetime.utcnow()
+        db.commit()
+        db.refresh(measurement)
+
+    if (
+        status_payload["state"] == "complete"
+        and (status_payload["heart_rate_valid"] or status_payload["spo2_valid"])
+        and (measurement is None or measurement.vital_id is None)
+    ):
+        vital_data = schemas.VitalDataCreate(
+            user_id=device.user_id,
+            device_id=device.device_id,
+            heart_rate=status_payload["heart_rate"] if status_payload["heart_rate_valid"] else None,
+            oxygen_saturation=status_payload["spo2"] if status_payload["spo2_valid"] else None,
+            timestamp=_parse_iso_datetime(status_payload["timestamp"])
+            if isinstance(status_payload.get("timestamp"), str)
+            else datetime.utcnow(),
+        )
+        stored_vital = crud.create_vital_data(db, vital_data)
+        if measurement is not None:
+            measurement.vital_id = stored_vital.id
+            db.commit()
+            db.refresh(measurement)
+
+    await _notify_patient_and_caregivers(
+        db,
+        device.user_id,
+        "vitals_status",
+        action=str(status_payload["state"]),
+        payload=status_payload,
+        throttle_seconds=1.0,
+    )
+    await notify_admins("vitals_status", action=str(status_payload["state"]), payload=status_payload, throttle_seconds=1.0)
+
+    if stored_vital:
+        vital_payload = _serialize_vital(stored_vital)
+        await _notify_patient_and_caregivers(db, device.user_id, "vitals", action="created", payload=vital_payload, throttle_seconds=2.0)
+        await notify_admins("vitals", action="created", payload=vital_payload, throttle_seconds=2.0)
+
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={
+            "success": True,
+            "message": "Vitals status ingested",
+            "data": {
+                "status": status_payload,
+                "vital_id": stored_vital.id if stored_vital else None,
+                "measurement_id": measurement.id if measurement else None,
+            },
+            "timestamp": datetime.utcnow().isoformat(),
+        },
+    )
+
 # ======================
 # Vital Signs Routes - WITH PROPER STATUS CODES
 # ======================
@@ -1686,7 +1881,11 @@ async def process_vital_data(
                 "message": "Abnormal vital signs detected!" if is_abnormal else "Normal vital signs",
                 "vital_data": {
                     **{k: round(v, 1) for k, v in vital_readings.items()},
-                    "blood_pressure": f"{round(vital_readings['blood_pressure_systolic'], 0)}/{round(vital_readings['blood_pressure_diastolic'], 0)}",
+                    "blood_pressure": (
+                        f"{round(vital_readings['blood_pressure_systolic'], 0)}/{round(vital_readings['blood_pressure_diastolic'], 0)}"
+                        if "blood_pressure_systolic" in vital_readings and "blood_pressure_diastolic" in vital_readings
+                        else None
+                    ),
                     "is_abnormal": is_abnormal,
                     "abnormality_type": abnormality_type,
                     "database_stored": True,
@@ -3787,6 +3986,153 @@ async def request_device_pairing_token(
         message="Pairing token generated successfully",
     )
 
+
+@router.post("/devices/{device_id}/vitals/start", response_model=Dict[str, Any])
+async def start_device_vitals_measurement(
+    device_id: str,
+    payload: Dict[str, Any] = None,
+    session: Dict[str, Any] = Depends(_require_user),
+    db: Session = Depends(get_db),
+):
+    """Ask a device to start a MAX30102 vitals measurement window."""
+    payload = payload or {}
+    user = session.get("user") or {}
+    user_id = int(user.get("id") or 0)
+    device = crud.get_device_by_id(db, device_id)
+
+    if not device or device.user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"success": False, "error": "Device not found for this user"},
+        )
+
+    if not is_device_online(device):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"success": False, "error": "Device is offline. Please wait until the bracelet is connected."},
+        )
+
+    duration_ms = int(payload.get("duration_ms") or 60000)
+    duration_ms = max(10000, min(duration_ms, 120000))
+    request_id = str(payload.get("request_id") or uuid.uuid4())
+
+    command_payload = {
+        "message_type": "device_command",
+        "command": "vitals_start",
+        "request_id": request_id,
+        "duration_ms": duration_ms,
+        "source": "mobile_app",
+    }
+
+    if not publish_device_command(device.device_id, command_payload):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"success": False, "error": "MQTT command channel is not available"},
+        )
+
+    status_payload = _normalize_vitals_status_payload(
+        {
+            "device_id": device.device_id,
+            "user_id": device.user_id,
+            "request_id": request_id,
+            "vitals_trigger": "manual",
+            "state": "requested",
+            "progress_percent": 0,
+            "finger_detected": False,
+            "heart_rate_valid": False,
+            "spo2_valid": False,
+            "max_powered": False,
+            "timestamp": datetime.utcnow().isoformat(),
+        },
+        device,
+    )
+    await _notify_patient_and_caregivers(db, device.user_id, "vitals_status", action="requested", payload=status_payload)
+
+    return JSONResponse(
+        status_code=status.HTTP_202_ACCEPTED,
+        content={
+            "success": True,
+            "message": "Vitals measurement requested",
+            "data": status_payload,
+        },
+    )
+
+
+@router.post("/devices/{device_id}/vitals/stop", response_model=Dict[str, Any])
+async def stop_device_vitals_measurement(
+    device_id: str,
+    payload: Dict[str, Any] = None,
+    session: Dict[str, Any] = Depends(_require_user),
+    db: Session = Depends(get_db),
+):
+    """Ask a device to stop an active vitals measurement."""
+    payload = payload or {}
+    user = session.get("user") or {}
+    user_id = int(user.get("id") or 0)
+    device = crud.get_device_by_id(db, device_id)
+
+    if not device or device.user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"success": False, "error": "Device not found for this user"},
+        )
+
+    request_id = str(payload.get("request_id") or uuid.uuid4())
+    command_payload = {
+        "message_type": "device_command",
+        "command": "vitals_stop",
+        "request_id": request_id,
+        "source": "mobile_app",
+    }
+
+    if not publish_device_command(device.device_id, command_payload):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"success": False, "error": "MQTT command channel is not available"},
+        )
+
+    return JSONResponse(
+        status_code=status.HTTP_202_ACCEPTED,
+        content={
+            "success": True,
+            "message": "Vitals stop requested",
+            "data": {"device_id": device.device_id, "request_id": request_id},
+        },
+    )
+
+
+@router.get("/devices/{device_id}/vitals/latest", response_model=Dict[str, Any])
+async def get_latest_device_vitals_measurement(
+    device_id: str,
+    session: Dict[str, Any] = Depends(_require_user),
+    db: Session = Depends(get_db),
+):
+    """Return the latest on-demand vitals measurement for a device."""
+    user = session.get("user") or {}
+    user_id = int(user.get("id") or 0)
+    device = crud.get_device_by_id(db, device_id)
+
+    if not device or device.user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"success": False, "error": "Device not found for this user"},
+        )
+
+    measurement = (
+        db.query(models.VitalsMeasurement)
+        .filter(models.VitalsMeasurement.device_id == device.device_id)
+        .order_by(models.VitalsMeasurement.updated_at.desc())
+        .first()
+    )
+
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={
+            "success": True,
+            "data": _serialize_vitals_measurement(measurement) if measurement else None,
+        },
+    )
+
 @router.post("/devices/disconnect", response_model=Dict[str, Any])
 async def disconnect_device(
     payload: schemas.DeviceDisconnect,
@@ -3850,10 +4196,11 @@ async def disconnect_device(
 async def remove_device(
     device_id: str,
     user_id: Optional[int] = Query(None),
+    permanent: bool = Query(False),
     session: Dict[str, Any] = Depends(_require_user),
     db: Session = Depends(get_db)
 ):
-    """Permanently delete a device and its dependent motion/prediction data."""
+    """Remove a device from the account and optionally block it from future pairing."""
     try:
         device = crud.get_device_by_id(db, device_id)
         if not device:
@@ -3906,18 +4253,27 @@ async def remove_device(
             "last_seen": datetime.utcnow().isoformat(),
             "created_at": device.created_at.isoformat() if device.created_at else None,
             "purged_user_level_sensor_data": should_purge_user_level_sensor_data,
+            "permanent": permanent,
         }
 
         deleted_device = _find_deleted_device(db, device.device_id)
-        if deleted_device is None:
-            db.add(
-                DeletedDevice(
-                    device_id=device.device_id,
-                    user_id=device.user_id,
-                    mac_address=device.mac_address,
+        if permanent:
+            if deleted_device is None:
+                db.add(
+                    DeletedDevice(
+                        device_id=device.device_id,
+                        user_id=device.user_id,
+                        mac_address=device.mac_address,
+                    )
                 )
-            )
+                db.commit()
+        elif deleted_device is not None:
+            db.delete(deleted_device)
             db.commit()
+            logger.info(
+                "Removed deleted-device tombstone for device_id=%s during standard account unlink",
+                device.device_id,
+            )
 
         device_auth.device_tokens.pop(device.device_id, None)
         deleted_user_id = device.user_id
@@ -3958,7 +4314,7 @@ async def remove_device(
             status_code=status.HTTP_200_OK,
             content={
                 "success": True,
-                "message": "Device deleted permanently",
+                "message": "Device deleted permanently" if permanent else "Device removed from account",
                 "data": payload,
                 "timestamp": datetime.utcnow().isoformat()
             }
@@ -4397,7 +4753,10 @@ async def trigger_emergency(
         successful_contacts = [
             item for item in responses if item.get("response_type") in {"sms_sent", "sms_and_call_sent"}
         ]
-        alert_status = "sent" if successful_contacts else "failed"
+        # Do not mark the alert as failed just because we do not have a confirmed
+        # SMS delivery yet. For async/indirect delivery paths, "pending" is a
+        # better user-facing state than a hard failure.
+        alert_status = "sent" if successful_contacts else ("pending" if responses else "failed")
 
         alert = Alert(
             user_id=user.id,

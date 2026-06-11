@@ -5,7 +5,7 @@ import { API_CONFIG } from '../utils/constants';
 import { 
   User, Device, VitalData, 
   Prediction, Alert, ApiResponse, CareLink, CareLinkRequest, DeviceIngestPayload, LastKnownLocation, CareDashboardItem, ReportSummary,
-  DevicePairingTokenRequest, DevicePairingTokenResponse
+  DevicePairingTokenRequest, DevicePairingTokenResponse, VitalsStatus
 } from '../types';
 import { EmergencyContact, EmergencyResponse as EmergencyDispatchResponse } from './emergency.types';
 
@@ -474,6 +474,61 @@ class ApiService {
     }
   }
 
+  async startDeviceVitals(
+    deviceId: string,
+    durationMs: number = 60000
+  ): Promise<ApiResponse<VitalsStatus>> {
+    try {
+      const response = await this.client.post(`/devices/${encodeURIComponent(deviceId)}/vitals/start`, {
+        duration_ms: durationMs,
+      });
+      const payload = response.data;
+      return {
+        success: payload?.success ?? true,
+        data: payload?.data,
+        message: payload?.message,
+      };
+    } catch (error: any) {
+      console.error('❌ Error starting vitals measurement:', error.message);
+      return this.formatApiError(error, 'فشل بدء قياس المؤشرات الحيوية');
+    }
+  }
+
+  async stopDeviceVitals(
+    deviceId: string,
+    requestId?: string
+  ): Promise<ApiResponse<{ device_id: string; request_id?: string }>> {
+    try {
+      const response = await this.client.post(`/devices/${encodeURIComponent(deviceId)}/vitals/stop`, {
+        request_id: requestId,
+      });
+      const payload = response.data;
+      return {
+        success: payload?.success ?? true,
+        data: payload?.data,
+        message: payload?.message,
+      };
+    } catch (error: any) {
+      console.error('❌ Error stopping vitals measurement:', error.message);
+      return this.formatApiError(error, 'فشل إيقاف قياس المؤشرات الحيوية');
+    }
+  }
+
+  async getLatestDeviceVitals(deviceId: string): Promise<ApiResponse<VitalsStatus | null>> {
+    try {
+      const response = await this.client.get(`/devices/${encodeURIComponent(deviceId)}/vitals/latest`);
+      const payload = response.data;
+      return {
+        success: payload?.success ?? true,
+        data: payload?.data ?? null,
+        message: payload?.message,
+      };
+    } catch (error: any) {
+      console.error('❌ Error getting latest vitals measurement:', error.message);
+      return this.formatApiError(error, 'فشل تحميل آخر قياس للمؤشرات الحيوية');
+    }
+  }
+
   async getArchivedDevices(userId: number): Promise<ApiResponse<Device[]>> {
     try {
       const response = await this.client.get(`/devices/user/${userId}/archived`);
@@ -540,6 +595,14 @@ class ApiService {
           success: false,
           error: error.message,
           message: 'هذا الجهاز مربوط بالفعل بمستخدم آخر أو ما زال مسجلًا على الحساب. احذفيه أولًا من المستخدم المرتبط به ثم أعيدي محاولة الربط.',
+        };
+      }
+
+      if (status === 410) {
+        return {
+          success: false,
+          error: error.message,
+          message: 'هذا الجهاز محظور من إعادة الربط التلقائي. لو كان هذا غير مقصود، أزيلي الحظر النهائي من السيرفر أو استخدمي خيار الإزالة العادي بدل الحذف النهائي.',
         };
       }
 

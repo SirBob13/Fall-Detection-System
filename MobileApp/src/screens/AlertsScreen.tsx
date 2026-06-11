@@ -11,7 +11,7 @@ import { AlertCard } from '../components/AlertCard';
 import { apiService } from '../services/api';
 import { authService } from '../services/auth.service';
 import { storageService } from '../services/storage';
-import { Alert as AlertType, CareLink, User } from '../types';
+import { Alert as AlertType, CareLink, User, VitalsStatus } from '../types';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLanguage } from '../components/LanguageProvider';
 import { ScreenHeader } from '../components/ScreenHeader';
@@ -33,6 +33,8 @@ export const AlertsScreen: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [links, setLinks] = useState<CareLink[]>([]);
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
+  const [latestVitalsStatus, setLatestVitalsStatus] = useState<VitalsStatus | null>(null);
+  const [lastValidVitals, setLastValidVitals] = useState<{ heartRate?: number; spo2?: number }>({});
   const hasShownLoadErrorRef = useRef(false);
   const scrollRef = useRef<any>(null);
   const monitoredUser = route.params?.monitoredPatient ?? null;
@@ -146,6 +148,23 @@ export const AlertsScreen: React.FC = () => {
     return unsubscribe;
   }, [monitoredUser, user]);
 
+  useEffect(() => {
+    const unsubscribe = realtimeService.subscribe('vitals_status', (event) => {
+      const activeUser = monitoredUser || user;
+      const payload = event.payload as VitalsStatus | undefined;
+      if (!activeUser || !payload) return;
+      if (payload.user_id && payload.user_id !== activeUser.id) return;
+
+      setLatestVitalsStatus(payload);
+      setLastValidVitals((current) => ({
+        heartRate: payload.heart_rate_valid && payload.heart_rate ? payload.heart_rate : current.heartRate,
+        spo2: payload.spo2_valid && payload.spo2 ? payload.spo2 : current.spo2,
+      }));
+    });
+
+    return unsubscribe;
+  }, [monitoredUser, user]);
+
   const onRefresh = async () => {
     setRefreshing(true);
     await loadAlerts();
@@ -238,6 +257,10 @@ export const AlertsScreen: React.FC = () => {
   };
 
   const stats = getAlertStats();
+  const showingVitalsStatus = latestVitalsStatus && ['requested', 'measuring', 'complete'].includes(latestVitalsStatus.state);
+  const statusHeartRate = latestVitalsStatus?.heart_rate_valid ? latestVitalsStatus.heart_rate : lastValidVitals.heartRate;
+  const statusSpo2 = latestVitalsStatus?.spo2_valid ? latestVitalsStatus.spo2 : lastValidVitals.spo2;
+  const statusProgress = Math.max(0, Math.min(100, Math.round(latestVitalsStatus?.progress_percent ?? 0)));
   const groupedAlerts = alerts.reduce<Record<string, AlertType[]>>((groups, alert) => {
     const alertDate = new Date(alert.timestamp);
     const today = new Date();
@@ -337,6 +360,31 @@ export const AlertsScreen: React.FC = () => {
             </Text>
           ) : null}
         </View>
+
+        {showingVitalsStatus ? (
+          <View className="mx-4 mb-5 bg-red-950 rounded-3xl p-4 border border-red-800">
+            <View className="flex-row items-center justify-between">
+              <View className="flex-1 pr-3">
+                <Text className="text-xs text-red-100 font-semibold uppercase">
+                  {latestVitalsStatus?.vitals_trigger === 'fall_alert' ? 'Fall Alert' : 'Vitals'}
+                </Text>
+                <Text className="text-lg text-white font-bold mt-1">
+                  {latestVitalsStatus?.state === 'complete' ? 'Vitals ready' : 'Measuring vitals...'}
+                </Text>
+                <Text className="text-xs text-red-100 mt-1">
+                  {latestVitalsStatus?.finger_detected ? latestVitalsStatus?.signal_status || 'Signal detected' : 'Place finger properly'}
+                </Text>
+              </View>
+              <View className="items-end">
+                <Text className="text-sm text-white font-bold">HR {statusHeartRate ? Math.round(statusHeartRate) : '--'}</Text>
+                <Text className="text-sm text-white font-bold mt-1">SpO2 {statusSpo2 ? Math.round(statusSpo2) : '--'}%</Text>
+              </View>
+            </View>
+            <View className="mt-4 h-2 rounded-full bg-white/15 overflow-hidden">
+              <View className="h-2 rounded-full bg-red-300" style={{ width: `${statusProgress}%` }} />
+            </View>
+          </View>
+        ) : null}
 
         {/* Statistics Overview */}
         <View className="mx-4 mb-6">

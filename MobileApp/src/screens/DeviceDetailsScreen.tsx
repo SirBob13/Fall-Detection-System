@@ -7,7 +7,8 @@ import { ScreenHeader } from '../components/ScreenHeader';
 import { useLanguage } from '../components/LanguageProvider';
 import { deviceService } from '../services/device.service';
 import { apiService } from '../services/api';
-import { Device } from '../types';
+import { realtimeService } from '../services/realtime.service';
+import { Device, VitalsStatus } from '../types';
 import type { SettingsStackParamList } from '../navigation/AppNavigator';
 import { getDeviceOperationalStatus, getDeviceStatusLabel } from '../utils/deviceStatus';
 
@@ -20,6 +21,9 @@ export const DeviceDetailsScreen: React.FC = () => {
   const [device, setDevice] = useState<Device>(route.params.device);
   const [loading, setLoading] = useState(false);
   const [removing, setRemoving] = useState(false);
+  const [vitalsRequesting, setVitalsRequesting] = useState(false);
+  const [vitalsStatus, setVitalsStatus] = useState<VitalsStatus | null>(null);
+  const [lastValidVitals, setLastValidVitals] = useState<{ heartRate?: number; spo2?: number }>({});
 
   const formatDeviceId = (deviceId?: string | null) => {
     if (!deviceId) return '--';
@@ -31,12 +35,37 @@ export const DeviceDetailsScreen: React.FC = () => {
     loadLatestDevice();
   }, [route.params.device.device_id]);
 
+  useEffect(() => {
+    return realtimeService.subscribe('vitals_status', (event) => {
+      const payload = event.payload as VitalsStatus | undefined;
+      if (!payload || payload.device_id !== device.device_id) return;
+
+      setVitalsStatus(payload);
+      setVitalsRequesting(payload.state === 'requested' || payload.state === 'measuring');
+      setLastValidVitals((current) => ({
+        heartRate: payload.heart_rate_valid && payload.heart_rate ? payload.heart_rate : current.heartRate,
+        spo2: payload.spo2_valid && payload.spo2 ? payload.spo2 : current.spo2,
+      }));
+    });
+  }, [device.device_id]);
+
   const loadLatestDevice = async () => {
     setLoading(true);
     try {
-      const response = await apiService.getDevice(device.device_id);
+      const [response, vitalsResponse] = await Promise.all([
+        apiService.getDevice(device.device_id),
+        apiService.getLatestDeviceVitals(device.device_id),
+      ]);
       if (response.success && response.data) {
         setDevice(response.data);
+      }
+      if (vitalsResponse.success && vitalsResponse.data) {
+        const latest = vitalsResponse.data;
+        setVitalsStatus(latest);
+        setLastValidVitals((current) => ({
+          heartRate: latest.heart_rate_valid && latest.heart_rate ? latest.heart_rate : current.heartRate,
+          spo2: latest.spo2_valid && latest.spo2 ? latest.spo2 : current.spo2,
+        }));
       }
     } finally {
       setLoading(false);
@@ -67,6 +96,33 @@ export const DeviceDetailsScreen: React.FC = () => {
       },
     ]);
   };
+
+  const handleMeasureVitals = async () => {
+    setVitalsRequesting(true);
+    try {
+      const response = await apiService.startDeviceVitals(device.device_id, 60000);
+      if (!response.success || !response.data) {
+        Alert.alert(t('common.error'), response.message || 'Device is offline or cannot start vitals measurement.');
+        setVitalsRequesting(false);
+        return;
+      }
+      setVitalsStatus(response.data);
+    } finally {
+      setVitalsRequesting(false);
+    }
+  };
+
+  const isMeasuringVitals = vitalsStatus?.state === 'requested' || vitalsStatus?.state === 'measuring';
+  const vitalsProgress = Math.max(0, Math.min(100, Math.round(vitalsStatus?.progress_percent ?? 0)));
+  const currentHeartRate = vitalsStatus?.heart_rate_valid ? vitalsStatus?.heart_rate : lastValidVitals.heartRate;
+  const currentSpo2 = vitalsStatus?.spo2_valid ? vitalsStatus?.spo2 : lastValidVitals.spo2;
+  const vitalsHint = vitalsStatus?.finger_detected
+    ? vitalsStatus?.signal_status || 'Measuring...'
+    : isMeasuringVitals
+    ? 'Place finger properly'
+    : vitalsStatus?.state === 'complete'
+    ? 'Measurement complete'
+    : 'Press Measure Vitals to start';
 
   const isOnlineLike = ['active', 'connected_no_data'].includes(getDeviceOperationalStatus(device));
   const formatRelativeTime = (dateString?: string | null) => {
@@ -186,6 +242,46 @@ export const DeviceDetailsScreen: React.FC = () => {
             )}
           </TouchableOpacity>
 
+          <View className="mt-3 rounded-3xl bg-slate-900 px-4 py-4">
+            <View className="flex-row items-center justify-between">
+              <View>
+                <Text className="text-xs font-semibold text-blue-100 uppercase">Vitals</Text>
+                <Text className="text-lg font-bold text-white mt-1">
+                  {isMeasuringVitals ? 'Measuring...' : 'Measure Vitals'}
+                </Text>
+              </View>
+              <View className="w-11 h-11 rounded-full bg-white/10 items-center justify-center">
+                <MaterialCommunityIcons name="heart-pulse" size={24} color="#FFFFFF" />
+              </View>
+            </View>
+
+            <View className="flex-row mt-4 gap-3">
+              <VitalsMiniCard label="HR" value={currentHeartRate ? `${Math.round(currentHeartRate)} bpm` : '--'} />
+              <VitalsMiniCard label="SpO2" value={currentSpo2 ? `${Math.round(currentSpo2)}%` : '--'} />
+            </View>
+
+            <View className="mt-4 h-2 rounded-full bg-white/15 overflow-hidden">
+              <View className="h-2 rounded-full bg-emerald-400" style={{ width: `${vitalsProgress}%` }} />
+            </View>
+            <Text className="text-xs text-blue-100 mt-2">
+              {vitalsHint} {isMeasuringVitals ? `· ${vitalsProgress}%` : ''}
+            </Text>
+
+            <TouchableOpacity
+              className={`mt-4 rounded-2xl py-3 items-center ${isMeasuringVitals || vitalsRequesting ? 'bg-white/20' : 'bg-emerald-400'}`}
+              onPress={handleMeasureVitals}
+              disabled={isMeasuringVitals || vitalsRequesting}
+            >
+              {vitalsRequesting ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text className={`text-sm font-bold ${isMeasuringVitals ? 'text-white' : 'text-slate-900'}`}>
+                  {isMeasuringVitals ? 'Measuring...' : 'Measure Vitals'}
+                </Text>
+              )}
+            </TouchableOpacity>
+          </View>
+
           <TouchableOpacity
             className="mt-3 rounded-2xl bg-red-50 border border-danger/20 py-3 items-center"
             onPress={handleRemoveDevice}
@@ -221,5 +317,12 @@ const DetailRow = ({
       <Text className="text-sm font-semibold text-gray-900 mt-1">{value}</Text>
       {description ? <Text className="text-xs text-gray-500 mt-1">{description}</Text> : null}
     </View>
+  </View>
+);
+
+const VitalsMiniCard = ({ label, value }: { label: string; value: string }) => (
+  <View className="flex-1 rounded-2xl bg-white/10 px-3 py-3">
+    <Text className="text-[10px] font-semibold text-blue-100 uppercase">{label}</Text>
+    <Text className="text-base font-bold text-white mt-1">{value}</Text>
   </View>
 );
