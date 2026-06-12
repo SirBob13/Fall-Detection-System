@@ -68,6 +68,79 @@ _model_metadata = {
     "sample_rate": 20  # Hz - default sample rate
 }
 
+
+class SavedModelPredictWrapper:
+    """Small adapter so exported SavedModel signatures behave like Keras models."""
+
+    def __init__(self, saved_model: Any, model_path: Union[str, Path]):
+        self.saved_model = saved_model
+        self.model_path = Path(model_path)
+        self.signature = (
+            saved_model.signatures.get("serve") or
+            saved_model.signatures.get("serving_default")
+        )
+        if self.signature is None:
+            raise ValueError("SavedModel has no serve/serving_default signature")
+
+        self.input_shape = (None, TIME_STEPS, 16)
+        self.outputs = [None, None]
+        self.output = self.outputs
+        self.layers = []
+
+    def predict(self, X: np.ndarray, verbose: int = 0) -> List[np.ndarray]:
+        del verbose
+        tensor = tf.convert_to_tensor(X, dtype=tf.float32)
+        raw_outputs = self.signature(tensor)
+
+        if isinstance(raw_outputs, dict):
+            keys = list(raw_outputs.keys())
+            if "fall_now" in raw_outputs and "fall_soon" in raw_outputs:
+                ordered = [raw_outputs["fall_now"], raw_outputs["fall_soon"]]
+            elif "output_0" in raw_outputs and "output_1" in raw_outputs:
+                ordered = [raw_outputs["output_0"], raw_outputs["output_1"]]
+            else:
+                ordered = [raw_outputs[key] for key in sorted(keys)]
+        elif isinstance(raw_outputs, (list, tuple)):
+            ordered = list(raw_outputs)
+        else:
+            ordered = [raw_outputs]
+
+        return [output.numpy() if hasattr(output, "numpy") else np.asarray(output) for output in ordered]
+
+    def count_params(self) -> int:
+        return 0
+
+
+def _saved_model_fallback_path() -> Path:
+    """Keras 3 export used when the native .keras file is not TF 2.14-compatible."""
+    return Path(MODEL_PATH).parent / "fall_detection_savedmodel"
+
+
+def _load_keras_or_saved_model(model_path: Union[str, Path]) -> Any:
+    path = Path(model_path)
+
+    if path.is_dir():
+        saved = tf.saved_model.load(str(path))
+        return SavedModelPredictWrapper(saved, path)
+
+    try:
+        model = tf.keras.models.load_model(path, compile=False)
+        if not hasattr(model, "input_shape"):
+            saved = tf.saved_model.load(str(path))
+            return SavedModelPredictWrapper(saved, path)
+        return model
+    except Exception:
+        fallback_path = _saved_model_fallback_path()
+        if fallback_path.exists():
+            logger.warning(
+                "⚠️ Native model load failed for %s; trying SavedModel fallback at %s",
+                path,
+                fallback_path
+            )
+            saved = tf.saved_model.load(str(fallback_path))
+            return SavedModelPredictWrapper(saved, fallback_path)
+        raise
+
 # Feature configuration
 FEATURE_CONFIG = {
     "basic": [
@@ -191,16 +264,17 @@ def load_model_and_scaler() -> Tuple[Optional[Any], Optional[Any]]:
             logger.error(f"❌ Scaler file not found: {SCALER_PATH}")
             return None, None
         
-        # Load model
+        # Load model. Newer Keras 3 .keras files are not always readable by the
+        # server's TensorFlow 2.14 runtime, so fall back to an exported SavedModel.
         logger.info(f"📦 Loading model from: {MODEL_PATH}")
-        _model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+        _model = _load_keras_or_saved_model(MODEL_PATH)
         
         # Load scaler
         logger.info(f"📦 Loading scaler from: {SCALER_PATH}")
         _scaler = joblib.load(SCALER_PATH)
         
         # Determine model metadata from input shape
-        input_shape = _model.input_shape
+        input_shape = getattr(_model, "input_shape", (None, TIME_STEPS, 16))
         if input_shape[-1] == 16:
             _model_metadata["type"] = "enhanced"
             _model_metadata["features_count"] = 16
@@ -209,7 +283,8 @@ def load_model_and_scaler() -> Tuple[Optional[Any], Optional[Any]]:
             _model_metadata["features_count"] = 8
         
         # Determine output format
-        if isinstance(_model.output, list) and len(_model.output) == 2:
+        model_output = getattr(_model, "output", None)
+        if isinstance(model_output, list) and len(model_output) == 2:
             _model_metadata["output_format"] = "dual"
         else:
             _model_metadata["output_format"] = "single"
@@ -860,11 +935,22 @@ def get_model_info() -> Dict[str, Any]:
     }
     
     if model is not None:
+        model_outputs = getattr(model, "outputs", None)
+        if isinstance(model_outputs, list):
+            output_shape = [getattr(out, "shape", None) for out in model_outputs]
+        else:
+            output_shape = [getattr(getattr(model, "output", None), "shape", None)]
+
+        try:
+            trainable_params = model.count_params()
+        except Exception:
+            trainable_params = None
+
         info["model_details"] = {
-            "layers": len(model.layers),
-            "trainable_params": model.count_params(),
-            "input_shape": model.input_shape,
-            "output_shape": [out.shape for out in (model.outputs if isinstance(model.outputs, list) else [model.output])]
+            "layers": len(getattr(model, "layers", [])),
+            "trainable_params": trainable_params,
+            "input_shape": getattr(model, "input_shape", None),
+            "output_shape": output_shape
         }
     
     return info
