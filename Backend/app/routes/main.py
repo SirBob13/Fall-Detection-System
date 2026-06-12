@@ -28,6 +28,7 @@ from ..config import SECRET_KEY, ALGORITHM, ADMIN_EMAILS, MIN_REALTIME_SAMPLES_F
 from ..double_verification import DoubleVerificationSystem
 from ..services.notification_service import NotificationService
 from ..services.mqtt_service import publish_device_command
+from ..services.wrist_fall_detector import update_wrist_fall_detector
 from ..realtime import notify_user, notify_users, notify_admins
 from ..status_utils import build_device_status_payload, is_device_online, summarize_user_presence
 
@@ -1301,6 +1302,15 @@ def _process_motion_data_internal(
         )
 
     buffer_key = f"{user_id}:{device_id}"
+    wrist_result = update_wrist_fall_detector(
+        buffer_key,
+        ax=acc_x,
+        ay=acc_y,
+        az=acc_z,
+        gx=gyro_x,
+        gy=gyro_y,
+        gz=gyro_z,
+    )
     ai_result = predict_from_sample(
         acc_x=acc_x,
         acc_y=acc_y,
@@ -1339,11 +1349,25 @@ def _process_motion_data_internal(
     sample_count = int(prediction_metadata.get("samples", 0) or 0)
     warmup = bool(prediction_metadata.get("warmup", False))
     alert_eligible = sample_count >= MIN_REALTIME_SAMPLES_FOR_ALERT
-    rule_based_fall = severe_motion_fall
+    wrist_fall_detected = bool(wrist_result.get("fall_detected"))
+    wrist_possible_fall = bool(wrist_result.get("possible_fall"))
+    rule_based_fall = severe_motion_fall or wrist_fall_detected
 
     if alert_eligible or rule_based_fall:
         verification_system = DoubleVerificationSystem(db)
-        if rule_based_fall and not ai_result.get("fall_now_prediction", False):
+        if wrist_fall_detected:
+            wrist_confidence = float(wrist_result.get("confidence", 0.0) or 0.0)
+            verified = {
+                **ai_result,
+                "fall_now_prediction": True,
+                "fall_now_probability": max(float(ai_result.get("fall_now_probability", 0.0) or 0.0), wrist_confidence, 0.90),
+                "vital_check_performed": False,
+                "vital_check_result": None,
+                "final_verdict": True,
+                "confidence_score": max(float(ai_result.get("confidence_score", 0.0) or 0.0), wrist_confidence, 0.90),
+                "decision_reason": str(wrist_result.get("reason") or "wrist_fall_detector"),
+            }
+        elif severe_motion_fall and not ai_result.get("fall_now_prediction", False):
             verified = {
                 **ai_result,
                 "fall_now_prediction": True,
@@ -1442,6 +1466,11 @@ def _process_motion_data_internal(
             "min_samples_for_alert": MIN_REALTIME_SAMPLES_FOR_ALERT,
             "alert_eligible": alert_eligible,
             "rule_based_fall": rule_based_fall,
+            "wrist_possible_fall": wrist_possible_fall,
+            "wrist_detector_state": wrist_result.get("state"),
+            "wrist_detector_reason": wrist_result.get("reason"),
+            "wrist_detector_confidence": wrist_result.get("confidence"),
+            "wrist_detector_jerk": wrist_result.get("jerk"),
             "acc_magnitude": acc_mag,
             "gyro_magnitude": gyro_mag,
             "warmup_reason": None if (alert_eligible or rule_based_fall) else "collecting_motion_context",
