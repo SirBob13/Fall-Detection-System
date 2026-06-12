@@ -475,6 +475,7 @@ def _handle_device_payload(
         "user_id": user_id,
         "motion": None,
         "vitals": None,
+        "vitals_ignored": False,
     }
 
     if payload.motion:
@@ -487,46 +488,10 @@ def _handle_device_payload(
         result["motion"] = response
 
     if payload.vitals:
-        vitals_dict = payload.vitals.dict(exclude_unset=True)
-        if payload.timestamp and not vitals_dict.get("timestamp"):
-            vitals_dict["timestamp"] = payload.timestamp
-        vital_schema = schemas.VitalDataCreate(user_id=user_id, device_id=device.device_id, **vitals_dict)
-        stored_vital = crud.create_vital_data(db, vital_schema)
-
-        alert_id = None
-        if stored_vital.is_abnormal:
-            alert = Alert(
-                user_id=user_id,
-                device_id=device.device_id,
-                alert_type="vital_abnormal",
-                severity="high",
-                message=f"Abnormal {stored_vital.abnormality_type} detected",
-                status="active",
-                timestamp=datetime.utcnow()
-            )
-            db.add(alert)
-            db.commit()
-            db.refresh(alert)
-            alert_id = alert.id
-            notification_service.notify_vital_abnormality(
-                user_id=user_id,
-                vitals=vitals_dict,
-                message=alert.message
-            )
-            notification_service.notify_caregivers_alert(
-                db=db,
-                patient_id=user_id,
-                alert=alert,
-                reason="vital_abnormal",
-            )
-
-        result["vitals"] = {
-            "id": stored_vital.id,
-            "is_abnormal": bool(stored_vital.is_abnormal),
-            "abnormality_type": stored_vital.abnormality_type,
-            "alert_id": alert_id,
-            "timestamp": stored_vital.timestamp.isoformat() if stored_vital.timestamp else None,
-        }
+        # Regular motion telemetry may carry stale/held MAX30102 values. Persist
+        # vitals only through /device-data/vitals-status when an on-demand
+        # measurement completes, so fall decisions stay motion-first.
+        result["vitals_ignored"] = True
 
     return result
 
