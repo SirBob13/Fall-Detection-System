@@ -1268,6 +1268,13 @@ def _process_motion_data_internal(
     gyro_x = float(data.get('gyro_x', 0.0))
     gyro_y = float(data.get('gyro_y', 0.0))
     gyro_z = float(data.get('gyro_z', 0.0))
+    acc_mag = (acc_x ** 2 + acc_y ** 2 + acc_z ** 2) ** 0.5
+    gyro_mag = (gyro_x ** 2 + gyro_y ** 2 + gyro_z ** 2) ** 0.5
+    severe_motion_fall = (
+        (acc_mag >= 25.0 and gyro_mag >= 180.0) or
+        acc_mag >= 35.0 or
+        gyro_mag >= 320.0
+    )
     raw_temperature = data.get('temperature', 36.5)
     temperature = float(36.5 if raw_temperature is None else raw_temperature)
     user_id = int(data.get('user_id'))
@@ -1332,14 +1339,33 @@ def _process_motion_data_internal(
     sample_count = int(prediction_metadata.get("samples", 0) or 0)
     warmup = bool(prediction_metadata.get("warmup", False))
     alert_eligible = sample_count >= MIN_REALTIME_SAMPLES_FOR_ALERT
+    rule_based_fall = severe_motion_fall
 
-    if alert_eligible:
+    if alert_eligible or rule_based_fall:
         verification_system = DoubleVerificationSystem(db)
-        verified = verification_system.verify_fall_with_vitals(
-            user_id=user_id,
-            fall_prediction=ai_result,
-            current_vitals=None
-        )
+        if rule_based_fall and not ai_result.get("fall_now_prediction", False):
+            verified = {
+                **ai_result,
+                "fall_now_prediction": True,
+                "fall_now_probability": max(float(ai_result.get("fall_now_probability", 0.0) or 0.0), 0.92),
+                "vital_check_performed": False,
+                "vital_check_result": None,
+                "final_verdict": True,
+                "confidence_score": max(float(ai_result.get("confidence_score", 0.0) or 0.0), 0.92),
+                "decision_reason": "severe_motion_rule",
+            }
+        else:
+            verified = verification_system.verify_fall_with_vitals(
+                user_id=user_id,
+                fall_prediction=ai_result,
+                current_vitals=None
+            )
+            if rule_based_fall:
+                verified["final_verdict"] = True
+                verified["fall_now_prediction"] = True
+                verified["fall_now_probability"] = max(float(verified.get("fall_now_probability", 0.0) or 0.0), 0.92)
+                verified["confidence_score"] = max(float(verified.get("confidence_score", 0.0) or 0.0), 0.92)
+                verified["decision_reason"] = "severe_motion_rule"
     else:
         verification_system = None
         verified = {
@@ -1415,7 +1441,10 @@ def _process_motion_data_internal(
             "samples_collected": sample_count,
             "min_samples_for_alert": MIN_REALTIME_SAMPLES_FOR_ALERT,
             "alert_eligible": alert_eligible,
-            "warmup_reason": None if alert_eligible else "collecting_motion_context",
+            "rule_based_fall": rule_based_fall,
+            "acc_magnitude": acc_mag,
+            "gyro_magnitude": gyro_mag,
+            "warmup_reason": None if (alert_eligible or rule_based_fall) else "collecting_motion_context",
         },
         "is_test_data": ai_result.get("is_mock", False),
         "timestamp": datetime.utcnow().isoformat(),
