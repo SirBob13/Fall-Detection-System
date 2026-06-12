@@ -14,6 +14,25 @@ import { getDeviceOperationalStatus, getDeviceStatusLabel } from '../utils/devic
 
 type DeviceDetailsRouteProp = RouteProp<SettingsStackParamList, 'DeviceDetails'>;
 
+const formatVitalsSignalStatus = (status?: string | null) => {
+  switch (status) {
+    case 'good':
+      return 'Good signal';
+    case 'weak_signal':
+      return 'Weak signal';
+    case 'place_finger':
+      return 'Place finger properly';
+    case 'keep_still':
+      return 'Keep still';
+    case 'sensor_not_ready':
+      return 'Sensor not ready';
+    case 'rest':
+      return 'Sensor resting';
+    default:
+      return status || 'Measuring...';
+  }
+};
+
 export const DeviceDetailsScreen: React.FC = () => {
   const { t } = useLanguage();
   const navigation = useNavigation<NativeStackNavigationProp<SettingsStackParamList>>();
@@ -117,11 +136,13 @@ export const DeviceDetailsScreen: React.FC = () => {
   const currentHeartRate = vitalsStatus?.heart_rate_valid ? vitalsStatus?.heart_rate : lastValidVitals.heartRate;
   const currentSpo2 = vitalsStatus?.spo2_valid ? vitalsStatus?.spo2 : lastValidVitals.spo2;
   const vitalsHint = vitalsStatus?.finger_detected
-    ? vitalsStatus?.signal_status || 'Measuring...'
+    ? formatVitalsSignalStatus(vitalsStatus?.signal_status)
     : isMeasuringVitals
     ? 'Place finger properly'
     : vitalsStatus?.state === 'complete'
-    ? 'Measurement complete'
+    ? vitalsStatus?.heart_rate_valid || vitalsStatus?.spo2_valid
+      ? 'Measurement complete'
+      : formatVitalsSignalStatus(vitalsStatus?.signal_status)
     : 'Press Measure Vitals to start';
 
   const isOnlineLike = ['active', 'connected_no_data'].includes(getDeviceOperationalStatus(device));

@@ -21,6 +21,25 @@ import { MainTabParamList } from '../navigation/AppNavigator';
 
 type AlertsRouteProp = RouteProp<MainTabParamList, 'Alerts'>;
 
+const formatVitalsSignalStatus = (status?: string | null) => {
+  switch (status) {
+    case 'good':
+      return 'Good signal';
+    case 'weak_signal':
+      return 'Weak signal';
+    case 'place_finger':
+      return 'Place finger properly';
+    case 'keep_still':
+      return 'Keep still';
+    case 'sensor_not_ready':
+      return 'Sensor not ready';
+    case 'rest':
+      return 'Sensor resting';
+    default:
+      return status || 'Signal detected';
+  }
+};
+
 export const AlertsScreen: React.FC = () => {
   const { t } = useLanguage();
   const navigation = useNavigation<any>();
@@ -372,7 +391,9 @@ export const AlertsScreen: React.FC = () => {
                   {latestVitalsStatus?.state === 'complete' ? 'Vitals ready' : 'Measuring vitals...'}
                 </Text>
                 <Text className="text-xs text-red-100 mt-1">
-                  {latestVitalsStatus?.finger_detected ? latestVitalsStatus?.signal_status || 'Signal detected' : 'Place finger properly'}
+                  {latestVitalsStatus?.finger_detected
+                    ? formatVitalsSignalStatus(latestVitalsStatus?.signal_status)
+                    : formatVitalsSignalStatus(latestVitalsStatus?.signal_status || 'place_finger')}
                 </Text>
               </View>
               <View className="items-end">

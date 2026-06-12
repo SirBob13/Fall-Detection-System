@@ -101,7 +101,7 @@ static const char *PREF_MQTT_TOPIC_KEY = "mqtt_topic";
 
 // ================= Firmware Identity =================
 static const char *DEVICE_TYPE = "esp32-c3-supermini-bracelet";
-static const char *FIRMWARE_VERSION = "3.7.1-c3-max30s-display-hold";
+static const char *FIRMWARE_VERSION = "3.7.2-c3-vitals-quality-gate";
 
 // ================= WiFi / MQTT Timing =================
 static const int WIFI_MAX_RETRIES = 30;
@@ -115,7 +115,7 @@ static const int MPU_BATCH_SIZE = 20;
 
 #define MAX_POWER_SAVE true
 #define MAX_KEEP_ON_WHEN_FINGER false  // Fixed 30s ON / 30s OFF cycle. Do not keep MAX on forever when finger is present.
-#define MAX_HR_DEBUG false
+#define MAX_HR_DEBUG true
 static const uint32_t FINGER_IR_THRESHOLD = 35000;  // Lowered to avoid losing finger contact during a 30s session.
 static const uint32_t SIGNAL_GOOD_IR_THRESHOLD = 60000;
 static const unsigned long MAX_ON_DURATION_MS = 30000;
@@ -260,6 +260,13 @@ String activeVitalsTrigger = "manual";
 unsigned long vitalsMeasurementStartedMs = 0;
 unsigned long vitalsMeasurementDurationMs = VITALS_DEFAULT_DURATION_MS;
 unsigned long lastVitalsStatusPublishMs = 0;
+int activeVitalsHrBpm = 0;
+bool activeVitalsHrValid = false;
+int activeVitalsSpo2 = 0;
+bool activeVitalsSpo2Valid = false;
+float activeVitalsHrQuality = 0.0f;
+bool activeVitalsFingerSeen = false;
+bool activeVitalsGoodSignalSeen = false;
 
 unsigned long lastOledUpdateMs = 0;
 unsigned long lastOledPageSwitchMs = 0;
@@ -477,6 +484,11 @@ void commitHeldHeartRate(int bpm, unsigned long now) {
   latestMax.beatAvg = bpm;
   lastHrValidMs = now;
 
+  if (vitalsMeasurementActive) {
+    activeVitalsHrBpm = bpm;
+    activeVitalsHrValid = true;
+  }
+
 #if HR_SESSION_MODE
   lastSessionHrBpm = bpm;
   lastSessionHrValid = true;
@@ -493,6 +505,11 @@ void commitHeldSpo2(int spo2, unsigned long now) {
   latestMax.spo2 = spo2;
   latestMax.spo2Valid = true;
   lastSpo2ValidMs = now;
+
+  if (vitalsMeasurementActive) {
+    activeVitalsSpo2 = spo2;
+    activeVitalsSpo2Valid = true;
+  }
 }
 
 String heartRateDisplayLabel() {
@@ -526,6 +543,16 @@ const char *signalStrengthLabel() {
   if (latestMax.ir > SIGNAL_GOOD_IR_THRESHOLD) return "Good";
   if (latestMax.ir > FINGER_IR_THRESHOLD) return "Good";
   return "Weak";
+}
+
+const char *vitalsSignalStatusLabel() {
+  if (!maxReady) return "sensor_not_ready";
+  if (!maxPowered) return "rest";
+  if (!latestMax.fingerDetected) return "place_finger";
+  if (mpuReady && (latestMotion.accMag > 16.5f || latestMotion.gyroMag > 95.0f)) return "keep_still";
+  if (latestMax.ir > SIGNAL_GOOD_IR_THRESHOLD && latestMax.red > 8000) return "good";
+  if (latestMax.ir > FINGER_IR_THRESHOLD && latestMax.red > 1000) return "weak_signal";
+  return "place_finger";
 }
 
 
@@ -1774,16 +1801,16 @@ bool initMax30102() {
     return false;
   }
 
-  byte ledBrightness = 0x32;
-  byte sampleAverage = 4;
+  byte ledBrightness = 0x3F;
+  byte sampleAverage = 8;
   byte ledMode = 2;      // Red + IR
   int sampleRate = 100;
   int pulseWidth = 411;
-  int adcRange = 4096;
+  int adcRange = 8192;
 
   max30102.setup(ledBrightness, sampleAverage, ledMode, sampleRate, pulseWidth, adcRange);
-  max30102.setPulseAmplitudeRed(0x32);
-  max30102.setPulseAmplitudeIR(0x32);
+  max30102.setPulseAmplitudeRed(0x3F);
+  max30102.setPulseAmplitudeIR(0x3F);
   max30102.setPulseAmplitudeGreen(0);
 
   max30102.shutDown();
@@ -1884,8 +1911,14 @@ void publishVitalsStatus(const char *state, unsigned long now) {
   char timestamp[32];
   isoTimestamp(timestamp, sizeof(timestamp));
 
-  int hr = getDisplayHrBpm();
-  int spo2 = getDisplaySpo2();
+  bool finalState = strcmp(state, "complete") == 0 || strcmp(state, "stopped") == 0 || strcmp(state, "error") == 0;
+  bool hrValid = activeVitalsHrValid && activeVitalsHrBpm > 0;
+  bool spo2Valid = activeVitalsSpo2Valid && activeVitalsSpo2 > 0 && hrValid;
+  int hr = hrValid ? activeVitalsHrBpm : 0;
+  int spo2 = spo2Valid ? activeVitalsSpo2 : 0;
+  const char *signalStatus = finalState
+    ? (activeVitalsGoodSignalSeen ? "good" : (activeVitalsFingerSeen ? "weak_signal" : "place_finger"))
+    : vitalsSignalStatusLabel();
 
   doc["message_type"] = "vitals_status";
   doc["device_id"] = provisionedDeviceId;
@@ -1897,10 +1930,15 @@ void publishVitalsStatus(const char *state, unsigned long now) {
   doc["finger_detected"] = latestMax.fingerDetected;
   doc["heart_rate"] = hr;
   doc["spo2"] = spo2;
-  doc["heart_rate_valid"] = hr > 0;
-  doc["spo2_valid"] = spo2 > 0;
+  doc["heart_rate_valid"] = hrValid;
+  doc["spo2_valid"] = spo2Valid;
   doc["max_powered"] = maxPowered;
-  doc["signal_status"] = signalStrengthLabel();
+  doc["signal_status"] = signalStatus;
+  doc["last_heart_rate"] = getDisplayHrBpm();
+  doc["last_spo2"] = getDisplaySpo2();
+  doc["hr_quality"] = activeVitalsHrQuality;
+  doc["finger_seen"] = activeVitalsFingerSeen;
+  doc["good_signal_seen"] = activeVitalsGoodSignalSeen;
   doc["timestamp"] = timestamp;
 
   char buffer[768];
@@ -1918,6 +1956,13 @@ void startVitalsMeasurement(const String &requestId, const String &trigger, unsi
   vitalsMeasurementDurationMs = constrain(durationMs, VITALS_MIN_DURATION_MS, VITALS_MAX_DURATION_MS);
   vitalsMeasurementStartedMs = now;
   lastVitalsStatusPublishMs = 0;
+  activeVitalsHrBpm = 0;
+  activeVitalsHrValid = false;
+  activeVitalsSpo2 = 0;
+  activeVitalsSpo2Valid = false;
+  activeVitalsHrQuality = 0.0f;
+  activeVitalsFingerSeen = false;
+  activeVitalsGoodSignalSeen = false;
 
   if (!maxReady) {
     Serial.println("⚠️ Vitals requested but MAX30102 is not ready");
@@ -2355,7 +2400,7 @@ void finishHrMeasurementSession(unsigned long now) {
     ok = analyzeHrSessionPeaks(bpm, quality);
   }
 
-  if (ok && bpm > 0) {
+  if (ok && bpm > 0 && quality >= 0.35f) {
     // Smooth against the previous completed session. Do not allow a sudden 50->120 jump
     // unless the new window keeps confirming it in later sessions.
     if (latestMax.beatAvg > 0 && abs(bpm - latestMax.beatAvg) > 35) {
@@ -2365,6 +2410,7 @@ void finishHrMeasurementSession(unsigned long now) {
     bpm = constrain(bpm, HR_MIN_BPM, HR_MAX_BPM);
 
     lastSessionHrQuality = quality;
+    activeVitalsHrQuality = quality;
     commitHeldHeartRate(bpm, now);
 
     memset(rates, 0, sizeof(rates));
@@ -2377,6 +2423,7 @@ void finishHrMeasurementSession(unsigned long now) {
     Serial.println(quality, 2);
   } else {
     // Keep the old value on screen if the new session was not good enough.
+    activeVitalsHrQuality = quality;
     Serial.println("⚠️ HR session ended without a reliable BPM. Keeping previous displayed HR.");
   }
 
@@ -2674,6 +2721,13 @@ void sampleMaxNow() {
 
   latestMax.fingerDetected = true;
   lastFingerDetectedMs = now;
+
+  if (vitalsMeasurementActive) {
+    activeVitalsFingerSeen = true;
+    if (irValue > SIGNAL_GOOD_IR_THRESHOLD && redValue > 8000) {
+      activeVitalsGoodSignalSeen = true;
+    }
+  }
 
   if (!previousFingerDetected) {
     previousFingerDetected = true;

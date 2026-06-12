@@ -39,6 +39,25 @@ import { realtimeService } from '../services/realtime.service';
 import { BLE_CONFIG, BLE_KNOWN_DEVICE_NAME_PATTERN, BLE_SCAN_TIMEOUT_MS } from '../utils/constants';
 import { getDeviceStatusLabel } from '../utils/deviceStatus';
 
+const formatVitalsSignalStatus = (status?: string | null) => {
+  switch (status) {
+    case 'good':
+      return 'Good signal';
+    case 'weak_signal':
+      return 'Weak signal';
+    case 'place_finger':
+      return 'Place finger properly';
+    case 'keep_still':
+      return 'Keep still';
+    case 'sensor_not_ready':
+      return 'Sensor not ready';
+    case 'rest':
+      return 'Sensor resting';
+    default:
+      return status || 'Measuring...';
+  }
+};
+
 export const HomeScreen: React.FC = () => {
   const { t } = useLanguage();
   const { settings, refreshSettings } = useSettings();
@@ -643,10 +662,12 @@ export const HomeScreen: React.FC = () => {
     : lastValidVitals.spo2 ?? latestVitals?.oxygen_saturation;
   const vitalsHint = isMeasuringVitals
     ? vitalsStatus?.finger_detected
-      ? vitalsStatus?.signal_status || 'Measuring...'
+      ? formatVitalsSignalStatus(vitalsStatus?.signal_status)
       : 'Place finger properly'
     : vitalsStatus?.state === 'complete'
-    ? 'Measurement complete'
+    ? vitalsStatus?.heart_rate_valid || vitalsStatus?.spo2_valid
+      ? 'Measurement complete'
+      : formatVitalsSignalStatus(vitalsStatus?.signal_status)
     : 'Start a 60s reading from the bracelet';
 
   return (

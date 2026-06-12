@@ -89,6 +89,11 @@ export interface VitalsStatus {
   spo2_valid?: boolean;
   max_powered?: boolean;
   signal_status?: string | null;
+  last_heart_rate?: number | null;
+  last_spo2?: number | null;
+  hr_quality?: number | null;
+  finger_seen?: boolean;
+  good_signal_seen?: boolean;
   timestamp?: string;
 }
 
