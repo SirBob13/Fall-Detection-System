@@ -279,19 +279,19 @@ def _store_telemetry_vitals_fallback(
     timestamp: Optional[datetime] = None,
 ) -> Optional[VitalSensorData]:
     """Persist one useful fallback reading from legacy motion telemetry vitals."""
+    if _safe_bool(vitals.get("max_powered"), fallback=True):
+        return None
+
     heart_rate = _safe_float(vitals.get("heart_rate"))
     spo2 = _safe_float(vitals.get("spo2", vitals.get("oxygen_saturation")))
 
     heart_rate = heart_rate if heart_rate is not None and 35 <= heart_rate <= 220 else None
     spo2 = spo2 if spo2 is not None and 70 <= spo2 <= 100 else None
 
-    vital_timestamp = timestamp
-    if vital_timestamp is None and isinstance(vitals.get("timestamp"), str):
-        try:
-            vital_timestamp = _parse_iso_datetime(vitals["timestamp"])
-        except HTTPException:
-            vital_timestamp = None
-    vital_timestamp = vital_timestamp or datetime.utcnow()
+    # Legacy motion telemetry repeats one device timestamp across a whole batch.
+    # Use server receive time so a final fallback snapshot behaves like one
+    # measurement result instead of many identical historical rows.
+    vital_timestamp = datetime.utcnow()
 
     if heart_rate is None and spo2 is None:
         return None
@@ -305,8 +305,22 @@ def _store_telemetry_vitals_fallback(
     )
     if latest_vital and latest_vital.timestamp:
         seconds_since_latest = (vital_timestamp - latest_vital.timestamp).total_seconds()
-        if seconds_since_latest <= 30:
-            return None
+        if seconds_since_latest <= 600:
+            latest_vital.heart_rate = heart_rate
+            latest_vital.oxygen_saturation = spo2
+            latest_vital.body_temperature = None
+            latest_vital.respiration_rate = None
+            latest_vital.timestamp = vital_timestamp
+            abnormalities: List[str] = []
+            if heart_rate is not None and (heart_rate < 55 or heart_rate > 120):
+                abnormalities.append("heart_rate")
+            if spo2 is not None and spo2 < 92:
+                abnormalities.append("oxygen_saturation")
+            latest_vital.is_abnormal = bool(abnormalities)
+            latest_vital.abnormality_type = ", ".join(abnormalities) if abnormalities else None
+            db.commit()
+            db.refresh(latest_vital)
+            return latest_vital
 
     vital_data = schemas.VitalDataCreate(
         user_id=user_id,

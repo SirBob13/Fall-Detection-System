@@ -846,26 +846,10 @@ export const HomeScreen: React.FC = () => {
                   </Text>
                 </View>
                 <View className="flex-row justify-between mb-3">
-                  <Text className="text-sm text-gray">{t('vitals.bloodPressure')}</Text>
-                  <Text className="text-sm font-semibold text-dark">
-                    {latestVitals?.blood_pressure_systolic && latestVitals?.blood_pressure_diastolic
-                      ? `${latestVitals.blood_pressure_systolic}/${latestVitals.blood_pressure_diastolic}`
-                      : '--'}
-                  </Text>
-                </View>
-                <View className="flex-row justify-between mb-3">
                   <Text className="text-sm text-gray">{t('vitals.oxygenSaturation')}</Text>
                   <Text className="text-sm font-semibold text-dark">
                     {displaySpo2 !== undefined && displaySpo2 !== null
                       ? `${displaySpo2} ${t('vitals.percent')}`
-                      : '--'}
-                  </Text>
-                </View>
-                <View className="flex-row justify-between">
-                  <Text className="text-sm text-gray">{t('vitals.temperature')}</Text>
-                  <Text className="text-sm font-semibold text-dark">
-                    {latestVitals?.body_temperature !== undefined && latestVitals?.body_temperature !== null
-                      ? `${latestVitals.body_temperature} ${t('vitals.celsius')}`
                       : '--'}
                   </Text>
                 </View>

@@ -444,9 +444,9 @@ export default function UserDetailPage() {
                 <p className="text-xs text-slate-500">{vital.timestamp || "-"}</p>
                 <p className="text-xs text-cyan-200">Source device: <span className="font-mono">{formatDeviceId(vital.device_id)}</span></p>
                 <p className="text-sm text-slate-200">
-                  HR {vital.heart_rate ?? "-"} | SpO2 {vital.oxygen_saturation ?? "-"} | Temp {vital.body_temperature ?? "-"}
+                  HR {vital.heart_rate ?? "-"} | SpO2 {vital.oxygen_saturation ?? "-"}
                 </p>
-                <p className="text-xs text-slate-400">Resp {vital.respiration_rate ?? "-"} | {vital.abnormality_type || "Normal"}</p>
+                <p className="text-xs text-slate-400">{vital.abnormality_type || "Normal"}</p>
               </div>
             ))}
             {!vitals.length && <p className="text-sm text-slate-400">No vitals found.</p>}

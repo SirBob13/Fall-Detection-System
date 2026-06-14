@@ -108,9 +108,9 @@ export default function VitalsPage() {
                 <span className="text-xs text-slate-500">{vital.timestamp || "-"}</span>
               </div>
               <p className="mt-2 text-sm text-slate-400">
-                HR {vital.heart_rate ?? "-"} | SpO2 {vital.oxygen_saturation ?? "-"} | Temp {vital.body_temperature ?? "-"}
+                HR {vital.heart_rate ?? "-"} | SpO2 {vital.oxygen_saturation ?? "-"}
               </p>
-              <p className="mt-1 text-xs text-slate-500">Resp {vital.respiration_rate ?? "-"} | {vital.abnormality_type || "Normal"}</p>
+              <p className="mt-1 text-xs text-slate-500">{vital.abnormality_type || "Normal"}</p>
             </div>
           ))}
           {!vitals.length && <p className="text-sm text-slate-400">No vitals yet.</p>}

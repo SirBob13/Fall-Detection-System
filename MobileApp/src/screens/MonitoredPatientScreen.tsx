@@ -393,17 +393,6 @@ export const MonitoredPatientScreen: React.FC = () => {
                   <Text className="text-xs text-gray">{t('vitals.oxygenSaturation')}</Text>
                   <Text className="text-sm font-semibold text-dark">{vitals.oxygen_saturation ?? '--'} {t('vitals.percent')}</Text>
                 </View>
-                <View className="flex-row justify-between mb-2">
-                  <Text className="text-xs text-gray">{t('vitals.bloodPressure')}</Text>
-                  <Text className="text-sm font-semibold text-dark">
-                    {vitals.blood_pressure_systolic ?? '--'}/{vitals.blood_pressure_diastolic ?? '--'} {t('vitals.mmHg')}
-                  </Text>
-                </View>
-                <View className="flex-row justify-between">
-                  <Text className="text-xs text-gray">{t('vitals.temperature')}</Text>
-                  <Text className="text-sm font-semibold text-dark">{vitals.body_temperature ?? '--'} {t('vitals.celsius')}</Text>
-                </View>
-
                 {chartData.length > 1 ? (
                   <View className="mt-4">
                     <Text className="text-xs text-gray mb-2">{t('dashboard.heartRateTrend')}</Text>
