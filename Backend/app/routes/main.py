@@ -270,6 +270,54 @@ def _safe_bool(value: Any, fallback: bool = False) -> bool:
     return bool(value)
 
 
+def _store_telemetry_vitals_fallback(
+    db: Session,
+    *,
+    user_id: int,
+    device_id: str,
+    vitals: Dict[str, Any],
+    timestamp: Optional[datetime] = None,
+) -> Optional[VitalSensorData]:
+    """Persist one useful fallback reading from legacy motion telemetry vitals."""
+    heart_rate = _safe_float(vitals.get("heart_rate"))
+    spo2 = _safe_float(vitals.get("spo2", vitals.get("oxygen_saturation")))
+
+    heart_rate = heart_rate if heart_rate is not None and 35 <= heart_rate <= 220 else None
+    spo2 = spo2 if spo2 is not None and 70 <= spo2 <= 100 else None
+
+    vital_timestamp = timestamp
+    if vital_timestamp is None and isinstance(vitals.get("timestamp"), str):
+        try:
+            vital_timestamp = _parse_iso_datetime(vitals["timestamp"])
+        except HTTPException:
+            vital_timestamp = None
+    vital_timestamp = vital_timestamp or datetime.utcnow()
+
+    if heart_rate is None and spo2 is None:
+        return None
+
+    latest_vital = (
+        db.query(VitalSensorData)
+        .filter(VitalSensorData.user_id == user_id)
+        .filter(VitalSensorData.device_id == device_id)
+        .order_by(VitalSensorData.timestamp.desc(), VitalSensorData.id.desc())
+        .first()
+    )
+    if latest_vital and latest_vital.timestamp:
+        seconds_since_latest = (vital_timestamp - latest_vital.timestamp).total_seconds()
+        if seconds_since_latest <= 30:
+            return None
+
+    vital_data = schemas.VitalDataCreate(
+        user_id=user_id,
+        device_id=device_id,
+        heart_rate=heart_rate,
+        oxygen_saturation=spo2,
+        timestamp=vital_timestamp,
+    )
+    return crud.create_vital_data(db, vital_data)
+
+
 def _normalize_vitals_status_payload(payload: Dict[str, Any], device: Optional[Device] = None) -> Dict[str, Any]:
     heart_rate = _safe_float(payload.get("heart_rate"))
     spo2 = _safe_float(payload.get("spo2", payload.get("oxygen_saturation")))
@@ -490,9 +538,20 @@ def _handle_device_payload(
 
     if payload.vitals:
         # Regular motion telemetry may carry stale/held MAX30102 values. Persist
-        # vitals only through /device-data/vitals-status when an on-demand
-        # measurement completes, so fall decisions stay motion-first.
+        # official vitals through /device-data/vitals-status when an on-demand
+        # measurement completes. Some deployed firmware versions still include
+        # useful HR/SpO2 here, so store a throttled fallback for dashboards.
         result["vitals_ignored"] = True
+        stored_vital = _store_telemetry_vitals_fallback(
+            db,
+            user_id=user_id,
+            device_id=device.device_id,
+            vitals=payload.vitals,
+            timestamp=payload.timestamp,
+        )
+        if stored_vital:
+            result["vitals"] = _serialize_vital(stored_vital)
+            result["vitals_fallback_stored"] = True
 
     return result
 

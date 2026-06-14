@@ -453,7 +453,10 @@ class DeviceIngestPayload(BaseModel):
     user_id: Optional[int] = None
     timestamp: Optional[datetime] = None
     motion: Optional[DeviceMotionPayload] = None
-    vitals: Optional[VitalDataBase] = None
+    # Motion telemetry may include partial/stale MAX30102 values and debug-only
+    # fields. The route intentionally ignores these; official vitals are ingested
+    # via /device-data/vitals-status after an on-demand measurement.
+    vitals: Optional[Dict[str, Any]] = None
     battery_level: Optional[float] = Field(None, ge=0, le=100)
     firmware_version: Optional[str] = None
 
