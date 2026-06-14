@@ -203,9 +203,6 @@ export const HomeScreen: React.FC = () => {
           if (vitalsResponse.success && vitalsResponse.data && vitalsResponse.data.length > 0) {
             apiReachable = true;
             setLatestVitals(vitalsResponse.data[0]);
-            if (settings.automaticSOS && vitalsResponse.data[0].is_abnormal) {
-              emergencyService.triggerEmergency('vital_abnormal', vitalsResponse.data[0]).catch(() => undefined);
-            }
           } else {
             setLatestVitals(null);
           }
@@ -275,16 +272,7 @@ export const HomeScreen: React.FC = () => {
       }
 
       if (event.resource === 'vitals') {
-        setLatestVitals((prev) => {
-          if (
-            settings.automaticSOS &&
-            event.payload?.is_abnormal &&
-            prev?.id !== event.payload?.id
-          ) {
-            emergencyService.triggerEmergency('vital_abnormal', event.payload).catch(() => undefined);
-          }
-          return event.payload;
-        });
+        setLatestVitals(event.payload);
       }
 
       if (event.resource === 'vitals_status') {

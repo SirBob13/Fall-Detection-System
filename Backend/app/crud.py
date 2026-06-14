@@ -447,8 +447,9 @@ def create_motion_data(db: Session, motion_data: schemas.MotionDataCreate) -> mo
         acc_mag = (motion_data.acc_x**2 + motion_data.acc_y**2 + motion_data.acc_z**2) ** 0.5
         gyro_mag = (motion_data.gyro_x**2 + motion_data.gyro_y**2 + motion_data.gyro_z**2) ** 0.5
         
-        # Check for fall suspicion (simple threshold)
-        is_fall_suspected = acc_mag > 3.0 or gyro_mag > 150
+        # Motion is in m/s^2 and deg/s. Gravity at rest is about 9.8 m/s^2,
+        # so only impact/rotation-like movement should be marked suspicious.
+        is_fall_suspected = acc_mag >= 25.0 or gyro_mag >= 180.0
         
         db_motion = models.MotionSensorData(
             user_id=motion_data.user_id,

@@ -1463,6 +1463,15 @@ def _process_motion_data_internal(
                 verified["fall_now_probability"] = max(float(verified.get("fall_now_probability", 0.0) or 0.0), 0.92)
                 verified["confidence_score"] = max(float(verified.get("confidence_score", 0.0) or 0.0), 0.92)
                 verified["decision_reason"] = "severe_motion_rule"
+            else:
+                # The AI model can produce very high risk probabilities while the
+                # bracelet is lying still. Alerts must be backed by physical
+                # evidence from the wrist detector or severe-motion rule.
+                verified["final_verdict"] = False
+                verified["fall_now_prediction"] = False
+                verified["fall_soon_prediction"] = False
+                verified["confidence_score"] = 0.0
+                verified["decision_reason"] = "ai_only_suppressed_requires_motion_confirmation"
     else:
         verification_system = None
         verified = {
