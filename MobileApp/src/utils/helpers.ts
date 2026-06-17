@@ -1,8 +1,22 @@
 import { Alert } from '../types';
 import { getCurrentLanguage } from '../i18n';
 
+export const parseApiDate = (dateString?: string | null): Date | null => {
+  if (!dateString) return null;
+  const trimmed = dateString.trim();
+  if (!trimmed) return null;
+
+  // Backend timestamps are UTC but some SQLite/FastAPI paths serialize them
+  // without a timezone suffix. Make that explicit before JS parses them.
+  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(trimmed);
+  const normalized = hasTimezone ? trimmed : `${trimmed}Z`;
+  const date = new Date(normalized);
+
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
 export const formatDate = (dateString: string): string => {
-  const date = new Date(dateString);
+  const date = parseApiDate(dateString) ?? new Date(dateString);
   const now = new Date();
   const diffInHours = Math.abs(now.getTime() - date.getTime()) / 36e5;
   

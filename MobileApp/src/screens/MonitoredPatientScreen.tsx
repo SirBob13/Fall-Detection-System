@@ -21,6 +21,7 @@ import { realtimeService } from '../services/realtime.service';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { Alert as AlertType, CareLink, Device, LastKnownLocation, User, VitalData } from '../types';
 import { SettingsStackParamList } from '../navigation/AppNavigator';
+import { parseApiDate } from '../utils/helpers';
 
 type MonitoredPatientRouteProp = RouteProp<SettingsStackParamList, 'MonitoredPatient'>;
 
@@ -165,8 +166,8 @@ export const MonitoredPatientScreen: React.FC = () => {
   const criticalAlerts = alerts.filter((a) => a.severity === 'critical').length;
 
   const formatRelativeTime = (dateString?: string | null) => {
-    if (!dateString) return '--';
-    const date = new Date(dateString);
+    const date = parseApiDate(dateString);
+    if (!date) return '--';
     const diffMs = Date.now() - date.getTime();
     const diffMins = Math.max(1, Math.floor(diffMs / 60000));
     if (diffMins < 60) return t('datetime.minutesAgo', { count: diffMins });

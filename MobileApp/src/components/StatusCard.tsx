@@ -4,6 +4,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Device, Prediction } from '../types';
 import { useLanguage } from '../components/LanguageProvider';
 import { getDeviceOperationalStatus, getDeviceStatusLabel } from '../utils/deviceStatus';
+import { parseApiDate } from '../utils/helpers';
 
 interface StatusCardProps {
   device: Device | null;
@@ -34,9 +35,8 @@ export const StatusCard: React.FC<StatusCardProps> = ({
   const deviceConnected = deviceStatus === 'active' || deviceStatus === 'connected_no_data';
 
   const formatRelativeTime = (dateString?: string | null) => {
-    if (!dateString) return null;
-    const date = new Date(dateString);
-    if (Number.isNaN(date.getTime())) return null;
+    const date = parseApiDate(dateString);
+    if (!date) return null;
 
     const diffMs = Date.now() - date.getTime();
     const diffSeconds = Math.max(0, Math.floor(diffMs / 1000));

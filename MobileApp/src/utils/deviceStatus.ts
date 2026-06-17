@@ -1,4 +1,5 @@
 import { Device } from '../types';
+import { parseApiDate } from './helpers';
 
 const DEVICE_ONLINE_WINDOW_MS = 2 * 60 * 1000;
 
@@ -14,8 +15,8 @@ export const isDeviceOnline = (device?: Device | null): boolean => {
     return false;
   }
 
-  const lastSeen = new Date(device.last_seen).getTime();
-  if (Number.isNaN(lastSeen)) {
+  const lastSeen = parseApiDate(device.last_seen)?.getTime();
+  if (!lastSeen) {
     return false;
   }
 

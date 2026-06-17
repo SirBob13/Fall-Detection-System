@@ -11,6 +11,7 @@ import { realtimeService } from '../services/realtime.service';
 import { Device, VitalsStatus } from '../types';
 import type { SettingsStackParamList } from '../navigation/AppNavigator';
 import { getDeviceOperationalStatus, getDeviceStatusLabel } from '../utils/deviceStatus';
+import { parseApiDate } from '../utils/helpers';
 
 type DeviceDetailsRouteProp = RouteProp<SettingsStackParamList, 'DeviceDetails'>;
 
@@ -147,9 +148,8 @@ export const DeviceDetailsScreen: React.FC = () => {
 
   const isOnlineLike = ['active', 'connected_no_data'].includes(getDeviceOperationalStatus(device));
   const formatRelativeTime = (dateString?: string | null) => {
-    if (!dateString) return '--';
-    const date = new Date(dateString);
-    if (Number.isNaN(date.getTime())) return '--';
+    const date = parseApiDate(dateString);
+    if (!date) return '--';
 
     const diffMs = Date.now() - date.getTime();
     const diffSeconds = Math.max(0, Math.floor(diffMs / 1000));
@@ -220,7 +220,7 @@ export const DeviceDetailsScreen: React.FC = () => {
             <DetailRow
               icon="clock-outline"
               label={t('system.lastSeen')}
-              value={device.last_seen ? new Date(device.last_seen).toLocaleString() : '--'}
+              value={parseApiDate(device.last_seen)?.toLocaleString() || '--'}
             />
             <DetailRow
               icon="tag-outline"
@@ -242,7 +242,7 @@ export const DeviceDetailsScreen: React.FC = () => {
               icon="update"
               label={t('dashboard.lastSync')}
               value={formatRelativeTime(device.latest_data_at || device.last_seen)}
-              description={device.latest_data_at ? new Date(device.latest_data_at).toLocaleString() : undefined}
+              description={parseApiDate(device.latest_data_at)?.toLocaleString()}
             />
             <DetailRow
               icon="bluetooth"

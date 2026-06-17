@@ -18,6 +18,7 @@ import { User, Device } from '../types';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { getDeviceOperationalStatus, getDeviceStatusLabel, getUserPresenceStatus } from '../utils/deviceStatus';
 import { deviceService } from '../services/device.service';
+import { parseApiDate } from '../utils/helpers';
 
 type SettingsScreenNavigationProp = StackNavigationProp<any>;
 
@@ -121,9 +122,8 @@ export const SettingsScreen: React.FC = () => {
   };
 
   const formatRelativeTime = (dateString?: string | null) => {
-    if (!dateString) return null;
-    const date = new Date(dateString);
-    if (Number.isNaN(date.getTime())) return null;
+    const date = parseApiDate(dateString);
+    if (!date) return null;
 
     const diffMs = Date.now() - date.getTime();
     const diffSeconds = Math.max(0, Math.floor(diffMs / 1000));
@@ -283,7 +283,7 @@ export const SettingsScreen: React.FC = () => {
                   <StatusMiniItem
                     icon="clock-outline"
                     label={t('system.lastSeen')}
-                    value={device.last_seen ? new Date(device.last_seen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--'}
+                    value={parseApiDate(device.last_seen)?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) || '--'}
                   />
                   <StatusMiniItem
                     icon="tag-outline"
