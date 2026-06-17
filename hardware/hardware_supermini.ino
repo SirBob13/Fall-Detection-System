@@ -236,6 +236,11 @@ String serialCommandBuffer = "";
 uint16_t mqttPort = 1883;
 int provisionedUserId = 0;
 
+bool wifiTargetApLocked = false;
+uint8_t wifiTargetBssid[6] = {0, 0, 0, 0, 0, 0};
+int32_t wifiTargetChannel = 0;
+int32_t lastWifiDisconnectReason = -1;
+
 String pendingWifiSsid = "";
 String pendingWifiPassword = "";
 String pendingProvisionedDeviceId = "";
@@ -1671,12 +1676,14 @@ void stopBleAdvertisingOnly() {
 }
 
 void stopBleBeforeWifiConnect() {
-  if (BLEDevice::getInitialized() && bleProvisioningActive) {
-    Serial.println("🛑 Stopping BLE advertising before WiFi connection...");
+  if (BLEDevice::getInitialized()) {
+    Serial.println("🛑 Stopping BLE stack before WiFi connection...");
     BLEDevice::stopAdvertising();
     deviceConnected = false;
     bleProvisioningActive = false;
-    delay(800);
+    delay(300);
+    BLEDevice::deinit(true);
+    delay(1200);
   }
 }
 
@@ -3303,6 +3310,36 @@ String wifiStatusToText(wl_status_t status) {
   }
 }
 
+String wifiDisconnectReasonToText(uint8_t reason) {
+  switch (reason) {
+    case 2: return "AUTH_EXPIRE";
+    case 4: return "ASSOC_EXPIRE";
+    case 5: return "ASSOC_TOOMANY";
+    case 8: return "ASSOC_LEAVE";
+    case 15: return "4WAY_HANDSHAKE_TIMEOUT";
+    case 17: return "IE_INVALID";
+    case 18: return "MIC_FAILURE";
+    case 23: return "802_1X_AUTH_FAILED";
+    case 24: return "CIPHER_SUITE_REJECTED";
+    case 200: return "BEACON_TIMEOUT";
+    case 201: return "NO_AP_FOUND";
+    case 202: return "AUTH_FAIL";
+    case 203: return "ASSOC_FAIL";
+    case 204: return "HANDSHAKE_TIMEOUT";
+    default: return String("REASON_") + String((int)reason);
+  }
+}
+
+void onWiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
+  if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
+    lastWifiDisconnectReason = info.wifi_sta_disconnected.reason;
+    Serial.print("📡 WiFi disconnected reason=");
+    Serial.print(lastWifiDisconnectReason);
+    Serial.print(" ");
+    Serial.println(wifiDisconnectReasonToText((uint8_t)lastWifiDisconnectReason));
+  }
+}
+
 String wifiAuthModeToText(wifi_auth_mode_t authMode) {
   switch (authMode) {
     case WIFI_AUTH_OPEN: return "OPEN";
@@ -3319,6 +3356,10 @@ String wifiAuthModeToText(wifi_auth_mode_t authMode) {
 
 bool scanForTargetWiFi(const String &targetSsid) {
   Serial.println("🔎 WiFi scan before connect...");
+  wifiTargetApLocked = false;
+  wifiTargetChannel = 0;
+  memset(wifiTargetBssid, 0, sizeof(wifiTargetBssid));
+
   int networkCount = WiFi.scanNetworks(false, true);
 
   if (networkCount < 0) {
@@ -3333,6 +3374,7 @@ bool scanForTargetWiFi(const String &targetSsid) {
   bool foundTarget = false;
   int bestTargetRssi = -999;
   wifi_auth_mode_t bestTargetAuth = WIFI_AUTH_OPEN;
+  int bestTargetIndex = -1;
 
   for (int i = 0; i < networkCount; i++) {
     String ssid = WiFi.SSID(i);
@@ -3352,12 +3394,12 @@ bool scanForTargetWiFi(const String &targetSsid) {
       foundTarget = true;
       bestTargetRssi = rssi;
       bestTargetAuth = authMode;
+      bestTargetIndex = i;
     }
   }
 
-  WiFi.scanDelete();
-
   if (!foundTarget) {
+    WiFi.scanDelete();
     Serial.print("❌ Target SSID not found in scan: '");
     Serial.print(targetSsid);
     Serial.println("'");
@@ -3365,10 +3407,31 @@ bool scanForTargetWiFi(const String &targetSsid) {
     return false;
   }
 
+  if (bestTargetIndex >= 0) {
+    uint8_t *bssid = WiFi.BSSID(bestTargetIndex);
+    if (bssid) {
+      memcpy(wifiTargetBssid, bssid, sizeof(wifiTargetBssid));
+      wifiTargetChannel = WiFi.channel(bestTargetIndex);
+      wifiTargetApLocked = wifiTargetChannel > 0;
+    }
+  }
+
   Serial.print("✅ Target SSID found. Best RSSI=");
   Serial.print(bestTargetRssi);
   Serial.print(" auth=");
   Serial.println(wifiAuthModeToText(bestTargetAuth));
+
+  if (wifiTargetApLocked) {
+    Serial.print("🔒 Locking WiFi AP channel=");
+    Serial.print(wifiTargetChannel);
+    Serial.print(" bssid=");
+    for (int i = 0; i < 6; i++) {
+      if (i > 0) Serial.print(":");
+      if (wifiTargetBssid[i] < 16) Serial.print("0");
+      Serial.print(wifiTargetBssid[i], HEX);
+    }
+    Serial.println();
+  }
 
   if (bestTargetRssi < -82) {
     Serial.println("⚠️ WiFi signal is very weak. Move bracelet closer to router/hotspot.");
@@ -3378,6 +3441,7 @@ bool scanForTargetWiFi(const String &targetSsid) {
     Serial.println("⚠️ WPA3-only networks often fail on ESP32-C3. Use WPA2/WPA3 mixed or WPA2.");
   }
 
+  WiFi.scanDelete();
   return true;
 }
 
@@ -3603,7 +3667,13 @@ bool connectToWiFi(bool forceReconnect = false) {
     Serial.println("⚠️ Continuing WiFi.begin anyway, but connection is unlikely if SSID was not found.");
   }
 
-  WiFi.begin(targetSsid.c_str(), targetPassword.c_str());
+  lastWifiDisconnectReason = -1;
+  if (wifiTargetApLocked) {
+    Serial.println("🔐 WiFi.begin using locked channel/BSSID from scan");
+    WiFi.begin(targetSsid.c_str(), targetPassword.c_str(), wifiTargetChannel, wifiTargetBssid, true);
+  } else {
+    WiFi.begin(targetSsid.c_str(), targetPassword.c_str());
+  }
 
   unsigned long startMs = millis();
   const unsigned long WIFI_CONNECT_TIMEOUT_MS = 35000;
@@ -3668,6 +3738,14 @@ bool connectToWiFi(bool forceReconnect = false) {
   Serial.println();
   Serial.print("❌ WiFi connection failed. Final status: ");
   Serial.println(finalStatus);
+  Serial.print("❌ Last WiFi disconnect reason: ");
+  Serial.print(lastWifiDisconnectReason);
+  if (lastWifiDisconnectReason >= 0) {
+    Serial.print(" ");
+    Serial.println(wifiDisconnectReasonToText((uint8_t)lastWifiDisconnectReason));
+  } else {
+    Serial.println("unknown");
+  }
 
   WiFi.disconnect(true, true);
   delay(500);
@@ -3838,6 +3916,7 @@ void setup() {
   Serial.print("Firmware: ");
   Serial.println(FIRMWARE_VERSION);
   Serial.println("Arduino IDE: Enable USB CDC On Boot");
+  WiFi.onEvent(onWiFiEvent);
 
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
   Wire.setClock(I2C_CLOCK_HZ);
