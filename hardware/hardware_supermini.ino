@@ -1677,13 +1677,13 @@ void stopBleAdvertisingOnly() {
 
 void stopBleBeforeWifiConnect() {
   if (BLEDevice::getInitialized()) {
-    Serial.println("🛑 Stopping BLE stack before WiFi connection...");
+    Serial.println("🛑 Stopping BLE advertising before WiFi connection...");
     BLEDevice::stopAdvertising();
     deviceConnected = false;
     bleProvisioningActive = false;
-    delay(300);
-    BLEDevice::deinit(true);
-    delay(1200);
+    // Do not call BLEDevice::deinit(true) on this ESP32-C3 firmware stack.
+    // It can corrupt heap while provisioning callbacks/notifications are unwinding.
+    delay(800);
   }
 }
 
