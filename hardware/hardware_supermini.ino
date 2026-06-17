@@ -3303,6 +3303,84 @@ String wifiStatusToText(wl_status_t status) {
   }
 }
 
+String wifiAuthModeToText(wifi_auth_mode_t authMode) {
+  switch (authMode) {
+    case WIFI_AUTH_OPEN: return "OPEN";
+    case WIFI_AUTH_WEP: return "WEP";
+    case WIFI_AUTH_WPA_PSK: return "WPA_PSK";
+    case WIFI_AUTH_WPA2_PSK: return "WPA2_PSK";
+    case WIFI_AUTH_WPA_WPA2_PSK: return "WPA_WPA2_PSK";
+    case WIFI_AUTH_WPA2_ENTERPRISE: return "WPA2_ENTERPRISE";
+    case WIFI_AUTH_WPA3_PSK: return "WPA3_PSK";
+    case WIFI_AUTH_WPA2_WPA3_PSK: return "WPA2_WPA3_PSK";
+    default: return String("AUTH_") + String((int)authMode);
+  }
+}
+
+bool scanForTargetWiFi(const String &targetSsid) {
+  Serial.println("🔎 WiFi scan before connect...");
+  int networkCount = WiFi.scanNetworks(false, true);
+
+  if (networkCount < 0) {
+    Serial.print("⚠️ WiFi scan failed code=");
+    Serial.println(networkCount);
+    return false;
+  }
+
+  Serial.print("🔎 WiFi networks found: ");
+  Serial.println(networkCount);
+
+  bool foundTarget = false;
+  int bestTargetRssi = -999;
+  wifi_auth_mode_t bestTargetAuth = WIFI_AUTH_OPEN;
+
+  for (int i = 0; i < networkCount; i++) {
+    String ssid = WiFi.SSID(i);
+    int rssi = WiFi.RSSI(i);
+    wifi_auth_mode_t authMode = WiFi.encryptionType(i);
+
+    Serial.print("  ");
+    Serial.print(i + 1);
+    Serial.print(") '");
+    Serial.print(ssid);
+    Serial.print("' RSSI=");
+    Serial.print(rssi);
+    Serial.print(" auth=");
+    Serial.println(wifiAuthModeToText(authMode));
+
+    if (ssid == targetSsid && rssi > bestTargetRssi) {
+      foundTarget = true;
+      bestTargetRssi = rssi;
+      bestTargetAuth = authMode;
+    }
+  }
+
+  WiFi.scanDelete();
+
+  if (!foundTarget) {
+    Serial.print("❌ Target SSID not found in scan: '");
+    Serial.print(targetSsid);
+    Serial.println("'");
+    Serial.println("⚠️ Check exact SSID, 2.4GHz hotspot, and iPhone Maximize Compatibility.");
+    return false;
+  }
+
+  Serial.print("✅ Target SSID found. Best RSSI=");
+  Serial.print(bestTargetRssi);
+  Serial.print(" auth=");
+  Serial.println(wifiAuthModeToText(bestTargetAuth));
+
+  if (bestTargetRssi < -82) {
+    Serial.println("⚠️ WiFi signal is very weak. Move bracelet closer to router/hotspot.");
+  }
+
+  if (bestTargetAuth == WIFI_AUTH_WPA3_PSK) {
+    Serial.println("⚠️ WPA3-only networks often fail on ESP32-C3. Use WPA2/WPA3 mixed or WPA2.");
+  }
+
+  return true;
+}
+
 void resetWiFiBeforeConnect() {
   Serial.println("🧹 Cleaning old WiFi state...");
 
@@ -3519,6 +3597,11 @@ bool connectToWiFi(bool forceReconnect = false) {
   Serial.printf("🔐 Password length=%d\n", targetPassword.length());
   Serial.println("⚠️ Router must be 2.4GHz WPA/WPA2. ESP32-C3 does not support 5GHz.");
   Serial.println("=================================");
+
+  bool targetFoundInScan = scanForTargetWiFi(targetSsid);
+  if (!targetFoundInScan) {
+    Serial.println("⚠️ Continuing WiFi.begin anyway, but connection is unlikely if SSID was not found.");
+  }
 
   WiFi.begin(targetSsid.c_str(), targetPassword.c_str());
 
