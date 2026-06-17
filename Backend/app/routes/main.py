@@ -4111,11 +4111,7 @@ async def start_device_vitals_measurement(
             detail={"success": False, "error": "Device not found for this user"},
         )
 
-    if not is_device_online(device):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={"success": False, "error": "Device is offline. Please wait until the bracelet is connected."},
-        )
+    device_reachable = is_device_online(device)
 
     duration_ms = int(payload.get("duration_ms") or 60000)
     duration_ms = max(10000, min(duration_ms, 120000))
@@ -4147,6 +4143,7 @@ async def start_device_vitals_measurement(
             "heart_rate_valid": False,
             "spo2_valid": False,
             "max_powered": False,
+            "signal_status": "command_sent" if device_reachable else "command_sent_unconfirmed",
             "timestamp": datetime.utcnow().isoformat(),
         },
         device,
@@ -4157,8 +4154,9 @@ async def start_device_vitals_measurement(
         status_code=status.HTTP_202_ACCEPTED,
         content={
             "success": True,
-            "message": "Vitals measurement requested",
+            "message": "Vitals measurement requested" if device_reachable else "Vitals command sent, waiting for bracelet confirmation",
             "data": status_payload,
+            "device_reachable": device_reachable,
         },
     )
 
@@ -4256,7 +4254,6 @@ async def disconnect_device(
             )
 
         device.is_connected = False
-        device.last_seen = datetime.utcnow()
         db.commit()
         db.refresh(device)
 
@@ -4752,7 +4749,6 @@ async def restore_device(
 
         device.is_archived = False
         device.is_connected = False
-        device.last_seen = datetime.utcnow()
         db.commit()
         db.refresh(device)
 
