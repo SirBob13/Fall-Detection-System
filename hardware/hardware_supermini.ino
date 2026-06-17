@@ -101,7 +101,7 @@ static const char *PREF_MQTT_TOPIC_KEY = "mqtt_topic";
 
 // ================= Firmware Identity =================
 static const char *DEVICE_TYPE = "esp32-c3-supermini-bracelet";
-static const char *FIRMWARE_VERSION = "3.7.2-c3-vitals-quality-gate";
+static const char *FIRMWARE_VERSION = "3.8.3-c3-command-debug-vitals";
 
 // ================= WiFi / MQTT Timing =================
 static const int WIFI_MAX_RETRIES = 30;
@@ -229,6 +229,7 @@ String pairingToken = "";
 String mqttHost = "";
 String mqttTopic = "";
 String mqttCommandTopic = "";
+String serialCommandBuffer = "";
 uint16_t mqttPort = 1883;
 int provisionedUserId = 0;
 
@@ -408,6 +409,7 @@ void publishVitalsStatus(const char *state, unsigned long now);
 void startVitalsMeasurement(const String &requestId, const String &trigger, unsigned long durationMs, unsigned long now);
 void stopVitalsMeasurement(const char *state, unsigned long now);
 void handleMqttMessage(char *topic, byte *payload, unsigned int length);
+void processSerialCommands();
 
 
 // =====================================================
@@ -3324,7 +3326,15 @@ void resetWiFiBeforeConnect() {
 
 void handleMqttMessage(char *topic, byte *payload, unsigned int length) {
   String topicText = String(topic);
-  if (mqttCommandTopic.length() > 0 && topicText != mqttCommandTopic) return;
+
+  Serial.print("📥 MQTT command topic=");
+  Serial.println(topicText);
+
+  if (mqttCommandTopic.length() > 0 && topicText != mqttCommandTopic) {
+    Serial.print("⚠️ MQTT command ignored: expected topic=");
+    Serial.println(mqttCommandTopic);
+    return;
+  }
 
   if (length == 0 || length >= 768) {
     Serial.println("⚠️ MQTT command ignored: invalid length");
@@ -3351,6 +3361,15 @@ void handleMqttMessage(char *topic, byte *payload, unsigned int length) {
   if (trigger.length() == 0) trigger = (source == "fall_alert") ? "fall_alert" : "manual";
   unsigned long durationMs = doc["duration_ms"] | VITALS_DEFAULT_DURATION_MS;
 
+  Serial.print("📥 MQTT command payload command=");
+  Serial.print(command);
+  Serial.print(" request_id=");
+  Serial.print(requestId);
+  Serial.print(" trigger=");
+  Serial.print(trigger);
+  Serial.print(" duration_ms=");
+  Serial.println(durationMs);
+
   if (messageType != "device_command") {
     Serial.println("⚠️ MQTT command ignored: message_type mismatch");
     return;
@@ -3370,6 +3389,75 @@ void handleMqttMessage(char *topic, byte *payload, unsigned int length) {
 
   Serial.print("⚠️ Unknown MQTT command: ");
   Serial.println(command);
+}
+
+void runLocalVitalsCommand(const String &source) {
+  unsigned long now = millis();
+  String requestId = String(source) + "-" + String(now);
+  Serial.print("⌨️ Local vitals command accepted source=");
+  Serial.println(source);
+  startVitalsMeasurement(requestId, "manual", VITALS_DEFAULT_DURATION_MS, now);
+}
+
+void handleSerialCommand(String command) {
+  command.trim();
+  command.toLowerCase();
+  if (command.length() == 0) return;
+
+  if (
+    command == "meger" ||
+    command == "measure" ||
+    command == "vitals" ||
+    command == "vitals_start" ||
+    command == "start vitals"
+  ) {
+    runLocalVitalsCommand("serial");
+    return;
+  }
+
+  if (command == "stop" || command == "vitals_stop" || command == "stop vitals") {
+    Serial.println("⌨️ Local vitals stop command accepted");
+    stopVitalsMeasurement("stopped", millis());
+    return;
+  }
+
+  if (command == "status") {
+    Serial.print("Firmware=");
+    Serial.println(FIRMWARE_VERSION);
+    Serial.print("MQTT connected=");
+    Serial.println(mqttClient.connected() ? "YES" : "NO");
+    Serial.print("MQTT command topic=");
+    Serial.println(mqttCommandTopic.length() > 0 ? mqttCommandTopic : "(not subscribed yet)");
+    Serial.print("Device id=");
+    Serial.println(provisionedDeviceId);
+    Serial.print("Vitals active=");
+    Serial.println(vitalsMeasurementActive ? "YES" : "NO");
+    return;
+  }
+
+  Serial.print("⚠️ Unknown serial command: ");
+  Serial.println(command);
+  Serial.println("Try: meger | measure | vitals | status | stop");
+}
+
+void processSerialCommands() {
+  while (Serial.available() > 0) {
+    char c = (char)Serial.read();
+    if (c == '\r') continue;
+
+    if (c == '\n') {
+      handleSerialCommand(serialCommandBuffer);
+      serialCommandBuffer = "";
+      continue;
+    }
+
+    if (serialCommandBuffer.length() < 80) {
+      serialCommandBuffer += c;
+    } else {
+      serialCommandBuffer = "";
+      Serial.println("⚠️ Serial command too long, buffer reset");
+    }
+  }
 }
 
 bool connectToWiFi(bool forceReconnect = false) {
@@ -3674,6 +3762,8 @@ void setup() {
 }
 
 void loop() {
+  processSerialCommands();
+
   int processedProvisioningItems = 0;
   while (hasQueuedProvisioningPayload && processedProvisioningItems < RAW_PROVISIONING_QUEUE_SIZE) {
     processProvisioningPayloadFromLoop();
