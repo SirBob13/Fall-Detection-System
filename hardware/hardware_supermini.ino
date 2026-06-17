@@ -229,6 +229,9 @@ String pairingToken = "";
 String mqttHost = "";
 String mqttTopic = "";
 String mqttCommandTopic = "";
+String mqttCommandTopicLegacy = "";
+String mqttCommandTopicBroadcast = "fall-detection/device-commands/all";
+String mqttCommandTopicGeneric = "fall-detection/device-commands";
 String serialCommandBuffer = "";
 uint16_t mqttPort = 1883;
 int provisionedUserId = 0;
@@ -3324,15 +3327,25 @@ void resetWiFiBeforeConnect() {
   Serial.println("✅ WiFi state cleaned");
 }
 
+bool isAcceptedMqttCommandTopic(const String &topicText) {
+  if (topicText == mqttCommandTopic) return true;
+  if (mqttCommandTopicLegacy.length() > 0 && topicText == mqttCommandTopicLegacy) return true;
+  if (topicText == mqttCommandTopicBroadcast) return true;
+  if (topicText == mqttCommandTopicGeneric) return true;
+  return false;
+}
+
 void handleMqttMessage(char *topic, byte *payload, unsigned int length) {
   String topicText = String(topic);
 
   Serial.print("📥 MQTT command topic=");
   Serial.println(topicText);
 
-  if (mqttCommandTopic.length() > 0 && topicText != mqttCommandTopic) {
-    Serial.print("⚠️ MQTT command ignored: expected topic=");
+  if (!isAcceptedMqttCommandTopic(topicText)) {
+    Serial.print("⚠️ MQTT command ignored: expected primary topic=");
     Serial.println(mqttCommandTopic);
+    Serial.print("⚠️ MQTT legacy topic=");
+    Serial.println(mqttCommandTopicLegacy);
     return;
   }
 
@@ -3354,10 +3367,11 @@ void handleMqttMessage(char *topic, byte *payload, unsigned int length) {
   }
 
   String messageType = doc["message_type"] | "";
-  String command = doc["command"] | "";
+  String command = doc["command"] | doc["cmd"] | "";
   String requestId = doc["request_id"] | "";
   String source = doc["source"] | "mobile_app";
   String trigger = doc["vitals_trigger"] | "";
+  if (trigger.length() == 0) trigger = doc["reason"] | "";
   if (trigger.length() == 0) trigger = (source == "fall_alert") ? "fall_alert" : "manual";
   unsigned long durationMs = doc["duration_ms"] | VITALS_DEFAULT_DURATION_MS;
 
@@ -3370,17 +3384,17 @@ void handleMqttMessage(char *topic, byte *payload, unsigned int length) {
   Serial.print(" duration_ms=");
   Serial.println(durationMs);
 
-  if (messageType != "device_command") {
+  if (messageType.length() > 0 && messageType != "device_command") {
     Serial.println("⚠️ MQTT command ignored: message_type mismatch");
     return;
   }
 
-  if (command == "vitals_start") {
+  if (command == "vitals_start" || command == "measure_vitals" || command == "measureVitals" || command == "start_vitals") {
     startVitalsMeasurement(requestId, trigger, durationMs, millis());
     return;
   }
 
-  if (command == "vitals_stop") {
+  if (command == "vitals_stop" || command == "stop_vitals" || command == "cancel_vitals") {
     if (requestId.length() == 0 || requestId == activeVitalsRequestId) {
       stopVitalsMeasurement("stopped", millis());
     }
@@ -3428,6 +3442,8 @@ void handleSerialCommand(String command) {
     Serial.println(mqttClient.connected() ? "YES" : "NO");
     Serial.print("MQTT command topic=");
     Serial.println(mqttCommandTopic.length() > 0 ? mqttCommandTopic : "(not subscribed yet)");
+    Serial.print("MQTT legacy topic=");
+    Serial.println(mqttCommandTopicLegacy.length() > 0 ? mqttCommandTopicLegacy : "(not subscribed yet)");
     Serial.print("Device id=");
     Serial.println(provisionedDeviceId);
     Serial.print("Vitals active=");
@@ -3612,13 +3628,26 @@ bool connectToMqtt() {
   if (mqttClient.connect(clientId.c_str())) {
     Serial.println("✅ MQTT connected");
     mqttCommandTopic = String("devices/") + provisionedDeviceId + "/commands";
-    if (mqttClient.subscribe(mqttCommandTopic.c_str())) {
-      Serial.print("✅ MQTT subscribed to commands: ");
-      Serial.println(mqttCommandTopic);
-    } else {
-      Serial.print("⚠️ MQTT command subscribe failed: ");
-      Serial.println(mqttCommandTopic);
-    }
+    mqttCommandTopicLegacy = String("fall-detection/devices/") + provisionedDeviceId + "/commands";
+
+    bool primaryOk = mqttClient.subscribe(mqttCommandTopic.c_str());
+    bool legacyOk = mqttClient.subscribe(mqttCommandTopicLegacy.c_str());
+    bool broadcastOk = mqttClient.subscribe(mqttCommandTopicBroadcast.c_str());
+    bool genericOk = mqttClient.subscribe(mqttCommandTopicGeneric.c_str());
+
+    Serial.print(primaryOk ? "✅" : "⚠️");
+    Serial.print(" MQTT primary command topic: ");
+    Serial.println(mqttCommandTopic);
+    Serial.print(legacyOk ? "✅" : "⚠️");
+    Serial.print(" MQTT legacy command topic: ");
+    Serial.println(mqttCommandTopicLegacy);
+    Serial.print(broadcastOk ? "✅" : "⚠️");
+    Serial.print(" MQTT broadcast command topic: ");
+    Serial.println(mqttCommandTopicBroadcast);
+    Serial.print(genericOk ? "✅" : "⚠️");
+    Serial.print(" MQTT generic command topic: ");
+    Serial.println(mqttCommandTopicGeneric);
+
     notifyStatus("mqtt_connected", true, "MQTT connected");
     updateDeviceInfoCharacteristic();
     return true;
