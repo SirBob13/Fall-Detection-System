@@ -1667,24 +1667,17 @@ void updateDeviceInfoCharacteristic() {
 }
 
 void stopBleAdvertisingOnly() {
-  if (!BLEDevice::getInitialized()) return;
-
-  BLEDevice::stopAdvertising();
+  // Avoid BLE stack calls after provisioning on ESP32-C3; they can corrupt heap
+  // depending on timing. We only mark provisioning inactive for UI/flow purposes.
   bleProvisioningActive = false;
   deviceConnected = false;
-  Serial.println("✅ BLE advertising stopped safely on ESP32-C3");
+  Serial.println("ℹ️ BLE advertising left untouched; provisioning marked inactive");
 }
 
 void stopBleBeforeWifiConnect() {
-  if (BLEDevice::getInitialized()) {
-    Serial.println("🛑 Stopping BLE advertising before WiFi connection...");
-    BLEDevice::stopAdvertising();
-    deviceConnected = false;
-    bleProvisioningActive = false;
-    // Do not call BLEDevice::deinit(true) on this ESP32-C3 firmware stack.
-    // It can corrupt heap while provisioning callbacks/notifications are unwinding.
-    delay(800);
-  }
+  // ESP32-C3 BLE cleanup can corrupt heap immediately after provisioning writes.
+  // Leave BLE untouched until WiFi either connects or fails; stability beats radio neatness here.
+  Serial.println("ℹ️ Keeping BLE active during WiFi connection to avoid ESP32-C3 heap corruption");
 }
 
 // =====================================================
