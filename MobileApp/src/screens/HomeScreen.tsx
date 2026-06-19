@@ -11,6 +11,9 @@ import {
   TextInput,
   ActivityIndicator,
   Platform,
+  Keyboard,
+  KeyboardAvoidingView,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -32,7 +35,7 @@ import { deviceService } from '../services/device.service';
 import { deviceProvisioningService } from '../services/deviceProvisioning.service';
 import { emergencyService } from '../services/emergency.service';
 import { voiceService } from '../services/voice.service';
-import { User, Device, Alert as AlertType, Prediction, VitalData, VitalsStatus } from '../types';
+import { User, Device, Alert as AlertType, VitalData, VitalsStatus } from '../types';
 import { useNavigation, useScrollToTop } from '@react-navigation/native';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { realtimeService } from '../services/realtime.service';
@@ -68,7 +71,6 @@ export const HomeScreen: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [device, setDevice] = useState<Device | null>(null);
   const [alerts, setAlerts] = useState<AlertType[]>([]);
-  const [lastPrediction, setLastPrediction] = useState<Prediction | null>(null);
   const [latestVitals, setLatestVitals] = useState<VitalData | null>(null);
   const [vitalsStatus, setVitalsStatus] = useState<VitalsStatus | null>(null);
   const [lastValidVitals, setLastValidVitals] = useState<{ heartRate?: number; spo2?: number }>({});
@@ -81,6 +83,7 @@ export const HomeScreen: React.FC = () => {
   const [manualDeviceId, setManualDeviceId] = useState('');
   const [wifiSsid, setWifiSsid] = useState('');
   const [wifiPassword, setWifiPassword] = useState('');
+  const [wifiPasswordVisible, setWifiPasswordVisible] = useState(false);
   const [provisioningMessage, setProvisioningMessage] = useState<string | null>(null);
   const [isConnectingDevice, setIsConnectingDevice] = useState(false);
   const [isRemovingDevice, setIsRemovingDevice] = useState(false);
@@ -193,12 +196,6 @@ export const HomeScreen: React.FC = () => {
             await storageService.saveDevice(deviceResponse.data);
           }
 
-          const predictionResponse = await apiService.getUserPredictions(activeUser.id, 1);
-          if (predictionResponse.success && predictionResponse.data && predictionResponse.data.length > 0) {
-            apiReachable = true;
-            setLastPrediction(predictionResponse.data[0]);
-          }
-
           const vitalsResponse = await apiService.getUserVitals(activeUser.id, 1);
           if (vitalsResponse.success && vitalsResponse.data && vitalsResponse.data.length > 0) {
             apiReachable = true;
@@ -267,12 +264,12 @@ export const HomeScreen: React.FC = () => {
         setDevice((prev) => ({ ...(prev || {}), ...event.payload }));
       }
 
-      if (event.resource === 'predictions') {
-        setLastPrediction(event.payload);
-      }
-
       if (event.resource === 'vitals') {
         setLatestVitals(event.payload);
+        setLastValidVitals((current) => ({
+          heartRate: event.payload?.heart_rate ?? current.heartRate,
+          spo2: event.payload?.oxygen_saturation ?? current.spo2,
+        }));
       }
 
       if (event.resource === 'vitals_status') {
@@ -450,8 +447,24 @@ export const HomeScreen: React.FC = () => {
     }
 
     setVitalsRequesting(true);
+    const requestId = `mobile-${Date.now()}`;
+    const optimisticStatus: VitalsStatus = {
+      device_id: device.device_id,
+      user_id: user?.id,
+      request_id: requestId,
+      vitals_trigger: 'manual',
+      state: 'requested',
+      progress_percent: 0,
+      finger_detected: false,
+      heart_rate_valid: false,
+      spo2_valid: false,
+      max_powered: false,
+      signal_status: 'command_sent',
+      timestamp: new Date().toISOString(),
+    };
+    setVitalsStatus(optimisticStatus);
     try {
-      const response = await apiService.startDeviceVitals(device.device_id, 60000);
+      const response = await apiService.startDeviceVitals(device.device_id, 60000, requestId);
       if (!response.success || !response.data) {
         RNAlert.alert(t('common.error'), response.message || 'Device is offline or cannot start vitals measurement.');
         setVitalsRequesting(false);
@@ -795,7 +808,6 @@ export const HomeScreen: React.FC = () => {
         <View className="mx-4 mt-5">
           <StatusCard
             device={device}
-            lastPrediction={lastPrediction}
             onRefresh={loadData}
             onConnect={openPairModal}
             onRemoveDevice={handleRemoveDevice}
@@ -1072,134 +1084,172 @@ export const HomeScreen: React.FC = () => {
           void closePairModal();
         }}
       >
-        <View className="flex-1 bg-black/40 justify-end">
-          <View
-            className="bg-white rounded-t-3xl p-5"
-            style={{ paddingBottom: Math.max(insets.bottom, 16) }}
-          >
-            <View className="flex-row justify-between items-center mb-3">
-              <Text className="text-lg font-bold text-dark">{t('system.connectAction')}</Text>
-              <TouchableOpacity onPress={() => {
-                void closePairModal();
-              }}>
-                <Text className="text-primary font-semibold">{t('common.cancel')}</Text>
-              </TouchableOpacity>
-            </View>
-
-            {!isBluetoothSupported() && (
-              <View className="bg-orange-50 border border-orange-200 rounded-xl p-3 mb-3">
-                <Text className="text-xs text-dark">{t('system.bluetoothRequiresDevBuild')}</Text>
-              </View>
-            )}
-
-            <TouchableOpacity
-              onPress={handleScan}
-              className="bg-blue-50 border border-blue-100 rounded-xl p-3 mb-3"
-              disabled={scanLoading || !isBluetoothSupported()}
-            >
-              <View className="flex-row items-center justify-between">
-                <Text className="text-sm text-primary font-semibold">
-                  {t('system.scanBluetooth')}
-                </Text>
-                {scanLoading ? <ActivityIndicator size="small" color="#2196F3" /> : null}
-              </View>
-            </TouchableOpacity>
-
-            {scanResults.length > 0 && (
-              <View className="mb-4">
-                {scanResults.map((item) => (
-                  <TouchableOpacity
-                    key={item.id}
-                    className={`rounded-xl p-3 mb-2 border ${
-                      selectedBleDeviceId === item.id ? 'border-primary bg-blue-50' : 'border-lightGray'
-                    }`}
-                    onPress={() => setSelectedBleDeviceId(item.id)}
-                    disabled={isConnectingDevice}
-                  >
-                    <Text className="text-sm font-semibold text-dark">{item.name}</Text>
-                    <Text className="text-xs text-gray mt-1">{item.id}</Text>
-                    {selectedBleDeviceId === item.id ? (
-                      <Text className="text-xs text-primary mt-2 font-semibold">Selected</Text>
-                    ) : null}
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-
-            <View className="border-t border-lightGray pt-3">
-              <Text className="text-sm font-semibold text-dark mb-2">Step 2: Wi-Fi</Text>
-              <Text className="text-xs text-gray mb-2">
-                {selectedBleDeviceId
-                  ? `Selected bracelet: ${selectedBleDeviceId}`
-                  : 'Step 1: choose the bracelet from the Bluetooth list above.'}
-              </Text>
-              <Text className="text-sm font-semibold text-dark mb-2">{t('system.wifiSetupTitle')}</Text>
-              <Text className="text-xs text-gray mb-3">{t('system.provisioningHint')}</Text>
-              <TextInput
-                className="input-field mb-3"
-                value={wifiSsid}
-                onChangeText={setWifiSsid}
-                placeholder={t('system.wifiName')}
-                placeholderTextColor="#BDBDBD"
-                autoCapitalize="none"
-              />
-              <TextInput
-                className="input-field mb-3"
-                value={wifiPassword}
-                onChangeText={setWifiPassword}
-                placeholder={t('system.wifiPassword')}
-                placeholderTextColor="#BDBDBD"
-                secureTextEntry
-                autoCapitalize="none"
-              />
-              {provisioningMessage ? (
-                <Text className="text-xs text-primary mb-3">{provisioningMessage}</Text>
-              ) : null}
-
-              <View className="border-t border-lightGray pt-3">
-                <Text className="text-sm text-dark mb-2">{t('system.enterDeviceId')}</Text>
-                <TextInput
-                  className="input-field"
-                  value={manualDeviceId}
-                  onChangeText={setManualDeviceId}
-                  placeholder={t('system.deviceIdPlaceholder')}
-                  placeholderTextColor="#BDBDBD"
-                  autoCapitalize="none"
-                />
-                <TouchableOpacity
-                  className={`mt-3 rounded-xl py-3 items-center ${
-                    selectedBleDeviceId && wifiSsid.trim() && wifiPassword.trim() && !isConnectingDevice
-                      ? 'bg-primary'
-                      : 'bg-gray-300'
-                  }`}
-                  onPress={() => linkDeviceToUser(selectedBleDeviceId || manualDeviceId.trim())}
-                  disabled={
-                    (!selectedBleDeviceId && !manualDeviceId.trim()) ||
-                    !wifiSsid.trim() ||
-                    !wifiPassword.trim() ||
-                    isConnectingDevice
-                  }
+        <KeyboardAvoidingView
+          className="flex-1"
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
+        >
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+            <View className="flex-1 bg-black/40 justify-end">
+              <View
+                className="bg-white rounded-t-3xl p-5"
+                style={{
+                  paddingBottom: Math.max(insets.bottom, 16),
+                  maxHeight: '90%',
+                }}
+              >
+                <ScrollView
+                  keyboardShouldPersistTaps="handled"
+                  showsVerticalScrollIndicator={false}
+                  contentContainerStyle={{ paddingBottom: 12 }}
                 >
-                  <Text className="text-white font-semibold">
-                    {isConnectingDevice ? t('system.connecting') : 'Step 3: Connect'}
-                  </Text>
-                </TouchableOpacity>
+                  <View className="flex-row justify-between items-center mb-3">
+                    <Text className="text-lg font-bold text-dark">{t('system.connectAction')}</Text>
+                    <TouchableOpacity onPress={() => {
+                      void closePairModal();
+                    }}>
+                      <Text className="text-primary font-semibold">{t('common.cancel')}</Text>
+                    </TouchableOpacity>
+                  </View>
 
-                {device?.device_id ? (
+                  {!isBluetoothSupported() && (
+                    <View className="bg-orange-50 border border-orange-200 rounded-xl p-3 mb-3">
+                      <Text className="text-xs text-dark">{t('system.bluetoothRequiresDevBuild')}</Text>
+                    </View>
+                  )}
+
                   <TouchableOpacity
-                    className="mt-3 rounded-xl py-3 items-center border border-red-200 bg-red-50"
-                    onPress={handleRemoveDevice}
-                    disabled={isRemovingDevice}
+                    onPress={handleScan}
+                    className="bg-blue-50 border border-blue-100 rounded-xl p-3 mb-3"
+                    disabled={scanLoading || !isBluetoothSupported()}
                   >
-                    <Text className="font-semibold text-red-600">
-                      {isRemovingDevice ? t('common.loading') : t('system.removeDeviceAction')}
-                    </Text>
+                    <View className="flex-row items-center justify-between">
+                      <Text className="text-sm text-primary font-semibold">
+                        {t('system.scanBluetooth')}
+                      </Text>
+                      {scanLoading ? <ActivityIndicator size="small" color="#2196F3" /> : null}
+                    </View>
                   </TouchableOpacity>
-                ) : null}
+
+                  {scanResults.length > 0 && (
+                    <View className="mb-4">
+                      {scanResults.map((item) => (
+                        <TouchableOpacity
+                          key={item.id}
+                          className={`rounded-xl p-3 mb-2 border ${
+                            selectedBleDeviceId === item.id ? 'border-primary bg-blue-50' : 'border-lightGray'
+                          }`}
+                          onPress={() => setSelectedBleDeviceId(item.id)}
+                          disabled={isConnectingDevice}
+                        >
+                          <Text className="text-sm font-semibold text-dark">{item.name}</Text>
+                          <Text className="text-xs text-gray mt-1">{item.id}</Text>
+                          {selectedBleDeviceId === item.id ? (
+                            <Text className="text-xs text-primary mt-2 font-semibold">Selected</Text>
+                          ) : null}
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+
+                  <View className="border-t border-lightGray pt-3">
+                    <Text className="text-sm font-semibold text-dark mb-2">Step 2: Wi-Fi</Text>
+                    <Text className="text-xs text-gray mb-2">
+                      {selectedBleDeviceId
+                        ? `Selected bracelet: ${selectedBleDeviceId}`
+                        : 'Step 1: choose the bracelet from the Bluetooth list above.'}
+                    </Text>
+                    <Text className="text-sm font-semibold text-dark mb-2">{t('system.wifiSetupTitle')}</Text>
+                    <Text className="text-xs text-gray mb-3">{t('system.provisioningHint')}</Text>
+                    <TextInput
+                      className="input-field mb-3"
+                      value={wifiSsid}
+                      onChangeText={setWifiSsid}
+                      placeholder={t('system.wifiName')}
+                      placeholderTextColor="#BDBDBD"
+                      autoCapitalize="none"
+                      returnKeyType="next"
+                    />
+                    <View className="mb-3">
+                      <TextInput
+                        className="input-field pr-12"
+                        value={wifiPassword}
+                        onChangeText={setWifiPassword}
+                        placeholder={t('system.wifiPassword')}
+                        placeholderTextColor="#BDBDBD"
+                        secureTextEntry={!wifiPasswordVisible}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        textContentType="password"
+                        returnKeyType="next"
+                      />
+                      <TouchableOpacity
+                        className="absolute right-3 top-0 bottom-0 justify-center"
+                        onPress={() => setWifiPasswordVisible((visible) => !visible)}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      >
+                        <MaterialCommunityIcons
+                          name={wifiPasswordVisible ? 'eye-off-outline' : 'eye-outline'}
+                          size={22}
+                          color="#757575"
+                        />
+                      </TouchableOpacity>
+                    </View>
+                    {provisioningMessage ? (
+                      <Text className="text-xs text-primary mb-3">{provisioningMessage}</Text>
+                    ) : null}
+
+                    <View className="border-t border-lightGray pt-3">
+                      <Text className="text-sm text-dark mb-2">{t('system.enterDeviceId')}</Text>
+                      <TextInput
+                        className="input-field"
+                        value={manualDeviceId}
+                        onChangeText={setManualDeviceId}
+                        placeholder={t('system.deviceIdPlaceholder')}
+                        placeholderTextColor="#BDBDBD"
+                        autoCapitalize="none"
+                        returnKeyType="done"
+                      />
+                      <TouchableOpacity
+                        className={`mt-3 rounded-xl py-3 items-center ${
+                          (selectedBleDeviceId || manualDeviceId.trim()) &&
+                          wifiSsid.trim() &&
+                          wifiPassword.trim() &&
+                          !isConnectingDevice
+                            ? 'bg-primary'
+                            : 'bg-gray-300'
+                        }`}
+                        onPress={() => linkDeviceToUser(selectedBleDeviceId || manualDeviceId.trim())}
+                        disabled={
+                          (!selectedBleDeviceId && !manualDeviceId.trim()) ||
+                          !wifiSsid.trim() ||
+                          !wifiPassword.trim() ||
+                          isConnectingDevice
+                        }
+                      >
+                        <Text className="text-white font-semibold">
+                          {isConnectingDevice ? t('system.connecting') : 'Step 3: Connect'}
+                        </Text>
+                      </TouchableOpacity>
+
+                      {device?.device_id ? (
+                        <TouchableOpacity
+                          className="mt-3 rounded-xl py-3 items-center border border-red-200 bg-red-50"
+                          onPress={handleRemoveDevice}
+                          disabled={isRemovingDevice}
+                        >
+                          <Text className="font-semibold text-red-600">
+                            {isRemovingDevice ? t('common.loading') : t('system.removeDeviceAction')}
+                          </Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  </View>
+                </ScrollView>
               </View>
             </View>
-          </View>
-        </View>
+          </TouchableWithoutFeedback>
+        </KeyboardAvoidingView>
       </Modal>
     </ScreenWrapper>
   );

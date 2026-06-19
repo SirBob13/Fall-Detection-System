@@ -447,12 +447,22 @@ class DeviceMotionPayload(BaseModel):
     gyro_z: float
     temperature: Optional[float] = None
     timestamp: Optional[datetime] = None
+    sampled_at_ms: Optional[float] = None
 
 class DeviceIngestPayload(BaseModel):
     device_id: str
     user_id: Optional[int] = None
     timestamp: Optional[datetime] = None
     motion: Optional[DeviceMotionPayload] = None
+    event_type: Optional[str] = None
+    alert_type: Optional[str] = None
+    fall_detected: Optional[bool] = None
+    prediction: Optional[str] = None
+    confidence: Optional[float] = Field(None, ge=0, le=1)
+    source: Optional[str] = None
+    requires_ai_confirmation: Optional[bool] = None
+    local_fall_alert: Optional[Dict[str, Any]] = None
+    local_activity: Optional[str] = None
     # Motion telemetry may include partial/stale MAX30102 values and debug-only
     # fields. The route intentionally ignores these; official vitals are ingested
     # via /device-data/vitals-status after an on-demand measurement.

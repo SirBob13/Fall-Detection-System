@@ -476,11 +476,13 @@ class ApiService {
 
   async startDeviceVitals(
     deviceId: string,
-    durationMs: number = 60000
+    durationMs: number = 60000,
+    requestId?: string
   ): Promise<ApiResponse<VitalsStatus>> {
     try {
       const response = await this.client.post(`/devices/${encodeURIComponent(deviceId)}/vitals/start`, {
         duration_ms: durationMs,
+        request_id: requestId,
       });
       const payload = response.data;
       return {

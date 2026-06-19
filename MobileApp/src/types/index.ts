@@ -120,7 +120,7 @@ export interface Alert {
   device_id?: string;
   prediction_id?: number;
   timestamp: string;
-  alert_type: 'fall' | 'fall_now' | 'fall_risk' | 'vital_abnormal' | 'device_offline' | 'heart_rate' | 'blood_pressure' | 'temperature' | 'battery';
+  alert_type: 'fall' | 'fall_candidate' | 'fall_now' | 'fall_risk' | 'vital_abnormal' | 'device_offline' | 'heart_rate' | 'blood_pressure' | 'temperature' | 'battery';
   severity: 'low' | 'medium' | 'high' | 'critical';
   message: string;
   status: 'pending' | 'sent' | 'acknowledged' | 'resolved' | 'active' | 'failed' | 'cancelled';

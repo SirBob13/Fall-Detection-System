@@ -11,11 +11,11 @@ class WristFallDetector:
         self.fs = sample_rate_hz
         self.dt = 1.0 / sample_rate_hz
 
-        self.IMPACT_ACC = 28.0
+        self.IMPACT_ACC = 25.0
         self.STRONG_IMPACT_ACC = 35.0
-        self.HIGH_GYRO = 220.0
+        self.HIGH_GYRO = 180.0
         self.STRONG_GYRO = 320.0
-        self.JERK_THRESHOLD = 140.0
+        self.JERK_THRESHOLD = 120.0
 
         self.POST_STILL_WINDOW = 2.5
         self.STILL_GYRO_MEAN = 35.0
@@ -199,6 +199,29 @@ class WristFallDetector:
                             "confidence": min(confidence, 0.98),
                             "state": "FALL_CONFIRMED",
                             "reason": "impact_then_stillness",
+                        }
+                    )
+                    return result
+
+                if elapsed >= 0.35 and orient_changed and not self.repeated_hand_motion(now):
+                    confidence = 0.78
+                    if self.impact_sample and self.impact_sample["acc_mag"] >= self.STRONG_IMPACT_ACC:
+                        confidence += 0.08
+                    if self.impact_sample and self.impact_sample["gyro_mag"] >= self.STRONG_GYRO:
+                        confidence += 0.06
+
+                    self.state = "NORMAL"
+                    self.last_fall_time = now
+                    self.impact_time = None
+                    self.impact_sample = None
+
+                    result.update(
+                        {
+                            "fall_detected": True,
+                            "possible_fall": True,
+                            "confidence": min(confidence, 0.92),
+                            "state": "FALL_CONFIRMED",
+                            "reason": "impact_orientation_change",
                         }
                     )
                     return result

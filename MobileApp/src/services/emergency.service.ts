@@ -750,17 +750,31 @@ export class EmergencyService {
       const historyJson = await AsyncStorage.getItem(EMERGENCY_STORAGE_KEYS.HISTORY);
       const history = historyJson ? JSON.parse(historyJson) : [];
       
-      // Determine overall status based on responses
+      // Determine overall status based on responses. When the backend accepts
+      // the emergency but actual dispatch happens asynchronously, the client
+      // may not receive confirmed "sent" responses immediately. Keep that case
+      // pending instead of showing a false failure to the user.
       const hasSuccessfulResponse = responses.some(r => 
         r.response_type.includes('sent') || 
         r.response_type.includes('call') ||
         r.response_type === 'replied'
       );
+      const hasOnlyProvisionalOrTransportResponses =
+        responses.length === 0 ||
+        responses.every((response) =>
+          response.response_type === 'pending' ||
+          response.response_type === 'sms_failed' ||
+          response.response_type === 'failed'
+        );
 
       const logEntry: EmergencyHistoryItem = {
         ...message,
         responses,
-        status: hasSuccessfulResponse ? 'sent' : 'failed',
+        status: hasSuccessfulResponse
+          ? 'sent'
+          : hasOnlyProvisionalOrTransportResponses
+            ? 'pending'
+            : 'failed',
         read: false,
       };
 

@@ -335,6 +335,14 @@ def _store_telemetry_vitals_fallback(
 def _normalize_vitals_status_payload(payload: Dict[str, Any], device: Optional[Device] = None) -> Dict[str, Any]:
     heart_rate = _safe_float(payload.get("heart_rate"))
     spo2 = _safe_float(payload.get("spo2", payload.get("oxygen_saturation")))
+    last_heart_rate = _safe_float(payload.get("last_heart_rate"))
+    last_spo2 = _safe_float(payload.get("last_spo2"))
+
+    if (heart_rate is None or heart_rate <= 0) and last_heart_rate is not None and last_heart_rate > 0:
+        heart_rate = last_heart_rate
+    if (spo2 is None or spo2 <= 0) and last_spo2 is not None and last_spo2 > 0:
+        spo2 = last_spo2
+
     hr_valid = _safe_bool(payload.get("heart_rate_valid"), heart_rate is not None and heart_rate > 0)
     spo2_valid = _safe_bool(payload.get("spo2_valid"), spo2 is not None and spo2 > 0)
     return {
@@ -545,6 +553,20 @@ def _handle_device_payload(
         motion_dict = payload.motion.dict(exclude_none=True)
         motion_dict["user_id"] = user_id
         motion_dict["device_id"] = device.device_id
+        for field in (
+            "event_type",
+            "alert_type",
+            "fall_detected",
+            "prediction",
+            "confidence",
+            "source",
+            "requires_ai_confirmation",
+            "local_fall_alert",
+            "local_activity",
+        ):
+            value = getattr(payload, field, None)
+            if value is not None:
+                motion_dict[field] = value
         if payload.timestamp and not motion_dict.get("timestamp"):
             motion_dict["timestamp"] = payload.timestamp
         response, _, _, _ = _process_motion_data_internal(motion_dict, db)
@@ -1321,6 +1343,118 @@ async def check_phone(
 # Motion Data Routes - WITH PROPER STATUS CODES
 # ======================
 
+def _boolish(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y", "fall", "fall_now"}
+    return False
+
+
+def _extract_local_fall_hint(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Read fast fall evidence coming from the ESP local detector."""
+    nested = data.get("local_fall_alert")
+    if not isinstance(nested, dict):
+        nested = {}
+
+    event_type = str(data.get("event_type") or "").lower()
+    alert_type = str(data.get("alert_type") or nested.get("label") or "").lower()
+    prediction = str(data.get("prediction") or "").lower()
+    source = str(data.get("source") or "").lower()
+
+    confidence_raw = (
+        data.get("local_fall_confidence")
+        if data.get("local_fall_confidence") is not None
+        else data.get("confidence")
+    )
+    if confidence_raw is None:
+        confidence_raw = nested.get("confidence")
+
+    try:
+        confidence = float(confidence_raw)
+    except (TypeError, ValueError):
+        confidence = 0.0
+    confidence = max(0.0, min(1.0, confidence))
+
+    reason = str(data.get("local_fall_reason") or nested.get("reason") or "esp_local_detector")
+    candidate = (
+        event_type == "fall_candidate" or
+        alert_type == "fall_candidate" or
+        prediction == "fall_candidate"
+    )
+    detected = (
+        (not candidate and _boolish(data.get("local_fall_alert"))) or
+        _boolish(data.get("fall_detected")) or
+        (event_type == "fall_alert" and not candidate) or
+        alert_type == "fall_now" or
+        prediction == "fall_now" or
+        (source == "esp_local_detector" and not candidate)
+    )
+
+    if detected and confidence <= 0.0:
+        confidence = 0.88
+    if candidate and confidence <= 0.0:
+        confidence = 0.66
+
+    return {
+        "detected": detected,
+        "candidate": candidate,
+        "confidence": confidence,
+        "reason": reason,
+        "requires_ai_confirmation": _boolish(data.get("requires_ai_confirmation")),
+    }
+
+
+def _motion_dict_from_local_fall_alert(payload: Dict[str, Any], db: Session) -> Dict[str, Any]:
+    device_id = payload.get("device_id")
+    if not device_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"success": False, "error": "device_id is required"}
+        )
+
+    device = crud.get_device_by_id(db, str(device_id))
+    user_id = payload.get("user_id") or (device.user_id if device else None)
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"success": False, "error": "user_id could not be resolved"}
+        )
+
+    motion = payload.get("motion") if isinstance(payload.get("motion"), dict) else {}
+    timestamp = payload.get("timestamp") or motion.get("timestamp")
+    alert_type = payload.get("alert_type") or "fall_now"
+    prediction = payload.get("prediction") or ("fall_candidate" if alert_type == "fall_candidate" else "fall_now")
+
+    return {
+        "user_id": int(user_id),
+        "device_id": str(device_id),
+        "acc_x": motion.get("acc_x", motion.get("ax", 0.0)),
+        "acc_y": motion.get("acc_y", motion.get("ay", 0.0)),
+        "acc_z": motion.get("acc_z", motion.get("az", 9.81)),
+        "gyro_x": motion.get("gyro_x", motion.get("gx", 0.0)),
+        "gyro_y": motion.get("gyro_y", motion.get("gy", 0.0)),
+        "gyro_z": motion.get("gyro_z", motion.get("gz", 0.0)),
+        "temperature": motion.get("temperature", payload.get("temperature", 36.5)),
+        "timestamp": timestamp,
+        "sampled_at_ms": motion.get("sampled_at_ms", payload.get("sampled_at_ms")),
+        "battery_level": payload.get("battery_level"),
+        "firmware_version": payload.get("firmware_version"),
+        "event_type": payload.get("message_type") or payload.get("event_type") or "fall_alert",
+        "alert_type": alert_type,
+        "fall_detected": payload.get("fall_detected", alert_type != "fall_candidate"),
+        "prediction": prediction,
+        "confidence": payload.get("confidence"),
+        "source": payload.get("source") or "esp_local_detector",
+        "requires_ai_confirmation": payload.get("requires_ai_confirmation"),
+        "local_fall_reason": payload.get("reason"),
+        "local_fall_confidence": payload.get("confidence"),
+        "local_activity": payload.get("activity") or payload.get("local_activity"),
+    }
+
+
 def _process_motion_data_internal(
     data: Dict[str, Any],
     db: Session,
@@ -1344,15 +1478,28 @@ def _process_motion_data_internal(
     gyro_z = float(data.get('gyro_z', 0.0))
     acc_mag = (acc_x ** 2 + acc_y ** 2 + acc_z ** 2) ** 0.5
     gyro_mag = (gyro_x ** 2 + gyro_y ** 2 + gyro_z ** 2) ** 0.5
+    local_fall_hint = _extract_local_fall_hint(data)
     severe_motion_fall = (
         (acc_mag >= 25.0 and gyro_mag >= 180.0) or
         acc_mag >= 35.0 or
-        gyro_mag >= 320.0
+        (gyro_mag >= 420.0 and acc_mag >= 15.0)
+    )
+    fast_fall_candidate_motion = (
+        (acc_mag >= 20.0 and gyro_mag >= 105.0) or
+        acc_mag >= 28.0 or
+        (gyro_mag >= 300.0 and acc_mag >= 12.0)
     )
     raw_temperature = data.get('temperature', 36.5)
     temperature = float(36.5 if raw_temperature is None else raw_temperature)
     user_id = int(data.get('user_id'))
     device_id = data.get('device_id')
+    detector_timestamp = None
+    raw_sampled_at_ms = data.get('sampled_at_ms')
+    if raw_sampled_at_ms is not None:
+        try:
+            detector_timestamp = float(raw_sampled_at_ms) / 1000.0
+        except (TypeError, ValueError):
+            detector_timestamp = None
 
     _assert_device_not_deleted(db, device_id)
     device = crud.get_device_by_id(db, device_id)
@@ -1383,6 +1530,7 @@ def _process_motion_data_internal(
         gx=gyro_x,
         gy=gyro_y,
         gz=gyro_z,
+        timestamp=detector_timestamp,
     )
     ai_result = predict_from_sample(
         acc_x=acc_x,
@@ -1424,11 +1572,33 @@ def _process_motion_data_internal(
     alert_eligible = sample_count >= MIN_REALTIME_SAMPLES_FOR_ALERT
     wrist_fall_detected = bool(wrist_result.get("fall_detected"))
     wrist_possible_fall = bool(wrist_result.get("possible_fall"))
-    rule_based_fall = severe_motion_fall or wrist_fall_detected
+    ai_fall_now_prob = float(ai_result.get("fall_now_probability", 0.0) or 0.0)
+    ai_fall_soon_prob = float(ai_result.get("fall_soon_probability", 0.0) or 0.0)
+    ai_motion_supported_fall = alert_eligible and wrist_possible_fall and (
+        ai_fall_now_prob >= 0.62 or ai_fall_soon_prob >= 0.78
+    )
+    local_detector_fall = bool(local_fall_hint.get("detected"))
+    fast_fall_candidate = (not local_detector_fall) and (not severe_motion_fall) and (
+        bool(local_fall_hint.get("candidate")) or
+        fast_fall_candidate_motion or wrist_possible_fall
+    )
+    rule_based_fall = local_detector_fall or severe_motion_fall or wrist_fall_detected
 
-    if alert_eligible or rule_based_fall:
+    if alert_eligible or rule_based_fall or fast_fall_candidate:
         verification_system = DoubleVerificationSystem(db)
-        if wrist_fall_detected:
+        if local_detector_fall:
+            local_confidence = float(local_fall_hint.get("confidence", 0.0) or 0.0)
+            verified = {
+                **ai_result,
+                "fall_now_prediction": True,
+                "fall_now_probability": max(ai_fall_now_prob, local_confidence, 0.94),
+                "vital_check_performed": False,
+                "vital_check_result": None,
+                "final_verdict": True,
+                "confidence_score": max(float(ai_result.get("confidence_score", 0.0) or 0.0), local_confidence, 0.94),
+                "decision_reason": str(local_fall_hint.get("reason") or "esp_local_detector"),
+            }
+        elif wrist_fall_detected:
             wrist_confidence = float(wrist_result.get("confidence", 0.0) or 0.0)
             verified = {
                 **ai_result,
@@ -1440,6 +1610,22 @@ def _process_motion_data_internal(
                 "confidence_score": max(float(ai_result.get("confidence_score", 0.0) or 0.0), wrist_confidence, 0.90),
                 "decision_reason": str(wrist_result.get("reason") or "wrist_fall_detector"),
             }
+        elif ai_motion_supported_fall:
+            confidence = max(
+                ai_fall_now_prob,
+                ai_fall_soon_prob * 0.85,
+                float(wrist_result.get("confidence", 0.0) or 0.0),
+            )
+            verified = {
+                **ai_result,
+                "fall_now_prediction": True,
+                "fall_now_probability": max(ai_fall_now_prob, confidence, 0.90),
+                "vital_check_performed": False,
+                "vital_check_result": None,
+                "final_verdict": True,
+                "confidence_score": max(float(ai_result.get("confidence_score", 0.0) or 0.0), confidence, 0.88),
+                "decision_reason": "ai_motion_fusion_high_recall",
+            }
         elif severe_motion_fall and not ai_result.get("fall_now_prediction", False):
             verified = {
                 **ai_result,
@@ -1450,6 +1636,25 @@ def _process_motion_data_internal(
                 "final_verdict": True,
                 "confidence_score": max(float(ai_result.get("confidence_score", 0.0) or 0.0), 0.92),
                 "decision_reason": "severe_motion_rule",
+            }
+        elif fast_fall_candidate and not alert_eligible:
+            candidate_confidence = max(
+                float(wrist_result.get("confidence", 0.0) or 0.0),
+                min(0.82, max(acc_mag / 35.0, gyro_mag / 420.0)),
+                0.62,
+            )
+            verified = {
+                **ai_result,
+                "fall_now_prediction": False,
+                "fall_soon_prediction": False,
+                "fall_now_probability": max(ai_fall_now_prob, candidate_confidence),
+                "fall_soon_probability": max(ai_fall_soon_prob, candidate_confidence * 0.85),
+                "vital_check_performed": False,
+                "vital_check_result": None,
+                "final_verdict": False,
+                "fall_candidate": True,
+                "confidence_score": max(float(ai_result.get("confidence_score", 0.0) or 0.0), candidate_confidence),
+                "decision_reason": "fast_motion_candidate_waiting_for_confirmation",
             }
         else:
             verified = verification_system.verify_fall_with_vitals(
@@ -1472,6 +1677,21 @@ def _process_motion_data_internal(
                 verified["fall_soon_prediction"] = False
                 verified["confidence_score"] = 0.0
                 verified["decision_reason"] = "ai_only_suppressed_requires_motion_confirmation"
+
+            if fast_fall_candidate and not verified.get("final_verdict"):
+                candidate_confidence = max(
+                    float(wrist_result.get("confidence", 0.0) or 0.0),
+                    min(0.82, max(acc_mag / 35.0, gyro_mag / 420.0)),
+                    float(verified.get("confidence_score", 0.0) or 0.0),
+                    0.62,
+                )
+                verified["fall_candidate"] = True
+                verified["fall_now_prediction"] = False
+                verified["fall_soon_prediction"] = False
+                verified["fall_now_probability"] = max(float(verified.get("fall_now_probability", 0.0) or 0.0), candidate_confidence)
+                verified["fall_soon_probability"] = max(float(verified.get("fall_soon_probability", 0.0) or 0.0), candidate_confidence * 0.85)
+                verified["confidence_score"] = candidate_confidence
+                verified["decision_reason"] = "fast_motion_candidate_waiting_for_confirmation"
     else:
         verification_system = None
         verified = {
@@ -1536,6 +1756,7 @@ def _process_motion_data_internal(
             "fall_soon_probability": verified.get("fall_soon_probability", 0.0),
             "fall_now_prediction": verified.get("fall_now_prediction", False),
             "fall_soon_prediction": verified.get("fall_soon_prediction", False),
+            "fall_candidate": verified.get("fall_candidate", False),
             "confidence_score": verified.get("confidence_score", 0.0),
             "final_verdict": verified.get("final_verdict", False),
             "vital_check_performed": verified.get("vital_check_performed", False),
@@ -1548,6 +1769,10 @@ def _process_motion_data_internal(
             "min_samples_for_alert": MIN_REALTIME_SAMPLES_FOR_ALERT,
             "alert_eligible": alert_eligible,
             "rule_based_fall": rule_based_fall,
+            "fast_fall_candidate": fast_fall_candidate,
+            "local_detector_fall": local_detector_fall,
+            "local_detector_reason": local_fall_hint.get("reason"),
+            "local_detector_confidence": local_fall_hint.get("confidence"),
             "wrist_possible_fall": wrist_possible_fall,
             "wrist_detector_state": wrist_result.get("state"),
             "wrist_detector_reason": wrist_result.get("reason"),
@@ -1555,7 +1780,7 @@ def _process_motion_data_internal(
             "wrist_detector_jerk": wrist_result.get("jerk"),
             "acc_magnitude": acc_mag,
             "gyro_magnitude": gyro_mag,
-            "warmup_reason": None if (alert_eligible or rule_based_fall) else "collecting_motion_context",
+            "warmup_reason": None if (alert_eligible or rule_based_fall or fast_fall_candidate) else "collecting_motion_context",
         },
         "is_test_data": ai_result.get("is_mock", False),
         "timestamp": datetime.utcnow().isoformat(),
@@ -1670,6 +1895,54 @@ async def ingest_device_data(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Error ingesting device data: {str(e)}"
+        )
+
+@router.post("/device-data/fall-alert", response_model=Dict[str, Any])
+async def ingest_device_fall_alert(
+    payload: Dict[str, Any],
+    db: Session = Depends(get_db)
+):
+    """Ingest immediate ESP local fall alerts and run them through the same fusion pipeline."""
+    try:
+        motion_dict = _motion_dict_from_local_fall_alert(payload, db)
+        _ensure_device_for_ingest(
+            db,
+            device_id=motion_dict["device_id"],
+            user_id=motion_dict["user_id"],
+            battery_level=motion_dict.get("battery_level"),
+            firmware_version=motion_dict.get("firmware_version"),
+        )
+
+        response, stored_motion, db_pred, alert = _process_motion_data_internal(motion_dict, db)
+
+        motion_payload = _serialize_motion(stored_motion)
+        prediction_payload = _serialize_prediction(db_pred)
+        await _notify_patient_and_caregivers(db, stored_motion.user_id, "motions", action="created", payload=motion_payload, throttle_seconds=1.0)
+        await notify_admins("motions", action="created", payload=motion_payload, throttle_seconds=1.0)
+        await _notify_patient_and_caregivers(db, stored_motion.user_id, "predictions", action="created", payload=prediction_payload, throttle_seconds=1.0)
+        await notify_admins("predictions", action="created", payload=prediction_payload, throttle_seconds=1.0)
+
+        if alert:
+            alert_payload = _serialize_alert(alert)
+            await _notify_patient_and_caregivers(db, alert.user_id, "alerts", action="created", payload=alert_payload)
+            await notify_admins("alerts", action="created", payload=alert_payload)
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "message": "Local fall alert ingested",
+                "data": response,
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error ingesting local fall alert: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Error ingesting local fall alert: {str(e)}"
         )
 
 @router.post("/device-data/batch", response_model=Dict[str, Any])

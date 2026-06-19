@@ -205,12 +205,19 @@ class DoubleVerificationSystem:
             return None
 
         is_confirmed_fall = bool(verification_result.get("final_verdict"))
+        is_fall_candidate = bool(verification_result.get("fall_candidate")) and not is_confirmed_fall
         is_fall_risk = bool(verification_result.get("fall_soon_prediction")) and not is_confirmed_fall
 
-        if not is_confirmed_fall and not is_fall_risk:
+        if not is_confirmed_fall and not is_fall_candidate and not is_fall_risk:
             return None
 
-        alert_type = "fall_now" if is_confirmed_fall else "fall_risk"
+        if is_confirmed_fall:
+            alert_type = "fall_now"
+        elif is_fall_candidate:
+            alert_type = "fall_candidate"
+        else:
+            alert_type = "fall_risk"
+
         confidence = float(verification_result.get("confidence_score", 0))
 
         ten_minutes_ago = datetime.utcnow() - timedelta(minutes=10)
@@ -226,16 +233,30 @@ class DoubleVerificationSystem:
             return None
 
         two_minutes_ago = datetime.utcnow() - timedelta(minutes=2)
-        recent_alert = self.db.query(models.Alert)\
+        recent_query = self.db.query(models.Alert)\
             .filter(models.Alert.user_id == user_id)\
-            .filter(models.Alert.alert_type == alert_type)\
             .filter(models.Alert.timestamp >= two_minutes_ago)\
-            .filter(models.Alert.status.in_(['pending', 'sent']))\
-            .first()
+            .filter(models.Alert.status.in_(['pending', 'sent']))
+
+        if alert_type == "fall_now":
+            # A fast candidate should become the confirmed fall alert instead of
+            # creating a duplicate row seconds later.
+            recent_alert = recent_query\
+                .filter(models.Alert.alert_type.in_(["fall_candidate", "fall_now"]))\
+                .order_by(models.Alert.timestamp.desc())\
+                .first()
+        else:
+            recent_alert = recent_query\
+                .filter(models.Alert.alert_type == alert_type)\
+                .order_by(models.Alert.timestamp.desc())\
+                .first()
 
         if alert_type == "fall_now":
             severity = "critical" if confidence >= 0.85 else "high"
             message = f"Confirmed fall detected for {user.name}. Confidence: {confidence:.2%}"
+        elif alert_type == "fall_candidate":
+            severity = "high"
+            message = f"Possible fall detected for {user.name}. Confirming with motion AI. Confidence: {confidence:.2%}"
         else:
             risk_probability = float(verification_result.get("fall_soon_probability", 0))
             severity = "high" if risk_probability >= 0.9 else "medium"
@@ -248,6 +269,7 @@ class DoubleVerificationSystem:
 
         if recent_alert:
             logger.info(f"Updating existing alert {recent_alert.id} for user {user_id}")
+            recent_alert.alert_type = alert_type
             recent_alert.severity = severity
             recent_alert.message = message
             recent_alert.timestamp = datetime.utcnow()

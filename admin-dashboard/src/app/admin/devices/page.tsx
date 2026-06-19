@@ -79,7 +79,7 @@ export default function DevicesPage() {
 
   const deleteDevice = async (device: DeviceItem) => {
     const confirmed = window.confirm(
-      `Delete device "${device.device_id}" permanently?\n\nThis will remove the device and its stored motion history from the system.`
+      `Remove device "${device.device_id}" from the account?\n\nThis will unlink the device and remove its stored data, but it can be paired again later.`
     );
     if (!confirmed) return;
 

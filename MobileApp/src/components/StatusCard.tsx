@@ -1,14 +1,13 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Device, Prediction } from '../types';
+import { Device } from '../types';
 import { useLanguage } from '../components/LanguageProvider';
 import { getDeviceOperationalStatus, getDeviceStatusLabel } from '../utils/deviceStatus';
 import { parseApiDate } from '../utils/helpers';
 
 interface StatusCardProps {
   device: Device | null;
-  lastPrediction: Prediction | null;
   onRefresh: () => void;
   onConnect?: () => void;
   onRemoveDevice?: () => void;
@@ -20,7 +19,6 @@ interface StatusCardProps {
 
 export const StatusCard: React.FC<StatusCardProps> = ({ 
   device, 
-  lastPrediction, 
   onRefresh,
   onConnect,
   onRemoveDevice,
@@ -80,7 +78,7 @@ export const StatusCard: React.FC<StatusCardProps> = ({
 
   const sectionSpacing = compact ? 12 : 20;
   const cardPadding = compact ? 16 : 20;
-  const showCompactEmptyState = !device && !lastPrediction;
+  const showCompactEmptyState = !device;
 
   return (
     <View
@@ -163,30 +161,32 @@ export const StatusCard: React.FC<StatusCardProps> = ({
         </View>
       )}
 
-      {/* Last Prediction Section */}
-      {lastPrediction && (
+      {device && (
         <View className="bg-blue-50/50 rounded-2xl p-4 border border-blue-100">
           <View className="flex-row items-center mb-3">
-            <MaterialCommunityIcons name="chart-bell-curve" size={18} color="#2196F3" />
+            <MaterialCommunityIcons name="shield-check-outline" size={18} color="#2196F3" />
             <Text className="text-sm font-bold text-blue-800 ml-2">
-              {t('home.lastPrediction')}
+              {t('home.monitoringStatus')}
             </Text>
           </View>
-          
-          <View className="space-y-2">
-            <PredictionRow 
-              label={t('home.fallNow')} 
-              value={`${((lastPrediction.fall_now_probability || 0) * 100).toFixed(1)}%`} 
-            />
-            <PredictionRow 
-              label={t('home.fallSoon')} 
-              value={`${((lastPrediction.fall_soon_probability || 0) * 100).toFixed(1)}%`} 
-            />
-            <PredictionRow 
-              label={t('home.confidence')} 
-              value={`${((lastPrediction.confidence_score || 0) * 100).toFixed(1)}%`} 
-              isLast
-            />
+
+          <View className="flex-row justify-between items-center">
+            <Text className="text-xs text-gray-600 font-medium">{t('home.fallMonitoring')}</Text>
+            <Text className="text-xs font-bold text-gray-900">
+              {deviceConnected ? t('home.monitoringActive') : t('home.monitoringWaiting')}
+            </Text>
+          </View>
+          <View className="flex-row justify-between items-center mt-2">
+            <Text className="text-xs text-gray-600 font-medium">{t('home.lastCheckIn')}</Text>
+            <Text className="text-xs font-bold text-gray-900">
+              {formatRelativeTime(device.latest_data_at || device.last_seen) || '--'}
+            </Text>
+          </View>
+          <View className="flex-row justify-between items-center mt-2">
+            <Text className="text-xs text-gray-600 font-medium">{t('home.alertReadiness')}</Text>
+            <Text className="text-xs font-bold text-gray-900">
+              {deviceConnected ? t('home.alertsReady') : t('system.reconnect')}
+            </Text>
           </View>
         </View>
       )}
@@ -256,14 +256,6 @@ export const StatusCard: React.FC<StatusCardProps> = ({
     </View>
   );
 };
-
-// مكون داخلي لتبسيط الصفوف
-const PredictionRow = ({ label, value, isLast = false }: { label: string, value: string, isLast?: boolean }) => (
-  <View className={`flex-row justify-between items-center ${isLast ? '' : 'mb-2'}`}>
-    <Text className="text-xs text-gray-600 font-medium">{label}</Text>
-    <Text className="text-xs font-bold text-gray-900">{value}</Text>
-  </View>
-);
 
 const styles = StyleSheet.create({
   card: {

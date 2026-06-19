@@ -27,6 +27,7 @@ MQTT_CLIENT_ID = os.getenv("MQTT_CLIENT_ID", "fall-detection-mqtt-worker")
 MQTT_INGEST_URL = os.getenv("MQTT_INGEST_URL", "http://127.0.0.1:8000/api/v1/device-data")
 MQTT_BATCH_INGEST_URL = os.getenv("MQTT_BATCH_INGEST_URL", "")
 MQTT_VITALS_STATUS_URL = os.getenv("MQTT_VITALS_STATUS_URL", "")
+MQTT_FALL_ALERT_URL = os.getenv("MQTT_FALL_ALERT_URL", "")
 _client: Optional[mqtt.Client] = None
 _thread: Optional[threading.Thread] = None
 
@@ -45,6 +46,11 @@ def _on_connect(client: mqtt.Client, userdata, flags, rc) -> None:  # type: igno
 
 
 def _resolve_ingest_url(payload: dict) -> str:
+    if payload.get("message_type") in {"fall_alert", "fall_candidate"}:
+        if MQTT_FALL_ALERT_URL:
+            return MQTT_FALL_ALERT_URL
+        if MQTT_INGEST_URL.endswith("/device-data"):
+            return f"{MQTT_INGEST_URL}/fall-alert"
     if payload.get("message_type") == "vitals_status":
         if MQTT_VITALS_STATUS_URL:
             return MQTT_VITALS_STATUS_URL

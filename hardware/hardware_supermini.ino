@@ -11,7 +11,6 @@
 #include <PubSubClient.h>
 #include "mbedtls/base64.h"
 #include <math.h>
-
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
 #include "MAX30105.h"
@@ -63,6 +62,9 @@ static const uint8_t MPU_I2C_ADDRESS = 0x68;
 // ================= MPU Direct Register Map =================
 static const uint8_t MPU_REG_WHO_AM_I = 0x75;
 static const uint8_t MPU_REG_PWR_MGMT_1 = 0x6B;
+static const uint8_t MPU_REG_CONFIG = 0x1A;
+static const uint8_t MPU_REG_GYRO_CONFIG = 0x1B;
+static const uint8_t MPU_REG_ACCEL_CONFIG = 0x1C;
 static const uint8_t MPU_REG_ACCEL_XOUT_H = 0x3B;
 static const uint8_t MPU_REG_TEMP_OUT_H = 0x41;
 static const uint8_t MPU_REG_GYRO_XOUT_H = 0x43;
@@ -101,7 +103,7 @@ static const char *PREF_MQTT_TOPIC_KEY = "mqtt_topic";
 
 // ================= Firmware Identity =================
 static const char *DEVICE_TYPE = "esp32-c3-supermini-bracelet";
-static const char *FIRMWARE_VERSION = "3.8.3-c3-command-debug-vitals";
+static const char *FIRMWARE_VERSION = "3.8.4-c3-mpu-range-fall-fix";
 
 // ================= WiFi / MQTT Timing =================
 static const int WIFI_MAX_RETRIES = 30;
@@ -113,11 +115,28 @@ static const unsigned long PUBLISH_INTERVAL_MS = 1000;
 static const unsigned long MPU_SAMPLE_INTERVAL_MS = 50; // 20 samples/sec
 static const int MPU_BATCH_SIZE = 20;
 
+// Local emergency detector runs on the ESP in parallel with backend AI.
+// Units: acceleration magnitude is m/s^2, gyro magnitude is deg/s.
+static const float GRAVITY_MS2 = 9.81f;
+static const float LOCAL_FREEFALL_ACC_MS2 = 4.7f;       // < 0.48g
+static const float LOCAL_IMPACT_ACC_MS2 = 25.0f;        // ~2.55g
+static const float LOCAL_HARD_IMPACT_ACC_MS2 = 31.0f;   // ~3.16g, can trigger without freefall
+static const float LOCAL_IMPACT_GYRO_DPS = 135.0f;
+static const float LOCAL_STILL_GYRO_DPS = 38.0f;
+static const float LOCAL_STILL_ACC_LOW_MS2 = 7.1f;
+static const float LOCAL_STILL_ACC_HIGH_MS2 = 12.8f;
+static const unsigned long LOCAL_FREEFALL_MIN_MS = 80;
+static const unsigned long LOCAL_IMPACT_WINDOW_MS = 1300;
+static const unsigned long LOCAL_POST_IMPACT_STILL_MS = 1200;
+static const unsigned long LOCAL_VERIFY_TIMEOUT_MS = 3800;
+static const unsigned long LOCAL_FALL_ALERT_COOLDOWN_MS = 15000;
+static const unsigned long LOCAL_FALL_CANDIDATE_COOLDOWN_MS = 3000;
+
 #define MAX_POWER_SAVE true
 #define MAX_KEEP_ON_WHEN_FINGER false  // Fixed 30s ON / 30s OFF cycle. Do not keep MAX on forever when finger is present.
 #define MAX_HR_DEBUG true
-static const uint32_t FINGER_IR_THRESHOLD = 35000;  // Lowered to avoid losing finger contact during a 30s session.
-static const uint32_t SIGNAL_GOOD_IR_THRESHOLD = 60000;
+static const uint32_t FINGER_IR_THRESHOLD = 18000;  // Tuned for the lower MAX30102 LED current used during vitals.
+static const uint32_t SIGNAL_GOOD_IR_THRESHOLD = 35000;
 static const unsigned long MAX_ON_DURATION_MS = 30000;
 static const unsigned long MAX_OFF_DURATION_MS = 30000;  // Hold last vitals on screen while MAX rests.
 static const unsigned long MAX_NO_FINGER_GRACE_MS = 6000;
@@ -126,20 +145,20 @@ static const unsigned long VITALS_STATUS_INTERVAL_MS = 1000;
 static const unsigned long VITALS_DEFAULT_DURATION_MS = 60000;
 static const unsigned long VITALS_MIN_DURATION_MS = 10000;
 static const unsigned long VITALS_MAX_DURATION_MS = 120000;
-static const int SPO2_BUFFER_SIZE = 400; // 400 samples @ 100Hz ≈ 4 sec window
+static const int SPO2_BUFFER_SIZE = 160; // Adaptive practical window; loop currently samples MAX at about 12-15Hz.
 
 // MAX30102 is very sensitive to finger pressure and motion.
 // HR now uses a window-based IR autocorrelation estimator, because checkForBeat()
 // may miss beats on some MAX30102 modules or bracelet optical layouts.
 static const int HR_MIN_BPM = 45;
-static const int HR_MAX_BPM = 150;
-static const int HR_MAX_JUMP_BPM = 34;
+static const int HR_MAX_BPM = 120;
+static const int HR_MAX_JUMP_BPM = 22;
 static const int HR_CANDIDATE_TOLERANCE_BPM = 18;
 static const byte HR_REQUIRED_CONFIRMATIONS = 2;
 static const unsigned long HR_FINGER_STABLE_MS = 1200;
 static const unsigned long HR_ADJUST_FINGER_MS = 18000;
 
-#define MAX_USE_SOFT_HR_FALLBACK 0
+#define MAX_USE_SOFT_HR_FALLBACK 1
 #define HR_USE_AUTOCORRELATION 0
 #define HR_ALLOW_INSTANT_BEAT 0
 static const int HR_BUFFER_SIZE = 800;          // 8 sec @ 100Hz
@@ -151,22 +170,23 @@ static const unsigned long FINGER_LOST_GRACE_MS = 1800;
 // Session-based HR measurement. This is closer to wearable behavior:
 // measure for a fixed window, publish/display the last reliable result, then re-measure.
 #define HR_SESSION_MODE 1
-static const unsigned long HR_MEASURE_DURATION_MS = 30000;
+static const unsigned long HR_MEASURE_DURATION_MS = 20000;
 static const unsigned long HR_HOLD_DURATION_MS = 30000;
+static const unsigned long HR_RETRY_HOLD_MS = 1500;
 static const int HR_SESSION_SAMPLE_RATE_HZ = 100;
 static const int HR_SESSION_BUFFER_SIZE = 3000; // 30 sec @ 100Hz
 static const int HR_DOWNSAMPLE_FACTOR = 4;      // analyze at 25Hz
 static const int HR_DOWNSAMPLED_MAX = HR_SESSION_BUFFER_SIZE / HR_DOWNSAMPLE_FACTOR;
-static const float HR_SESSION_MIN_RMS = 8.0f;  // More tolerant for exposed MAX30102 modules.
+static const float HR_SESSION_MIN_RMS = 8.0f;  // Reject weak optical noise that can look like false high BPM.
 
 // SpO2 estimator tuning. Use a real fingertip pulse oximeter to tune SPO2_RATIO_SCALE later.
-static const double SPO2_RATIO_SCALE = 0.68;
+static const double SPO2_RATIO_SCALE = 0.36;
 static const double SPO2_RATIO_MIN = 0.30;
 static const double SPO2_RATIO_MAX = 1.25;
 static const int SPO2_MIN_VALID_PERCENT = 88;
 static const int SPO2_MAX_VALID_PERCENT = 100;
 static const int SPO2_MAX_STEP_PERCENT = 4;
-static const byte SPO2_REQUIRED_CONFIRMATIONS = 2;
+static const byte SPO2_REQUIRED_CONFIRMATIONS = 1;
 static const unsigned long SPO2_DISPLAY_HOLD_MS = 120000;  // Keep last valid value visible across OFF cycle.
 static const unsigned long HR_DISPLAY_HOLD_MS = 120000;  // Keep last valid value visible across OFF cycle.
 
@@ -206,6 +226,8 @@ enum MpuReadMode {
 MpuReadMode mpuMode = MPU_MODE_NONE;
 uint8_t mpuWhoAmI = 0x00;
 bool mpuAddressPresent = false;
+float mpuAccelLsbPerG = 16384.0f;    // default MPU6050 +/-2g scale
+float mpuGyroLsbPerDps = 131.0f;     // default MPU6050 +/-250 dps scale
 
 // ================= State =================
 bool mpuReady = false;
@@ -328,6 +350,30 @@ MotionSample latestMotion;
 int motionWriteIndex = 0;
 int motionCount = 0;
 
+enum LocalFallStage {
+  LOCAL_FALL_IDLE = 0,
+  LOCAL_FALL_FREEFALL = 1,
+  LOCAL_FALL_VERIFY = 2
+};
+
+LocalFallStage localFallStage = LOCAL_FALL_IDLE;
+String localActivityLabel = "unknown";
+String localFallReason = "";
+float localFallConfidence = 0.0f;
+float localPeakAccMag = 0.0f;
+float localPeakGyroMag = 0.0f;
+unsigned long localLowAccStartedMs = 0;
+unsigned long localFreefallStartedMs = 0;
+unsigned long localImpactDetectedMs = 0;
+unsigned long localStillStartedMs = 0;
+unsigned long localLastFallAlertMs = 0;
+unsigned long localLastFallCandidateMs = 0;
+unsigned long localLastActivityChangeMs = 0;
+bool localFallSimulationMode = false;
+bool localFallSimulationPublish = false;
+bool localFallSimulationAlerted = false;
+bool localFallCandidateSent = false;
+
 // ================= MAX30102 Snapshot =================
 struct MaxSnapshot {
   uint32_t ir = 0;
@@ -397,6 +443,7 @@ enum HrSessionState {
 HrSessionState hrSessionState = HR_SESSION_IDLE;
 unsigned long hrSessionStartedMs = 0;
 unsigned long hrSessionHoldStartedMs = 0;
+unsigned long hrSessionHoldDurationMs = HR_HOLD_DURATION_MS;
 int hrSessionCount = 0;
 
 uint32_t hrSessionIrBuffer[HR_SESSION_BUFFER_SIZE];
@@ -418,6 +465,11 @@ void startVitalsMeasurement(const String &requestId, const String &trigger, unsi
 void stopVitalsMeasurement(const char *state, unsigned long now);
 void handleMqttMessage(char *topic, byte *payload, unsigned int length);
 void processSerialCommands();
+void updateLocalFallDetector(const MotionSample &s);
+bool publishLocalFallCandidate(const char *reason, float confidence, const MotionSample &s);
+bool publishLocalFallAlert(const char *reason, float confidence, const MotionSample &s);
+bool publishLocalFallAlertAsBatch(const char *reason, float confidence, const MotionSample &s);
+void runLocalFallSimulation(const String &scenario);
 
 
 // =====================================================
@@ -620,6 +672,10 @@ bool acceptSpo2Candidate(int spo2) {
     if (spo2Candidate == 0 || abs(spo2 - spo2Candidate) > SPO2_MAX_STEP_PERCENT) {
       spo2Candidate = spo2;
       spo2CandidateHits = 1;
+      if (SPO2_REQUIRED_CONFIRMATIONS <= 1) {
+        commitHeldSpo2(spo2, millis());
+        return true;
+      }
       holdLastSpo2OrInvalidate();
       return false;
     }
@@ -632,6 +688,20 @@ bool acceptSpo2Candidate(int spo2) {
 
     commitHeldSpo2((spo2Candidate + spo2) / 2, millis());
     return true;
+  }
+
+  int currentSpo2 = getDisplaySpo2();
+  if (currentSpo2 >= 94 && spo2 < currentSpo2 - 2) {
+    if (spo2Candidate == 0 || abs(spo2 - spo2Candidate) > 2) {
+      spo2Candidate = spo2;
+      spo2CandidateHits = 1;
+      return true;
+    }
+
+    if (spo2CandidateHits < 255) spo2CandidateHits++;
+    if (spo2CandidateHits < 3) {
+      return true;
+    }
   }
 
   if (abs(spo2 - latestMax.spo2) > SPO2_MAX_STEP_PERCENT) {
@@ -710,15 +780,36 @@ void updateSpo2Estimator(uint32_t redValue, uint32_t irValue) {
   bool signalOk = (
     irDc >= (double)FINGER_IR_THRESHOLD &&
     redDc >= 1000.0 &&
-    irAc >= 45.0 &&
-    redAc >= 18.0 &&
-    irPp >= 120.0 &&
-    redPp >= 60.0 &&
+    irAc >= 12.0 &&
+    redAc >= 8.0 &&
+    irPp >= 35.0 &&
+    redPp >= 25.0 &&
     irAc < (irDc * 0.22) &&
     redAc < (redDc * 0.30)
   );
 
   if (!motionOk || !signalOk) {
+    static unsigned long lastSpo2DebugMs = 0;
+    unsigned long now = millis();
+    if (now - lastSpo2DebugMs >= 2500) {
+      Serial.print("SpO2 signal reject motionOk=");
+      Serial.print(motionOk ? "YES" : "NO");
+      Serial.print(" signalOk=");
+      Serial.print(signalOk ? "YES" : "NO");
+      Serial.print(" irDc=");
+      Serial.print(irDc, 0);
+      Serial.print(" redDc=");
+      Serial.print(redDc, 0);
+      Serial.print(" irAc=");
+      Serial.print(irAc, 1);
+      Serial.print(" redAc=");
+      Serial.print(redAc, 1);
+      Serial.print(" irPp=");
+      Serial.print(irPp, 0);
+      Serial.print(" redPp=");
+      Serial.println(redPp, 0);
+      lastSpo2DebugMs = now;
+    }
     holdLastSpo2OrInvalidate();
     return;
   }
@@ -727,6 +818,17 @@ void updateSpo2Estimator(uint32_t redValue, uint32_t irValue) {
   ratio *= SPO2_RATIO_SCALE;
 
   if (ratio < SPO2_RATIO_MIN || ratio > SPO2_RATIO_MAX) {
+    static unsigned long lastSpo2RatioDebugMs = 0;
+    unsigned long now = millis();
+    if (now - lastSpo2RatioDebugMs >= 2500) {
+      Serial.print("SpO2 ratio reject ratio=");
+      Serial.print(ratio, 3);
+      Serial.print(" irAc=");
+      Serial.print(irAc, 1);
+      Serial.print(" redAc=");
+      Serial.println(redAc, 1);
+      lastSpo2RatioDebugMs = now;
+    }
     holdLastSpo2OrInvalidate();
     return;
   }
@@ -884,6 +986,19 @@ bool initMpuDirectFallback() {
     Serial.println(pwr, HEX);
   }
 
+  bool configOk = true;
+  configOk &= mpuWriteRegister(MPU_REG_CONFIG, 0x03);        // DLPF for stable 20Hz fall samples
+  configOk &= mpuWriteRegister(MPU_REG_GYRO_CONFIG, 0x08);   // +/-500 dps
+  configOk &= mpuWriteRegister(MPU_REG_ACCEL_CONFIG, 0x18);  // +/-16g
+
+  if (!configOk) {
+    Serial.println("⚠️ MPU direct range config failed; continuing with default scale");
+  } else {
+    mpuAccelLsbPerG = 2048.0f;
+    mpuGyroLsbPerDps = 65.5f;
+    Serial.println("✅ MPU direct range configured: accel +/-16g, gyro +/-500 dps");
+  }
+
   Serial.println("✅ MPU direct fallback READY");
   return true;
 }
@@ -904,17 +1019,17 @@ bool readMpuDirectSample(MotionSample &s) {
   int16_t rawGy = combineHighLow(buffer[10], buffer[11]);
   int16_t rawGz = combineHighLow(buffer[12], buffer[13]);
 
-  float axG = rawAx / 16384.0f;
-  float ayG = rawAy / 16384.0f;
-  float azG = rawAz / 16384.0f;
+  float axG = rawAx / mpuAccelLsbPerG;
+  float ayG = rawAy / mpuAccelLsbPerG;
+  float azG = rawAz / mpuAccelLsbPerG;
 
   s.ax = axG * 9.81f;
   s.ay = ayG * 9.81f;
   s.az = azG * 9.81f;
 
-  s.gx = rawGx / 131.0f;
-  s.gy = rawGy / 131.0f;
-  s.gz = rawGz / 131.0f;
+  s.gx = rawGx / mpuGyroLsbPerDps;
+  s.gy = rawGy / mpuGyroLsbPerDps;
+  s.gz = rawGz / mpuGyroLsbPerDps;
 
   s.temp = (rawTemp / 340.0f) + 36.53f;
   s.accMag = sqrt((s.ax * s.ax) + (s.ay * s.ay) + (s.az * s.az));
@@ -1629,7 +1744,7 @@ void notifyStatus(const char *stage, bool success, const String &message, int co
 void updateDeviceInfoCharacteristic() {
   if (!deviceInfoChar) return;
 
-  StaticJsonDocument<768> doc;
+  StaticJsonDocument<1024> doc;
   doc["device_id"] = getActiveDeviceId();
   doc["firmware_version"] = FIRMWARE_VERSION;
   doc["device_type"] = DEVICE_TYPE;
@@ -1661,23 +1776,30 @@ void updateDeviceInfoCharacteristic() {
   doc["last_error_stage"] = lastErrorStage;
   doc["last_error_message"] = lastErrorMessage;
 
-  char buffer[768];
+  char buffer[1024];
   size_t len = serializeJson(doc, buffer, sizeof(buffer));
   deviceInfoChar->setValue((uint8_t *)buffer, len);
 }
 
 void stopBleAdvertisingOnly() {
-  // Avoid BLE stack calls after provisioning on ESP32-C3; they can corrupt heap
-  // depending on timing. We only mark provisioning inactive for UI/flow purposes.
+  if (!BLEDevice::getInitialized()) return;
+
+  BLEDevice::stopAdvertising();
   bleProvisioningActive = false;
   deviceConnected = false;
-  Serial.println("ℹ️ BLE advertising left untouched; provisioning marked inactive");
+  Serial.println("✅ BLE advertising stopped safely on ESP32-C3");
 }
 
 void stopBleBeforeWifiConnect() {
-  // ESP32-C3 BLE cleanup can corrupt heap immediately after provisioning writes.
-  // Leave BLE untouched until WiFi either connects or fails; stability beats radio neatness here.
-  Serial.println("ℹ️ Keeping BLE active during WiFi connection to avoid ESP32-C3 heap corruption");
+  if (BLEDevice::getInitialized()) {
+    Serial.println("🛑 Stopping BLE advertising before WiFi connection...");
+    BLEDevice::stopAdvertising();
+    deviceConnected = false;
+    bleProvisioningActive = false;
+    // Do not call BLEDevice::deinit(true) on this ESP32-C3 firmware stack.
+    // It can corrupt heap while provisioning callbacks/notifications are unwinding.
+    delay(800);
+  }
 }
 
 // =====================================================
@@ -1766,6 +1888,8 @@ bool initMpu6050() {
     mpu.setAccelerometerRange(MPU6050_RANGE_16_G);
     mpu.setGyroRange(MPU6050_RANGE_500_DEG);
     mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
+    mpuAccelLsbPerG = 2048.0f;
+    mpuGyroLsbPerDps = 65.5f;
 
     mpuMode = MPU_MODE_ADAFRUIT;
     mpuReady = true;
@@ -1806,16 +1930,16 @@ bool initMax30102() {
     return false;
   }
 
-  byte ledBrightness = 0x3F;
-  byte sampleAverage = 8;
+  byte ledBrightness = 0x32;
+  byte sampleAverage = 4;
   byte ledMode = 2;      // Red + IR
   int sampleRate = 100;
   int pulseWidth = 411;
-  int adcRange = 8192;
+  int adcRange = 16384;
 
   max30102.setup(ledBrightness, sampleAverage, ledMode, sampleRate, pulseWidth, adcRange);
-  max30102.setPulseAmplitudeRed(0x3F);
-  max30102.setPulseAmplitudeIR(0x3F);
+  max30102.setPulseAmplitudeRed(0x32);
+  max30102.setPulseAmplitudeIR(0x32);
   max30102.setPulseAmplitudeGreen(0);
 
   max30102.shutDown();
@@ -1912,13 +2036,13 @@ int vitalsProgressPercent(unsigned long now) {
 void publishVitalsStatus(const char *state, unsigned long now) {
   if (!mqttClient.connected() || provisionedDeviceId.isEmpty()) return;
 
-  StaticJsonDocument<768> doc;
+  StaticJsonDocument<1024> doc;
   char timestamp[32];
   isoTimestamp(timestamp, sizeof(timestamp));
 
   bool finalState = strcmp(state, "complete") == 0 || strcmp(state, "stopped") == 0 || strcmp(state, "error") == 0;
-  bool hrValid = activeVitalsHrValid && activeVitalsHrBpm > 0;
-  bool spo2Valid = activeVitalsSpo2Valid && activeVitalsSpo2 > 0 && hrValid;
+  bool hrValid = activeVitalsHrValid && activeVitalsHrBpm >= HR_MIN_BPM && activeVitalsHrBpm <= HR_MAX_BPM;
+  bool spo2Valid = activeVitalsSpo2Valid && activeVitalsSpo2 >= SPO2_MIN_VALID_PERCENT && activeVitalsSpo2 <= SPO2_MAX_VALID_PERCENT;
   int hr = hrValid ? activeVitalsHrBpm : 0;
   int spo2 = spo2Valid ? activeVitalsSpo2 : 0;
   const char *signalStatus = finalState
@@ -1934,7 +2058,10 @@ void publishVitalsStatus(const char *state, unsigned long now) {
   doc["progress_percent"] = strcmp(state, "complete") == 0 ? 100 : vitalsProgressPercent(now);
   doc["finger_detected"] = latestMax.fingerDetected;
   doc["heart_rate"] = hr;
+  doc["heartbeat"] = hr;
+  doc["heartbeatQ"] = activeVitalsHrQuality;
   doc["spo2"] = spo2;
+  doc["oxygen_saturation"] = spo2;
   doc["heart_rate_valid"] = hrValid;
   doc["spo2_valid"] = spo2Valid;
   doc["max_powered"] = maxPowered;
@@ -1946,7 +2073,7 @@ void publishVitalsStatus(const char *state, unsigned long now) {
   doc["good_signal_seen"] = activeVitalsGoodSignalSeen;
   doc["timestamp"] = timestamp;
 
-  char buffer[768];
+  char buffer[1024];
   size_t len = serializeJson(doc, buffer, sizeof(buffer));
   if (len > 0 && len < sizeof(buffer)) {
     mqttClient.publish(mqttTopic.c_str(), buffer);
@@ -2054,6 +2181,445 @@ bool sampleMpuAdafruit(MotionSample &s) {
   return true;
 }
 
+const char *classifyLocalActivity(const MotionSample &s) {
+  float accDelta = fabsf(s.accMag - GRAVITY_MS2);
+
+  if (s.accMag < LOCAL_FREEFALL_ACC_MS2) return "freefall";
+  if (s.accMag >= LOCAL_IMPACT_ACC_MS2) return "impact";
+  if (s.gyroMag < 18.0f && accDelta < 0.9f) return "still";
+  if (s.gyroMag < LOCAL_STILL_GYRO_DPS && accDelta < 1.8f) return "sitting_or_lying";
+  if (s.accMag > 13.0f && s.accMag < 22.0f && s.gyroMag > 55.0f && s.gyroMag < 190.0f) return "running";
+  if (s.accMag > 11.2f && s.accMag < 18.0f && s.gyroMag > 22.0f && s.gyroMag < 135.0f) return "walking";
+  if (s.accMag > 18.0f && s.gyroMag < 130.0f) return "jump_or_step";
+  if (s.gyroMag >= 150.0f && s.accMag < LOCAL_IMPACT_ACC_MS2) return "fast_rotation";
+  return "moving";
+}
+
+void setLocalActivity(const char *label, unsigned long now) {
+  if (localActivityLabel != label) {
+    localActivityLabel = label;
+    localLastActivityChangeMs = now;
+  }
+}
+
+bool publishLocalFallAlertAsBatch(const char *reason, float confidence, const MotionSample &s) {
+  if (!mqttClient.connected()) return false;
+  if (provisionedDeviceId.isEmpty() || provisionedUserId <= 0) return false;
+
+  StaticJsonDocument<2048> doc;
+  char timestamp[32];
+  isoTimestamp(timestamp, sizeof(timestamp));
+
+  doc["message_type"] = "device_data_batch";
+  doc["device_id"] = provisionedDeviceId;
+  doc["user_id"] = provisionedUserId;
+  doc["pairing_token"] = pairingToken;
+  doc["batch_id"] = telemetryCounter + 1;
+  doc["batch_count"] = 1;
+  doc["mpu_sample_rate_hz"] = 20;
+  doc["mpu_mode"] = (mpuMode == MPU_MODE_ADAFRUIT) ? "adafruit" : ((mpuMode == MPU_MODE_DIRECT) ? "direct" : "none");
+  doc["mpu_who_am_i"] = mpuWhoAmI;
+  doc["publish_interval_ms"] = PUBLISH_INTERVAL_MS;
+  doc["firmware_version"] = FIRMWARE_VERSION;
+  doc["battery_level"] = getBatteryPercent();
+  doc["test_mode"] = localFallSimulationPublish;
+  doc["local_activity"] = "fall_now";
+  doc["local_fall_stage"] = "alert";
+  doc["local_fall_alert"] = true;
+  doc["local_fall_label"] = "fall_now";
+  doc["local_fall_confidence"] = confidence;
+  doc["local_fall_reason"] = reason;
+
+  JsonArray items = doc.createNestedArray("items");
+  JsonObject item = items.createNestedObject();
+  item["device_id"] = provisionedDeviceId;
+  item["user_id"] = provisionedUserId;
+  item["timestamp"] = timestamp;
+  item["event_type"] = "fall_alert";
+  item["alert_type"] = "fall_now";
+  item["fall_detected"] = true;
+  item["prediction"] = "fall_now";
+  item["confidence"] = confidence;
+  item["source"] = "esp_local_detector";
+  item["requires_ai_confirmation"] = true;
+
+  JsonObject motion = item.createNestedObject("motion");
+  motion["acc_x"] = s.ax;
+  motion["acc_y"] = s.ay;
+  motion["acc_z"] = s.az;
+  motion["gyro_x"] = s.gx;
+  motion["gyro_y"] = s.gy;
+  motion["gyro_z"] = s.gz;
+  motion["temperature"] = s.temp;
+  motion["timestamp"] = timestamp;
+  motion["acc_magnitude"] = s.accMag;
+  motion["gyro_magnitude"] = s.gyroMag;
+  motion["sampled_at_ms"] = s.t;
+  motion["local_activity"] = "fall_now";
+
+  JsonObject alert = item.createNestedObject("local_fall_alert");
+  alert["label"] = "fall_now";
+  alert["reason"] = reason;
+  alert["confidence"] = confidence;
+  alert["peak_acc_magnitude"] = localPeakAccMag;
+  alert["peak_gyro_magnitude"] = localPeakGyroMag;
+
+  char buffer[2048];
+  size_t len = serializeJson(doc, buffer, sizeof(buffer));
+  if (len == 0 || len >= sizeof(buffer)) return false;
+
+  bool ok = mqttClient.publish(mqttTopic.c_str(), buffer);
+  if (ok) {
+    Serial.print("LOCAL FALL ALERT compatibility batch published: ");
+    Serial.println(buffer);
+  }
+  return ok;
+}
+
+bool publishLocalFallCandidate(const char *reason, float confidence, const MotionSample &s) {
+  if (localFallCandidateSent) return false;
+
+  if (localFallSimulationMode && !localFallSimulationPublish) {
+    localFallCandidateSent = true;
+    alertStatus = "Maybe";
+    Serial.print("SIM LOCAL FALL CANDIDATE reason=");
+    Serial.print(reason);
+    Serial.print(" confidence=");
+    Serial.print(confidence, 2);
+    Serial.print(" acc=");
+    Serial.print(s.accMag, 2);
+    Serial.print(" gyro=");
+    Serial.println(s.gyroMag, 2);
+    return true;
+  }
+
+  if (!mqttClient.connected()) return false;
+  if (provisionedDeviceId.isEmpty() || provisionedUserId <= 0) return false;
+  if (
+    localLastFallCandidateMs > 0 &&
+    millis() - localLastFallCandidateMs < LOCAL_FALL_CANDIDATE_COOLDOWN_MS
+  ) {
+    return false;
+  }
+
+  StaticJsonDocument<1024> doc;
+  char timestamp[32];
+  isoTimestamp(timestamp, sizeof(timestamp));
+
+  doc["message_type"] = "fall_alert";
+  doc["alert_type"] = "fall_candidate";
+  doc["source"] = "esp_local_detector";
+  doc["device_id"] = provisionedDeviceId;
+  doc["user_id"] = provisionedUserId;
+  doc["pairing_token"] = pairingToken;
+  doc["timestamp"] = timestamp;
+  doc["severity"] = "high";
+  doc["confidence"] = confidence;
+  doc["reason"] = reason;
+  doc["activity"] = "fall_sequence";
+  doc["firmware_version"] = FIRMWARE_VERSION;
+  doc["battery_level"] = getBatteryPercent();
+  doc["fall_detected"] = false;
+  doc["prediction"] = "fall_candidate";
+  doc["requires_ai_confirmation"] = true;
+
+  JsonObject motion = doc.createNestedObject("motion");
+  motion["acc_x"] = s.ax;
+  motion["acc_y"] = s.ay;
+  motion["acc_z"] = s.az;
+  motion["gyro_x"] = s.gx;
+  motion["gyro_y"] = s.gy;
+  motion["gyro_z"] = s.gz;
+  motion["acc_magnitude"] = s.accMag;
+  motion["gyro_magnitude"] = s.gyroMag;
+  motion["peak_acc_magnitude"] = localPeakAccMag;
+  motion["peak_gyro_magnitude"] = localPeakGyroMag;
+  motion["sampled_at_ms"] = s.t;
+
+  char buffer[1024];
+  size_t len = serializeJson(doc, buffer, sizeof(buffer));
+  if (len == 0 || len >= sizeof(buffer)) return false;
+
+  bool ok = mqttClient.publish(mqttTopic.c_str(), buffer);
+  if (ok) {
+    localFallCandidateSent = true;
+    localLastFallCandidateMs = millis();
+    alertStatus = "Maybe";
+    Serial.print("LOCAL FALL CANDIDATE published: ");
+    Serial.println(buffer);
+  }
+  return ok;
+}
+
+bool publishLocalFallAlert(const char *reason, float confidence, const MotionSample &s) {
+  if (localFallSimulationMode && !localFallSimulationPublish) {
+    localFallSimulationAlerted = true;
+    alertStatus = "SimFall";
+    Serial.print("SIM LOCAL FALL ALERT reason=");
+    Serial.print(reason);
+    Serial.print(" confidence=");
+    Serial.print(confidence, 2);
+    Serial.print(" acc=");
+    Serial.print(s.accMag, 2);
+    Serial.print(" gyro=");
+    Serial.println(s.gyroMag, 2);
+    return true;
+  }
+
+  if (!mqttClient.connected()) return false;
+  if (provisionedDeviceId.isEmpty() || provisionedUserId <= 0) return false;
+  if (millis() - localLastFallAlertMs < LOCAL_FALL_ALERT_COOLDOWN_MS) return false;
+
+  StaticJsonDocument<1536> doc;
+  char timestamp[32];
+  isoTimestamp(timestamp, sizeof(timestamp));
+
+  doc["message_type"] = "fall_alert";
+  doc["alert_type"] = "fall_now";
+  doc["source"] = "esp_local_detector";
+  doc["device_id"] = provisionedDeviceId;
+  doc["user_id"] = provisionedUserId;
+  doc["pairing_token"] = pairingToken;
+  doc["timestamp"] = timestamp;
+  doc["severity"] = "critical";
+  doc["confidence"] = confidence;
+  doc["reason"] = reason;
+  doc["activity"] = localActivityLabel;
+  doc["firmware_version"] = FIRMWARE_VERSION;
+  doc["battery_level"] = getBatteryPercent();
+  doc["requires_ai_confirmation"] = true;
+
+  JsonObject motion = doc.createNestedObject("motion");
+  motion["acc_x"] = s.ax;
+  motion["acc_y"] = s.ay;
+  motion["acc_z"] = s.az;
+  motion["gyro_x"] = s.gx;
+  motion["gyro_y"] = s.gy;
+  motion["gyro_z"] = s.gz;
+  motion["acc_magnitude"] = s.accMag;
+  motion["gyro_magnitude"] = s.gyroMag;
+  motion["peak_acc_magnitude"] = localPeakAccMag;
+  motion["peak_gyro_magnitude"] = localPeakGyroMag;
+  motion["sampled_at_ms"] = s.t;
+
+  char buffer[1536];
+  size_t len = serializeJson(doc, buffer, sizeof(buffer));
+  if (len == 0 || len >= sizeof(buffer)) return false;
+
+  bool ok = mqttClient.publish(mqttTopic.c_str(), buffer);
+  bool compatOk = publishLocalFallAlertAsBatch(reason, confidence, s);
+  if (ok || compatOk) {
+    localLastFallAlertMs = millis();
+    alertStatus = "Sent";
+    if (ok) {
+      Serial.print("LOCAL FALL ALERT published: ");
+      Serial.println(buffer);
+    }
+  }
+  return ok || compatOk;
+}
+
+void resetLocalFallSequence() {
+  localFallStage = LOCAL_FALL_IDLE;
+  localFallReason = "";
+  localFallConfidence = 0.0f;
+  localPeakAccMag = 0.0f;
+  localPeakGyroMag = 0.0f;
+  localLowAccStartedMs = 0;
+  localFreefallStartedMs = 0;
+  localImpactDetectedMs = 0;
+  localStillStartedMs = 0;
+  localFallCandidateSent = false;
+}
+
+void updateLocalFallDetector(const MotionSample &s) {
+  unsigned long now = s.t;
+  setLocalActivity(classifyLocalActivity(s), now);
+
+  if (s.accMag > localPeakAccMag) localPeakAccMag = s.accMag;
+  if (s.gyroMag > localPeakGyroMag) localPeakGyroMag = s.gyroMag;
+
+  bool freefall = s.accMag < LOCAL_FREEFALL_ACC_MS2;
+  bool impact = (s.accMag >= LOCAL_IMPACT_ACC_MS2 && s.gyroMag >= LOCAL_IMPACT_GYRO_DPS) ||
+                (s.accMag >= LOCAL_HARD_IMPACT_ACC_MS2);
+  bool still = (s.accMag >= LOCAL_STILL_ACC_LOW_MS2 &&
+                s.accMag <= LOCAL_STILL_ACC_HIGH_MS2 &&
+                s.gyroMag <= LOCAL_STILL_GYRO_DPS);
+  bool clearlyActive = (s.gyroMag > 95.0f || fabsf(s.accMag - GRAVITY_MS2) > 6.0f);
+
+  if (freefall) {
+    if (localLowAccStartedMs == 0) localLowAccStartedMs = now;
+  } else {
+    localLowAccStartedMs = 0;
+  }
+
+  if (localFallStage == LOCAL_FALL_IDLE) {
+    localPeakAccMag = s.accMag;
+    localPeakGyroMag = s.gyroMag;
+
+    if (localLowAccStartedMs > 0 && now - localLowAccStartedMs >= LOCAL_FREEFALL_MIN_MS) {
+      localFallStage = LOCAL_FALL_FREEFALL;
+      localFreefallStartedMs = localLowAccStartedMs;
+      localFallReason = "freefall_detected";
+      setLocalActivity("fall_sequence", now);
+      return;
+    }
+
+    if (impact) {
+      localFallStage = LOCAL_FALL_VERIFY;
+      localImpactDetectedMs = now;
+      localStillStartedMs = 0;
+      localFallReason = "hard_impact_without_freefall";
+      localFallConfidence = 0.72f;
+      setLocalActivity("fall_sequence", now);
+      publishLocalFallCandidate(localFallReason.c_str(), localFallConfidence, s);
+      return;
+    }
+
+    return;
+  }
+
+  if (localFallStage == LOCAL_FALL_FREEFALL) {
+    if (impact) {
+      localFallStage = LOCAL_FALL_VERIFY;
+      localImpactDetectedMs = now;
+      localStillStartedMs = 0;
+      localFallReason = "freefall_then_impact";
+      localFallConfidence = 0.86f;
+      setLocalActivity("fall_sequence", now);
+      publishLocalFallCandidate(localFallReason.c_str(), localFallConfidence, s);
+      return;
+    }
+
+    if (now - localFreefallStartedMs > LOCAL_IMPACT_WINDOW_MS) {
+      resetLocalFallSequence();
+    }
+    return;
+  }
+
+  if (localFallStage == LOCAL_FALL_VERIFY) {
+    if (still) {
+      if (localStillStartedMs == 0) localStillStartedMs = now;
+
+      if (now - localStillStartedMs >= LOCAL_POST_IMPACT_STILL_MS) {
+        float confidence = localFallConfidence;
+        if (localPeakAccMag >= LOCAL_HARD_IMPACT_ACC_MS2) confidence += 0.06f;
+        if (localPeakGyroMag >= 220.0f) confidence += 0.06f;
+        if (confidence > 0.97f) confidence = 0.97f;
+
+        publishLocalFallAlert(localFallReason.c_str(), confidence, s);
+        setLocalActivity("fall_now", now);
+        resetLocalFallSequence();
+      }
+      return;
+    }
+
+    if (clearlyActive && now - localImpactDetectedMs > 500) {
+      // Jumping/running/rough handling usually continues moving after impact.
+      resetLocalFallSequence();
+      return;
+    }
+
+    if (now - localImpactDetectedMs > LOCAL_VERIFY_TIMEOUT_MS) {
+      resetLocalFallSequence();
+    }
+  }
+}
+
+MotionSample makeSimMotionSample(float accMag, float gyroMag, unsigned long t) {
+  MotionSample s;
+  s.ax = 0.0f;
+  s.ay = 0.0f;
+  s.az = accMag;
+  s.gx = gyroMag;
+  s.gy = 0.0f;
+  s.gz = 0.0f;
+  s.temp = 36.5f;
+  s.accMag = accMag;
+  s.gyroMag = gyroMag;
+  s.t = t;
+  return s;
+}
+
+void feedSimMotion(float accMag, float gyroMag, unsigned long &simNow, unsigned long durationMs) {
+  unsigned long endMs = simNow + durationMs;
+  while (simNow <= endMs) {
+    MotionSample s = makeSimMotionSample(accMag, gyroMag, simNow);
+    latestMotion = s;
+    updateLocalFallDetector(s);
+    simNow += MPU_SAMPLE_INTERVAL_MS;
+  }
+}
+
+void runLocalFallSimulation(const String &scenario) {
+  Serial.println("===== LOCAL FALL DETECTOR SIM START =====");
+  Serial.print("Scenario=");
+  Serial.println(scenario);
+
+  resetLocalFallSequence();
+  localLastFallAlertMs = 0;
+  localFallSimulationMode = true;
+  localFallSimulationPublish = (scenario == "test_hard_publish" || scenario == "hard_publish");
+  localFallSimulationAlerted = false;
+  alertStatus = "None";
+
+  if (localFallSimulationPublish) {
+    Serial.println("Simulation publish mode=ON. A real MQTT fall_alert will be sent if MQTT is connected.");
+  }
+
+  unsigned long simNow = millis();
+
+  if (scenario == "fall" || scenario == "test_fall") {
+    feedSimMotion(GRAVITY_MS2, 8.0f, simNow, 700);       // normal standing
+    feedSimMotion(2.6f, 70.0f, simNow, 180);             // freefall / loss of support
+    feedSimMotion(34.0f, 260.0f, simNow, 120);           // impact
+    feedSimMotion(10.0f, 18.0f, simNow, 1700);           // post-impact stillness
+  } else if (scenario == "walk" || scenario == "test_walk") {
+    for (int i = 0; i < 35; i++) {
+      feedSimMotion((i % 2 == 0) ? 12.4f : 8.8f, 55.0f, simNow, 100);
+    }
+  } else if (scenario == "run" || scenario == "test_run") {
+    for (int i = 0; i < 35; i++) {
+      feedSimMotion((i % 2 == 0) ? 16.0f : 7.8f, 125.0f, simNow, 90);
+    }
+  } else if (scenario == "jump" || scenario == "test_jump") {
+    feedSimMotion(GRAVITY_MS2, 15.0f, simNow, 500);
+    feedSimMotion(3.8f, 60.0f, simNow, 130);
+    feedSimMotion(24.0f, 95.0f, simNow, 120);
+    feedSimMotion(13.5f, 75.0f, simNow, 900);            // keeps moving, should cancel
+  } else if (scenario == "sit" || scenario == "test_sit") {
+    feedSimMotion(GRAVITY_MS2, 10.0f, simNow, 700);
+    feedSimMotion(13.0f, 70.0f, simNow, 350);
+    feedSimMotion(9.9f, 10.0f, simNow, 1500);
+  } else if (scenario == "hard" || scenario == "test_hard" || scenario == "hard_publish" || scenario == "test_hard_publish") {
+    feedSimMotion(GRAVITY_MS2, 8.0f, simNow, 600);
+    feedSimMotion(33.0f, 180.0f, simNow, 100);
+    feedSimMotion(10.0f, 20.0f, simNow, 1600);
+  } else {
+    Serial.println("Unknown simulation. Use: test_fall | test_walk | test_run | test_jump | test_sit | test_hard | test_hard_publish");
+    localFallSimulationMode = false;
+    localFallSimulationPublish = false;
+    return;
+  }
+
+  Serial.print("Simulation final activity=");
+  Serial.println(localActivityLabel);
+  Serial.print("Simulation alertStatus=");
+  Serial.println(alertStatus);
+  Serial.print("Simulation fallDetected=");
+  Serial.println((localFallSimulationAlerted || alertStatus == "Sent") ? "YES" : "NO");
+  if (localFallSimulationPublish && alertStatus != "Sent") {
+    Serial.println("Simulation publish result=NOT_SENT. Check WiFi/MQTT connection and backend handler.");
+  }
+  Serial.print("Simulation peakAcc=");
+  Serial.print(localPeakAccMag, 2);
+  Serial.print(" peakGyro=");
+  Serial.println(localPeakGyroMag, 2);
+  Serial.println("===== LOCAL FALL DETECTOR SIM END =====");
+  localFallSimulationMode = false;
+  localFallSimulationPublish = false;
+}
+
 void sampleMpuNow() {
   if (!mpuReady || mpuMode == MPU_MODE_NONE) return;
 
@@ -2072,6 +2638,7 @@ void sampleMpuNow() {
   }
 
   latestMotion = s;
+  updateLocalFallDetector(s);
   motionSamples[motionWriteIndex] = s;
   motionWriteIndex = (motionWriteIndex + 1) % MPU_BATCH_SIZE;
 
@@ -2182,6 +2749,7 @@ void startHrMeasurementSession(unsigned long now) {
   hrSessionState = HR_SESSION_MEASURING;
   hrSessionStartedMs = now;
   hrSessionHoldStartedMs = 0;
+  hrSessionHoldDurationMs = HR_HOLD_DURATION_MS;
   hrSessionCount = 0;
   lastSessionHrQuality = 0.0f;
 #endif
@@ -2307,18 +2875,15 @@ bool analyzeHrSessionPeaks(int &bpmOut, float &qualityOut) {
   bpmOut = 0;
   qualityOut = 0.0f;
 
-  if (hrSessionCount < 1200) return false;
+  if (hrSessionCount < 80) return false;
 
-  int dsCount = hrSessionCount / HR_DOWNSAMPLE_FACTOR;
+  int dsCount = hrSessionCount;
   if (dsCount > HR_DOWNSAMPLED_MAX) dsCount = HR_DOWNSAMPLED_MAX;
-  if (dsCount < 300) return false;
+  if (dsCount < 80) return false;
 
   double mean = 0.0;
   for (int i = 0; i < dsCount; i++) {
-    uint32_t sum = 0;
-    int base = i * HR_DOWNSAMPLE_FACTOR;
-    for (int k = 0; k < HR_DOWNSAMPLE_FACTOR; k++) sum += hrSessionIrBuffer[base + k];
-    float v = (float)sum / (float)HR_DOWNSAMPLE_FACTOR;
+    float v = (float)hrSessionIrBuffer[i];
     hrSessionWork[i] = v;
     mean += v;
   }
@@ -2339,10 +2904,12 @@ bool analyzeHrSessionPeaks(int &bpmOut, float &qualityOut) {
     hrSessionWork[i] = (hrSessionWork[i - 2] + hrSessionWork[i - 1] + hrSessionWork[i] + hrSessionWork[i + 1] + hrSessionWork[i + 2]) / 5.0f;
   }
 
-  const float fs = (float)HR_SESSION_SAMPLE_RATE_HZ / (float)HR_DOWNSAMPLE_FACTOR;
+  float elapsedSec = (float)(millis() - hrSessionStartedMs) / 1000.0f;
+  if (elapsedSec < 1.0f) elapsedSec = (float)HR_MEASURE_DURATION_MS / 1000.0f;
+  const float fs = (float)dsCount / elapsedSec;
   int minDistance = (int)((fs * 60.0f) / (float)HR_MAX_BPM);
   int maxDistance = (int)((fs * 60.0f) / (float)HR_MIN_BPM);
-  if (minDistance < 3) minDistance = 3;
+  if (minDistance < 2) minDistance = 2;
 
   float threshold = rms * 0.45f;
   if (threshold < 8.0f) threshold = 8.0f;
@@ -2396,26 +2963,67 @@ void finishHrMeasurementSession(unsigned long now) {
 #if HR_SESSION_MODE
   int bpm = 0;
   float quality = 0.0f;
+  int goertzelBpm = 0;
+  float goertzelQuality = 0.0f;
+  int peakBpm = 0;
+  float peakQuality = 0.0f;
 
-  bool ok = analyzeHrSessionGoertzel(bpm, quality);
+  bool goertzelOk = analyzeHrSessionGoertzel(goertzelBpm, goertzelQuality);
+  bool peakOk = analyzeHrSessionPeaks(peakBpm, peakQuality);
 
-  // If frequency scan cannot lock because the signal is weak, try a peak-interval
-  // session analysis. This still uses the full 30s window and is safer than instant peaks.
-  if (!ok || bpm <= 0) {
-    ok = analyzeHrSessionPeaks(bpm, quality);
+  bool ok = false;
+  if (goertzelOk && goertzelBpm > 0 && goertzelQuality >= 0.35f) {
+    bpm = goertzelBpm;
+    quality = goertzelQuality;
+    ok = true;
+  } else if (peakOk && peakBpm > 0 && peakQuality >= 0.25f) {
+    bpm = peakBpm;
+    quality = peakQuality;
+    ok = true;
+  } else if (goertzelOk && goertzelBpm > 0) {
+    bpm = goertzelBpm;
+    quality = goertzelQuality;
+    ok = true;
   }
 
-  if (ok && bpm > 0 && quality >= 0.35f) {
-    // Smooth against the previous completed session. Do not allow a sudden 50->120 jump
-    // unless the new window keeps confirming it in later sessions.
-    if (latestMax.beatAvg > 0 && abs(bpm - latestMax.beatAvg) > 35) {
-      bpm = (bpm + latestMax.beatAvg) / 2;
+  Serial.print("HR analysis samples=");
+  Serial.print(hrSessionCount);
+  Serial.print(" gOk=");
+  Serial.print(goertzelOk ? "YES" : "NO");
+  Serial.print(" gBpm=");
+  Serial.print(goertzelBpm);
+  Serial.print(" gQ=");
+  Serial.print(goertzelQuality, 2);
+  Serial.print(" pOk=");
+  Serial.print(peakOk ? "YES" : "NO");
+  Serial.print(" pBpm=");
+  Serial.print(peakBpm);
+  Serial.print(" pQ=");
+  Serial.println(peakQuality, 2);
+
+  if (ok && bpm >= HR_MIN_BPM && bpm <= HR_MAX_BPM) {
+    // Reject sudden jumps instead of averaging them into a believable but false value.
+    if (latestMax.beatAvg > 0 && abs(bpm - latestMax.beatAvg) > HR_MAX_JUMP_BPM) {
+      activeVitalsHrQuality = max(activeVitalsHrQuality, quality);
+      Serial.print("⚠️ HR session rejected sudden jump. previous=");
+      Serial.print(latestMax.beatAvg);
+      Serial.print(" candidate=");
+      Serial.print(bpm);
+      Serial.print(" quality=");
+      Serial.println(quality, 2);
+      ok = false;
     }
 
-    bpm = constrain(bpm, HR_MIN_BPM, HR_MAX_BPM);
+    if (!ok) {
+      hrSessionState = HR_SESSION_HOLDING;
+      hrSessionHoldStartedMs = now;
+      hrSessionHoldDurationMs = HR_RETRY_HOLD_MS;
+      hrSessionCount = 0;
+      return;
+    }
 
-    lastSessionHrQuality = quality;
-    activeVitalsHrQuality = quality;
+    lastSessionHrQuality = max(lastSessionHrQuality, quality);
+    activeVitalsHrQuality = max(activeVitalsHrQuality, quality);
     commitHeldHeartRate(bpm, now);
 
     memset(rates, 0, sizeof(rates));
@@ -2426,9 +3034,11 @@ void finishHrMeasurementSession(unsigned long now) {
     Serial.print(bpm);
     Serial.print(" quality=");
     Serial.println(quality, 2);
+    hrSessionHoldDurationMs = HR_HOLD_DURATION_MS;
   } else {
     // Keep the old value on screen if the new session was not good enough.
-    activeVitalsHrQuality = quality;
+    activeVitalsHrQuality = max(activeVitalsHrQuality, quality);
+    hrSessionHoldDurationMs = HR_RETRY_HOLD_MS;
     Serial.println("⚠️ HR session ended without a reliable BPM. Keeping previous displayed HR.");
   }
 
@@ -2457,7 +3067,7 @@ void updateHrMeasurementSession(uint32_t irValue) {
   }
 
   if (hrSessionState == HR_SESSION_HOLDING) {
-    if (now - hrSessionHoldStartedMs >= HR_HOLD_DURATION_MS) {
+    if (now - hrSessionHoldStartedMs >= hrSessionHoldDurationMs) {
       startHrMeasurementSession(now);
     }
   }
@@ -2503,7 +3113,13 @@ void acceptHeartRateBpm(float beatsPerMinute) {
 
   latestMax.heartRate = bpm;
   latestMax.beatAvg = averageValidRates();
-  if (latestMax.beatAvg > 0) commitHeldHeartRate(latestMax.beatAvg, millis());
+  if (latestMax.beatAvg > 0) {
+    activeVitalsHrQuality = max(activeVitalsHrQuality, 0.62f);
+#if HR_SESSION_MODE
+    lastSessionHrQuality = max(lastSessionHrQuality, activeVitalsHrQuality);
+#endif
+    commitHeldHeartRate(latestMax.beatAvg, millis());
+  }
 }
 
 
@@ -2710,6 +3326,19 @@ void sampleMaxNow() {
   bool rawFingerDetected = (irValue > FINGER_IR_THRESHOLD) && (redValue > 1000);
 
   if (!rawFingerDetected) {
+#if MAX_HR_DEBUG
+    if (millis() - lastMaxDebugPrintMs >= 1000) {
+      lastMaxDebugPrintMs = millis();
+      Serial.print("MAX IR=");
+      Serial.print(latestMax.ir);
+      Serial.print(" RED=");
+      Serial.print(latestMax.red);
+      Serial.print(" Finger=NO threshold=");
+      Serial.print(FINGER_IR_THRESHOLD);
+      Serial.print(" Powered=");
+      Serial.println(maxPowered ? "ON" : "OFF");
+    }
+#endif
     // Do not reset HR immediately on a short optical dip. Optical sensors can lose
     // contact for a few samples because of pressure, skin motion, or ambient light.
     if (previousFingerDetected && lastFingerDetectedMs > 0 && (now - lastFingerDetectedMs < FINGER_LOST_GRACE_MS)) {
@@ -2807,7 +3436,7 @@ void sampleMaxNow() {
     Serial.print(" HR=");
     Serial.print(latestMax.beatAvg);
     Serial.print(" HRq=");
-    Serial.print(hrAutocorrQuality, 2);
+    Serial.print(activeVitalsHrQuality, 2);
     Serial.print(" SpO2=");
     Serial.print(latestMax.spo2Valid ? latestMax.spo2 : 0);
     Serial.print(" Powered=");
@@ -2879,7 +3508,10 @@ void isoTimestamp(char *buffer, size_t bufferSize) {
 }
 
 bool hasPublishableVitals() {
-  return getDisplayHrBpm() > 0 || getDisplaySpo2() > 0;
+  int hr = getDisplayHrBpm();
+  int spo2 = getDisplaySpo2();
+  return (hr >= HR_MIN_BPM && hr <= HR_MAX_BPM) ||
+         (spo2 >= SPO2_MIN_VALID_PERCENT && spo2 <= SPO2_MAX_VALID_PERCENT);
 }
 
 void addVitalsObject(JsonObject item, const char *timestamp) {
@@ -2888,8 +3520,15 @@ void addVitalsObject(JsonObject item, const char *timestamp) {
   int hr = getDisplayHrBpm();
   int spo2 = getDisplaySpo2();
 
-  if (hr > 0) vitals["heart_rate"] = hr;
-  if (spo2 > 0) vitals["oxygen_saturation"] = spo2;
+  if (hr >= HR_MIN_BPM && hr <= HR_MAX_BPM) {
+    vitals["heart_rate"] = hr;
+    vitals["heartbeat"] = hr;
+    vitals["heartbeatQ"] = lastSessionHrQuality;
+  }
+  if (spo2 >= SPO2_MIN_VALID_PERCENT && spo2 <= SPO2_MAX_VALID_PERCENT) {
+    vitals["oxygen_saturation"] = spo2;
+    vitals["spo2"] = spo2;
+  }
   vitals["timestamp"] = timestamp;
 
   // Extra fields are ignored by the backend today, but useful in serial/debug captures.
@@ -2937,6 +3576,11 @@ bool buildTelemetryJson(char *output, size_t outputSize) {
   doc["firmware_version"] = firmware;
   doc["battery_level"] = getBatteryPercent();
   doc["test_mode"] = false;
+  doc["local_activity"] = localActivityLabel;
+  doc["local_fall_stage"] = (localFallStage == LOCAL_FALL_IDLE) ? "idle" :
+                            ((localFallStage == LOCAL_FALL_FREEFALL) ? "freefall" : "verify");
+  doc["local_peak_acc_magnitude"] = localPeakAccMag;
+  doc["local_peak_gyro_magnitude"] = localPeakGyroMag;
 
   JsonArray items = doc.createNestedArray("items");
 
@@ -2965,6 +3609,7 @@ bool buildTelemetryJson(char *output, size_t outputSize) {
     motion["acc_magnitude"] = s.accMag;
     motion["gyro_magnitude"] = s.gyroMag;
     motion["sampled_at_ms"] = s.t;
+    motion["local_activity"] = localActivityLabel;
 
     if (i == motionCount - 1) {
       if (hasPublishableVitals()) {
@@ -3405,7 +4050,6 @@ bool scanForTargetWiFi(const String &targetSsid) {
     if (bssid) {
       memcpy(wifiTargetBssid, bssid, sizeof(wifiTargetBssid));
       wifiTargetChannel = WiFi.channel(bestTargetIndex);
-      wifiTargetApLocked = wifiTargetChannel > 0;
     }
   }
 
@@ -3414,8 +4058,8 @@ bool scanForTargetWiFi(const String &targetSsid) {
   Serial.print(" auth=");
   Serial.println(wifiAuthModeToText(bestTargetAuth));
 
-  if (wifiTargetApLocked) {
-    Serial.print("🔒 Locking WiFi AP channel=");
+  if (wifiTargetChannel > 0) {
+    Serial.print("ℹ️ Target AP channel=");
     Serial.print(wifiTargetChannel);
     Serial.print(" bssid=");
     for (int i = 0; i < 6; i++) {
@@ -3423,7 +4067,7 @@ bool scanForTargetWiFi(const String &targetSsid) {
       if (wifiTargetBssid[i] < 16) Serial.print("0");
       Serial.print(wifiTargetBssid[i], HEX);
     }
-    Serial.println();
+    Serial.println(" (not locked)");
   }
 
   if (bestTargetRssi < -82) {
@@ -3457,6 +4101,7 @@ void resetWiFiBeforeConnect() {
   delay(800);
 
   WiFi.setSleep(false);
+  WiFi.setTxPower(WIFI_POWER_8_5dBm);
   WiFi.setAutoReconnect(false);
 
   Serial.println("✅ WiFi state cleaned");
@@ -3554,6 +4199,19 @@ void handleSerialCommand(String command) {
   if (command.length() == 0) return;
 
   if (
+    command == "test_fall" ||
+    command == "test_walk" ||
+    command == "test_run" ||
+    command == "test_jump" ||
+    command == "test_sit" ||
+    command == "test_hard" ||
+    command == "test_hard_publish"
+  ) {
+    runLocalFallSimulation(command);
+    return;
+  }
+
+  if (
     command == "meger" ||
     command == "measure" ||
     command == "vitals" ||
@@ -3583,6 +4241,10 @@ void handleSerialCommand(String command) {
     Serial.println(provisionedDeviceId);
     Serial.print("Vitals active=");
     Serial.println(vitalsMeasurementActive ? "YES" : "NO");
+    Serial.print("Local activity=");
+    Serial.println(localActivityLabel);
+    Serial.print("Local fall stage=");
+    Serial.println((localFallStage == LOCAL_FALL_IDLE) ? "idle" : ((localFallStage == LOCAL_FALL_FREEFALL) ? "freefall" : "verify"));
     return;
   }
 
@@ -3661,13 +4323,10 @@ bool connectToWiFi(bool forceReconnect = false) {
   }
 
   lastWifiDisconnectReason = -1;
-  if (wifiTargetApLocked) {
-    Serial.println("🔐 WiFi.begin using locked channel/BSSID from scan");
-    WiFi.begin(targetSsid.c_str(), targetPassword.c_str(), wifiTargetChannel, wifiTargetBssid, true);
-  } else {
-    WiFi.begin(targetSsid.c_str(), targetPassword.c_str());
-  }
-
+  WiFi.setSleep(false);
+  esp_wifi_set_ps(WIFI_PS_NONE);
+  delay(250);
+  WiFi.begin(targetSsid.c_str(), targetPassword.c_str());
   unsigned long startMs = millis();
   const unsigned long WIFI_CONNECT_TIMEOUT_MS = 35000;
 
@@ -3736,6 +4395,9 @@ bool connectToWiFi(bool forceReconnect = false) {
   if (lastWifiDisconnectReason >= 0) {
     Serial.print(" ");
     Serial.println(wifiDisconnectReasonToText((uint8_t)lastWifiDisconnectReason));
+    if (lastWifiDisconnectReason == 2 || lastWifiDisconnectReason == 15) {
+      Serial.println("⚠️ WiFi auth/handshake failed: re-check exact password, WPA2-AES only, and USB power/cable.");
+    }
   } else {
     Serial.println("unknown");
   }
