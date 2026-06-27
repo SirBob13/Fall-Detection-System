@@ -154,6 +154,9 @@ class NotificationService:
         if alert_type in {"fall", "fall_now"}:
             title = f"🚨 Danger Alert: {patient_name}"
             body = f"Confirmed fall detected for {patient_name}. {message}"
+        elif alert_type == "fall_candidate":
+            title = f"⚠️ Possible Fall: {patient_name}"
+            body = f"Possible fall detected for {patient_name}. Checking confirmation now. {message}"
         else:
             title = f"⚠️ {alert_type.upper()} Alert"
             body = f"{patient_name}: {message} (severity: {severity})"

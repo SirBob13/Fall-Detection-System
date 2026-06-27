@@ -339,6 +339,24 @@ class ApiService {
     }
   }
 
+  async clearUserAlerts(
+    userId: number,
+    mode: 'delete' | 'resolve' = 'delete'
+  ): Promise<ApiResponse<{ cleared_count: number; mode: 'delete' | 'resolve' }>> {
+    try {
+      const response: AxiosResponse<ApiResponse<{ cleared_count: number; mode: 'delete' | 'resolve' }>> =
+        await this.client.post(`/alerts/${userId}/clear`, { mode });
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ Error clearing alerts:', error.message);
+      return {
+        success: false,
+        error: error.message,
+        message: 'فشل مسح الإنذارات'
+      };
+    }
+  }
+
   async getLastLocation(userId: number): Promise<ApiResponse<LastKnownLocation | null>> {
     try {
       const response = await this.client.get(`/emergency/last-location/${userId}`);

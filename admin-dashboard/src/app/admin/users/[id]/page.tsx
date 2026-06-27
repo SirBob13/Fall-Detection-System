@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { apiFetch, API_V1, buildDateQuery, getToken } from "../../_lib/api";
+import { apiDateTimeMs, formatApiDateTime } from "../../_lib/datetime";
 import { useRealtimeEvents } from "../../_lib/realtime";
 
 interface UserDevice {
@@ -170,7 +171,7 @@ export default function UserDetailPage() {
   const withinRange = (timestamp?: string | null) => {
     if (!timestamp) return true;
     if (!start && !end) return true;
-    const ts = new Date(timestamp).getTime();
+    const ts = apiDateTimeMs(timestamp);
     if (Number.isNaN(ts)) return true;
     if (start) {
       const startTs = new Date(start).getTime();
@@ -405,8 +406,8 @@ export default function UserDetailPage() {
                 </div>
                 <p className="text-xs text-slate-500">Battery {device.battery_level ?? "-"} | Firmware {device.firmware_version || "-"}</p>
                 <p className="text-xs text-slate-500">
-                  Last seen: {device.last_seen || "-"}
-                  {device.latest_data_at ? ` · Data: ${device.latest_data_at}` : ""}
+                  Last seen: {formatApiDateTime(device.last_seen)}
+                  {device.latest_data_at ? ` · Data: ${formatApiDateTime(device.latest_data_at)}` : ""}
                 </p>
                 {device.ai_warmup ? (
                   <p className="text-xs text-sky-300">
@@ -424,7 +425,7 @@ export default function UserDetailPage() {
           <div className="mt-3 space-y-2 text-sm text-slate-300">
             {alerts.map((alert) => (
               <div key={alert.id} className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
-                <p className="text-xs text-slate-500">{alert.timestamp || "-"}</p>
+                <p className="text-xs text-slate-500">{formatApiDateTime(alert.timestamp)}</p>
                 <p className="text-sm text-slate-200">{alert.type} · {alert.severity} · {alert.status}</p>
                 <p className="text-xs text-cyan-200">Source device: <span className="font-mono">{formatDeviceId(alert.device_id)}</span></p>
                 <p className="text-xs text-slate-400">{alert.message || "-"}</p>
@@ -441,7 +442,7 @@ export default function UserDetailPage() {
           <div className="mt-3 space-y-2 text-sm text-slate-300">
             {vitals.map((vital) => (
               <div key={vital.id} className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
-                <p className="text-xs text-slate-500">{vital.timestamp || "-"}</p>
+                <p className="text-xs text-slate-500">{formatApiDateTime(vital.timestamp)}</p>
                 <p className="text-xs text-cyan-200">Source device: <span className="font-mono">{formatDeviceId(vital.device_id)}</span></p>
                 <p className="text-sm text-slate-200">
                   HR {vital.heart_rate ?? "-"} | SpO2 {vital.oxygen_saturation ?? "-"}
@@ -458,7 +459,7 @@ export default function UserDetailPage() {
           <div className="mt-3 space-y-2 text-sm text-slate-300">
             {motions.map((motion) => (
               <div key={motion.id} className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
-                <p className="text-xs text-slate-500">{motion.timestamp || "-"}</p>
+                <p className="text-xs text-slate-500">{formatApiDateTime(motion.timestamp)}</p>
                 <p className="text-sm text-slate-200">Device {formatDeviceId(motion.device_id)} | Fall suspected: {motion.is_fall_suspected ? "Yes" : "No"}</p>
                 <p className="text-xs text-slate-400">acc({motion.acc_x ?? "-"}, {motion.acc_y ?? "-"}, {motion.acc_z ?? "-"}) gyro({motion.gyro_x ?? "-"}, {motion.gyro_y ?? "-"}, {motion.gyro_z ?? "-"})</p>
               </div>
@@ -473,7 +474,7 @@ export default function UserDetailPage() {
         <div className="mt-3 space-y-2 text-sm text-slate-300">
           {predictions.map((pred) => (
             <div key={pred.id} className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
-              <p className="text-xs text-slate-500">{pred.timestamp || "-"}</p>
+              <p className="text-xs text-slate-500">{formatApiDateTime(pred.timestamp)}</p>
               <p className="text-sm text-slate-200">Verdict: {pred.final_verdict || "-"} | Confidence {pred.confidence_score ?? "-"}</p>
               <p className="text-xs text-slate-400">Fall now: {pred.fall_now_prediction ? "Yes" : "No"} ({pred.fall_now_probability ?? "-"})</p>
               <p className="text-xs text-slate-400">Fall soon: {pred.fall_soon_prediction ? "Yes" : "No"} ({pred.fall_soon_probability ?? "-"})</p>

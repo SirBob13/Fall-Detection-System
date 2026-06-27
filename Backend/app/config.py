@@ -101,7 +101,11 @@ VITAL_TEMP_MAX_VALID = float(os.getenv("VITAL_TEMP_MAX_VALID", "42.0"))
 # API settings
 API_HOST = "0.0.0.0"
 API_PORT = 8000
-DEBUG = True
+DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+
+# Realtime prediction throttling. Raw motion is still stored continuously, but
+# running neural inference for every sample overwhelms small VPS instances.
+AI_PREDICTION_INTERVAL_SECONDS = float(os.getenv("AI_PREDICTION_INTERVAL_SECONDS", "5.0"))
 
 # Logging
 LOG_DIR = BASE_DIR / "logs"

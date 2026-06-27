@@ -12,12 +12,32 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from .. import crud, schemas
 from ..services.emergency_service import EmergencyService
+from ..services.notification_service import NotificationService
 from ..models import User, Alert, EmergencyLog
 from ..realtime import notify_user, notify_admins
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 emergency_service = EmergencyService()
+notification_service = NotificationService()
+
+
+def _notify_caregivers_push_for_alert_id(alert_id: int, reason: str | None = None) -> None:
+    db = next(get_db())
+    try:
+        alert = db.query(Alert).filter(Alert.id == alert_id).first()
+        if not alert:
+            return
+        notification_service.notify_caregivers_alert(
+            db=db,
+            patient_id=alert.user_id,
+            alert=alert,
+            reason=reason or alert.alert_type,
+        )
+    except Exception as exc:
+        logger.warning("Caregiver emergency push failed for alert_id=%s: %s", alert_id, exc)
+    finally:
+        db.close()
 
 # ==================== Emergency Trigger ====================
 
@@ -97,6 +117,7 @@ async def trigger_emergency(
             }
             await notify_user(user.id, "alerts", action="created", payload=payload)
             await notify_admins("alerts", action="created", payload=payload)
+            background_tasks.add_task(_notify_caregivers_push_for_alert_id, alert.id, alert.alert_type)
             
         except Exception as db_error:
             logger.error(f"Database error creating alert: {db_error}")

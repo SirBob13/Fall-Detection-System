@@ -103,7 +103,7 @@ static const char *PREF_MQTT_TOPIC_KEY = "mqtt_topic";
 
 // ================= Firmware Identity =================
 static const char *DEVICE_TYPE = "esp32-c3-supermini-bracelet";
-static const char *FIRMWARE_VERSION = "3.8.4-c3-mpu-range-fall-fix";
+static const char *FIRMWARE_VERSION = "3.8.5-c3-fast-fall-alert";
 
 // ================= WiFi / MQTT Timing =================
 static const int WIFI_MAX_RETRIES = 30;
@@ -119,9 +119,9 @@ static const int MPU_BATCH_SIZE = 20;
 // Units: acceleration magnitude is m/s^2, gyro magnitude is deg/s.
 static const float GRAVITY_MS2 = 9.81f;
 static const float LOCAL_FREEFALL_ACC_MS2 = 4.7f;       // < 0.48g
-static const float LOCAL_IMPACT_ACC_MS2 = 25.0f;        // ~2.55g
-static const float LOCAL_HARD_IMPACT_ACC_MS2 = 31.0f;   // ~3.16g, can trigger without freefall
-static const float LOCAL_IMPACT_GYRO_DPS = 135.0f;
+static const float LOCAL_IMPACT_ACC_MS2 = 22.0f;        // Fast warning threshold; backend/AI confirms after.
+static const float LOCAL_HARD_IMPACT_ACC_MS2 = 28.0f;   // Can trigger without freefall.
+static const float LOCAL_IMPACT_GYRO_DPS = 105.0f;
 static const float LOCAL_STILL_GYRO_DPS = 38.0f;
 static const float LOCAL_STILL_ACC_LOW_MS2 = 7.1f;
 static const float LOCAL_STILL_ACC_HIGH_MS2 = 12.8f;

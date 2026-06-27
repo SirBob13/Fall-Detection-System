@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../_lib/api";
+import { formatApiDateTime } from "../_lib/datetime";
 import { useRealtimeEvents, useRealtimeRefresh } from "../_lib/realtime";
 
 interface OverviewData {
@@ -107,9 +108,9 @@ export default function OverviewPage() {
         <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-6">
           <h3 className="font-display text-xl">Latest Activity</h3>
           <div className="mt-4 space-y-2 text-sm text-slate-300">
-            <p>Last motion: <span className="text-slate-400">{data?.last_activity?.motion || "-"}</span></p>
-            <p>Last vital: <span className="text-slate-400">{data?.last_activity?.vital || "-"}</span></p>
-            <p>Last alert: <span className="text-slate-400">{data?.last_activity?.alert || "-"}</span></p>
+            <p>Last motion: <span className="text-slate-400">{formatApiDateTime(data?.last_activity?.motion)}</span></p>
+            <p>Last vital: <span className="text-slate-400">{formatApiDateTime(data?.last_activity?.vital)}</span></p>
+            <p>Last alert: <span className="text-slate-400">{formatApiDateTime(data?.last_activity?.alert)}</span></p>
           </div>
         </div>
         <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-6">

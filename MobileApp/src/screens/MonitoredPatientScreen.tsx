@@ -21,7 +21,7 @@ import { realtimeService } from '../services/realtime.service';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { Alert as AlertType, CareLink, Device, LastKnownLocation, User, VitalData } from '../types';
 import { SettingsStackParamList } from '../navigation/AppNavigator';
-import { parseApiDate } from '../utils/helpers';
+import { formatApiDateTime, parseApiDate } from '../utils/helpers';
 
 type MonitoredPatientRouteProp = RouteProp<SettingsStackParamList, 'MonitoredPatient'>;
 
@@ -68,7 +68,7 @@ export const MonitoredPatientScreen: React.FC = () => {
           if (
             !exists &&
             (event.payload.status === 'pending' || event.payload.status === 'sent') &&
-            (event.payload.alert_type === 'fall' || event.payload.alert_type === 'fall_now')
+            (event.payload.alert_type === 'fall' || event.payload.alert_type === 'fall_candidate' || event.payload.alert_type === 'fall_now')
           ) {
             notificationService.sendFallAlert(event.payload, patient.name, patient.id);
           }
@@ -189,7 +189,8 @@ export const MonitoredPatientScreen: React.FC = () => {
     .map((item) => item.heart_rate ?? 0)
     .filter((value) => Number.isFinite(value));
   const chartLabels = vitalsHistory.map((item) => {
-    const date = new Date(item.timestamp);
+    const date = parseApiDate(item.timestamp);
+    if (!date) return '--';
     return `${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}`;
   });
   const timelineItems = [
@@ -449,7 +450,7 @@ export const MonitoredPatientScreen: React.FC = () => {
                 {alerts.map((alert) => (
                   <View key={alert.id} className="mb-3 p-3 rounded-xl bg-lightGray/40">
                     <Text className="text-xs text-dark font-semibold">{alert.message}</Text>
-                    <Text className="text-[10px] text-gray mt-1">{new Date(alert.timestamp).toLocaleString()}</Text>
+                    <Text className="text-[10px] text-gray mt-1">{formatApiDateTime(alert.timestamp)}</Text>
                   </View>
                 ))}
               </View>
@@ -479,7 +480,7 @@ export const MonitoredPatientScreen: React.FC = () => {
                   <Marker
                     coordinate={{ latitude: location!.lat, longitude: location!.lng }}
                     title={t('dashboard.lastKnown')}
-                    description={location?.timestamp ? new Date(location.timestamp).toLocaleString() : undefined}
+                    description={location?.timestamp ? formatApiDateTime(location.timestamp) : undefined}
                   />
                 </MapView>
               </View>
@@ -527,7 +528,7 @@ export const MonitoredPatientScreen: React.FC = () => {
                   <View className="flex-1 rounded-2xl bg-lightGray/20 border border-lightGray px-3 py-3">
                     <Text className="text-sm font-semibold text-dark">{item.title}</Text>
                     <Text className="text-xs text-gray mt-1">{item.subtitle}</Text>
-                    <Text className="text-[10px] text-gray mt-1">{new Date(item.timestamp).toLocaleString()}</Text>
+                    <Text className="text-[10px] text-gray mt-1">{formatApiDateTime(item.timestamp)}</Text>
                   </View>
                 </View>
               ))

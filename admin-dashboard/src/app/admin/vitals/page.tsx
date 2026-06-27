@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiFetch, buildDateQuery } from "../_lib/api";
+import { apiDateTimeMs, formatApiDateTime } from "../_lib/datetime";
 import { useRealtimeEvents } from "../_lib/realtime";
 
 interface VitalItem {
@@ -36,7 +37,7 @@ export default function VitalsPage() {
   const withinRange = (timestamp?: string | null) => {
     if (!timestamp) return true;
     if (!start && !end) return true;
-    const ts = new Date(timestamp).getTime();
+    const ts = apiDateTimeMs(timestamp);
     if (Number.isNaN(ts)) return true;
     if (start) {
       const startTs = new Date(start).getTime();
@@ -105,7 +106,7 @@ export default function VitalsPage() {
                   <span className="text-slate-100 font-semibold">User {vital.user_id}</span>
                   {vital.is_abnormal && <span className="ml-2 text-red-400">Abnormal</span>}
                 </p>
-                <span className="text-xs text-slate-500">{vital.timestamp || "-"}</span>
+                <span className="text-xs text-slate-500">{formatApiDateTime(vital.timestamp)}</span>
               </div>
               <p className="mt-2 text-sm text-slate-400">
                 HR {vital.heart_rate ?? "-"} | SpO2 {vital.oxygen_saturation ?? "-"}

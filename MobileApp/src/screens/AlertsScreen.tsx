@@ -18,6 +18,7 @@ import { ScreenHeader } from '../components/ScreenHeader';
 import { realtimeService } from '../services/realtime.service';
 import { RouteProp, useNavigation, useRoute, useScrollToTop } from '@react-navigation/native';
 import { MainTabParamList } from '../navigation/AppNavigator';
+import { formatApiDateOnly, parseApiDate } from '../utils/helpers';
 
 type AlertsRouteProp = RouteProp<MainTabParamList, 'Alerts'>;
 
@@ -212,6 +213,11 @@ export const AlertsScreen: React.FC = () => {
   };
 
   const handleClearAllAlerts = () => {
+    if (monitoredUser) {
+      RNAlert.alert(t('common.error'), t('alerts.clearAllOwnOnly'));
+      return;
+    }
+
     RNAlert.alert(
       t('alerts.clearAllTitle'),
       t('alerts.clearAllConfirm'),
@@ -221,9 +227,21 @@ export const AlertsScreen: React.FC = () => {
           text: t('alerts.clearAll'),
           style: 'destructive',
           onPress: async () => {
-            // Implement clear logic here
-            RNAlert.alert(t('common.success'), t('alerts.cleared'));
-            setAlerts([]);
+            const activeUserId = user?.id;
+            if (!activeUserId) {
+              RNAlert.alert(t('common.error'), t('errors.loginRequired'));
+              return;
+            }
+
+            const response = await apiService.clearUserAlerts(activeUserId, 'delete');
+            if (response.success) {
+              RNAlert.alert(t('common.success'), t('alerts.cleared'));
+              setAllAlerts([]);
+              setAlerts([]);
+              setLastRefreshedAt(new Date());
+            } else {
+              RNAlert.alert(t('common.error'), response.message || t('alerts.clearFailed'));
+            }
           },
         },
       ]
@@ -281,16 +299,18 @@ export const AlertsScreen: React.FC = () => {
   const statusSpo2 = latestVitalsStatus?.spo2_valid ? latestVitalsStatus.spo2 : lastValidVitals.spo2;
   const statusProgress = Math.max(0, Math.min(100, Math.round(latestVitalsStatus?.progress_percent ?? 0)));
   const groupedAlerts = alerts.reduce<Record<string, AlertType[]>>((groups, alert) => {
-    const alertDate = new Date(alert.timestamp);
+    const alertDate = parseApiDate(alert.timestamp);
     const today = new Date();
     const yesterday = new Date();
     yesterday.setDate(today.getDate() - 1);
 
     let key = t('datetime.today');
-    if (alertDate.toDateString() === yesterday.toDateString()) {
+    if (!alertDate) {
+      key = '--';
+    } else if (alertDate.toDateString() === yesterday.toDateString()) {
       key = t('datetime.yesterday');
     } else if (alertDate.toDateString() !== today.toDateString()) {
-      key = alertDate.toLocaleDateString();
+      key = formatApiDateOnly(alert.timestamp);
     }
 
     groups[key] = groups[key] || [];

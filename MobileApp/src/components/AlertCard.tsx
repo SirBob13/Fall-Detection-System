@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, Animated } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Alert } from '../types';
 import { useLanguage } from '../components/LanguageProvider';
+import { formatApiTime, parseApiDate } from '../utils/helpers';
 
 interface AlertCardProps {
   alert: Alert;
@@ -68,9 +69,10 @@ export const AlertCard: React.FC<AlertCardProps> = ({
   };
 
   const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
+    const date = parseApiDate(dateString);
+    if (!date) return '--';
     const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
+    const diffMs = Math.max(0, now.getTime() - date.getTime());
     const diffMins = Math.floor(diffMs / 60000);
     const diffHours = Math.floor(diffMs / 3600000);
 
@@ -155,7 +157,7 @@ export const AlertCard: React.FC<AlertCardProps> = ({
         <View className="items-center flex-1 border-l border-gray-200">
           <Text className="text-xs text-gray-400 mb-1">{t('alerts.time')}</Text>
           <Text className="text-sm font-semibold text-gray-800">
-            {new Date(alert.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            {formatApiTime(alert.timestamp)}
           </Text>
         </View>
       </View>

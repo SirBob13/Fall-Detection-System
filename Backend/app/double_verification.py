@@ -42,13 +42,13 @@ class DoubleVerificationSystem:
         """
         
         try:
-            logger.info(f"Starting double verification for user {user_id}")
+            logger.debug("Starting double verification for user %s", user_id)
             
             # Get the most recent vital signs
             recent_vitals = self._get_recent_vitals(user_id)
             
             if not recent_vitals:
-                logger.warning(f"No recent vitals found for user {user_id}")
+                logger.debug("No recent vitals found for user %s", user_id)
                 fall_probability = fall_prediction.get("fall_now_probability", 0.0)
                 fall_confirmed = fall_probability >= FALL_ALERT_THRESHOLD
                 return {
@@ -102,7 +102,7 @@ class DoubleVerificationSystem:
                 final_verdict = False
                 confidence_score = 0.3
                 decision_reason = "vitals_only"
-                logger.info(f"Vitals abnormal but no fall detected for user {user_id}")
+                logger.debug("Vitals abnormal but no fall detected for user %s", user_id)
 
             else:
                 # Both normal / low confidence

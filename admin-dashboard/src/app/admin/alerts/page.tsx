@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiFetch, buildDateQuery } from "../_lib/api";
+import { formatApiDateTime } from "../_lib/datetime";
 import { useRealtimeEvents } from "../_lib/realtime";
 
 interface AlertItem {
@@ -94,7 +95,7 @@ export default function AlertsPage() {
               </div>
               <p className="mt-2 text-xs text-cyan-200">Source device: <span className="font-mono">{formatDeviceId(alert.device_id)}</span></p>
               <p className="mt-2 text-sm text-slate-400">{alert.message}</p>
-              <p className="mt-2 text-xs text-slate-500">{alert.timestamp || "-"}</p>
+              <p className="mt-2 text-xs text-slate-500">{formatApiDateTime(alert.timestamp)}</p>
             </div>
           ))}
           {!alerts.length && <p className="text-sm text-slate-400">No alerts yet.</p>}

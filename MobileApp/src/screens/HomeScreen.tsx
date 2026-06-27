@@ -35,7 +35,7 @@ import { deviceService } from '../services/device.service';
 import { deviceProvisioningService } from '../services/deviceProvisioning.service';
 import { emergencyService } from '../services/emergency.service';
 import { voiceService } from '../services/voice.service';
-import { User, Device, Alert as AlertType, VitalData, VitalsStatus } from '../types';
+import { User, Device, Alert as AlertType, CareLink, VitalData, VitalsStatus } from '../types';
 import { useNavigation, useScrollToTop } from '@react-navigation/native';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { realtimeService } from '../services/realtime.service';
@@ -92,6 +92,8 @@ export const HomeScreen: React.FC = () => {
   const [healthInsight, setHealthInsight] = useState<string | null>(null);
   const [listening, setListening] = useState(false);
   const [lastCommand, setLastCommand] = useState<string | null>(null);
+  const [careLinks, setCareLinks] = useState<CareLink[]>([]);
+  const [selectedDataUser, setSelectedDataUser] = useState<User | null>(null);
   const [monitoringSummary, setMonitoringSummary] = useState({ people: 0, pending: 0, critical: 0 });
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const scrollRef = useRef<any>(null);
@@ -122,6 +124,12 @@ export const HomeScreen: React.FC = () => {
       void deviceProvisioningService.disconnect();
     };
   }, []);
+
+  useEffect(() => {
+    if (user) {
+      loadData();
+    }
+  }, [selectedDataUser?.id]);
 
   useEffect(() => {
     if (!settings.voiceCommands) return;
@@ -161,10 +169,13 @@ export const HomeScreen: React.FC = () => {
       if (normalizedSessionUser) {
         await storageService.saveUser(normalizedSessionUser);
       }
-      setDevice(storedDevice);
       
-      // Home is always the signed-in user's own page.
-      const activeUser = storedUser;
+      const activeUser = selectedDataUser || storedUser;
+      const showingOwnData = !selectedDataUser || selectedDataUser.id === storedUser?.id;
+      setDevice(showingOwnData ? storedDevice : null);
+      setVitalsStatus(null);
+      setLastValidVitals({});
+
       if (activeUser) {
         try {
           let apiReachable = false;
@@ -180,6 +191,7 @@ export const HomeScreen: React.FC = () => {
               apiService.getCareLinks(storedUser.id),
               apiService.getCareDashboard(storedUser.id),
             ]);
+            setCareLinks(careLinksResponse.success && careLinksResponse.data ? careLinksResponse.data : []);
             const people = careLinksResponse.success && careLinksResponse.data ? careLinksResponse.data.length : 0;
             const careItems = careDashboardResponse.success && careDashboardResponse.data ? careDashboardResponse.data : [];
             const pending = careItems.reduce((sum, item) => sum + (item.alerts?.pending ?? 0), 0);
@@ -193,7 +205,9 @@ export const HomeScreen: React.FC = () => {
           if (deviceResponse.success && deviceResponse.data) {
             apiReachable = true;
             setDevice(deviceResponse.data);
-            await storageService.saveDevice(deviceResponse.data);
+            if (showingOwnData) {
+              await storageService.saveDevice(deviceResponse.data);
+            }
           }
 
           const vitalsResponse = await apiService.getUserVitals(activeUser.id, 1);
@@ -233,7 +247,7 @@ export const HomeScreen: React.FC = () => {
 
   useEffect(() => {
     const unsubscribe = realtimeService.subscribe('all', (event) => {
-      const activeUser = user;
+      const activeUser = selectedDataUser || user;
       if (!activeUser) return;
       if (event.user_id && event.user_id !== activeUser.id) return;
       if (!event.payload) return;
@@ -246,9 +260,10 @@ export const HomeScreen: React.FC = () => {
             : [event.payload, ...prev];
 
           if (
+            !selectedDataUser &&
             !exists &&
             (event.payload.status === 'pending' || event.payload.status === 'sent') &&
-            (event.payload.alert_type === 'fall' || event.payload.alert_type === 'fall_now')
+            (event.payload.alert_type === 'fall' || event.payload.alert_type === 'fall_candidate' || event.payload.alert_type === 'fall_now')
           ) {
             notificationService.sendFallAlert(event.payload);
             if (settings.automaticSOS) {
@@ -290,7 +305,7 @@ export const HomeScreen: React.FC = () => {
     });
 
     return unsubscribe;
-  }, [user, settings.automaticSOS]);
+  }, [selectedDataUser, user, settings.automaticSOS]);
 
   const checkForNewAlerts = async () => {
     const activeUser = user;
@@ -441,6 +456,11 @@ export const HomeScreen: React.FC = () => {
   };
 
   const handleMeasureVitals = async () => {
+    if (selectedDataUser) {
+      RNAlert.alert(t('common.error'), t('home.readOnlyMonitoredData'));
+      return;
+    }
+
     if (!device?.device_id) {
       RNAlert.alert(t('common.error'), t('system.noDevice'));
       return;
@@ -653,6 +673,8 @@ export const HomeScreen: React.FC = () => {
     }
   };
 
+  const showingOwnData = !selectedDataUser;
+  const selectedDisplayUser = selectedDataUser || user;
   const isMeasuringVitals = vitalsStatus?.state === 'requested' || vitalsStatus?.state === 'measuring';
   const vitalsProgress = Math.max(0, Math.min(100, Math.round(vitalsStatus?.progress_percent ?? 0)));
   const displayHeartRate = vitalsStatus?.heart_rate_valid
@@ -804,6 +826,53 @@ export const HomeScreen: React.FC = () => {
           </View>
         </TouchableOpacity>
 
+        <View className="mx-4 mt-5 bg-white rounded-2xl border border-lightGray p-4 shadow-sm">
+          <Text className="text-sm font-bold text-dark">{t('vitals.selected')}</Text>
+          <Text className="text-xs text-gray mt-1">
+            {selectedDataUser ? t('care.monitoring') : t('dashboard.myData')}
+          </Text>
+          <Text className="text-base font-bold text-dark mt-1">
+            {selectedDisplayUser?.name || t('common.unknown')}
+          </Text>
+
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mt-3">
+            <TouchableOpacity
+              className={`px-4 py-2 rounded-full mr-2 ${showingOwnData ? 'bg-primary' : 'bg-lightGray'}`}
+              onPress={() => setSelectedDataUser(null)}
+            >
+              <Text className={`${showingOwnData ? 'text-white' : 'text-dark'} text-xs font-semibold`}>
+                {t('dashboard.myData')}
+              </Text>
+            </TouchableOpacity>
+            {careLinks.map((link) =>
+              link.patient ? (
+                <TouchableOpacity
+                  key={link.id}
+                  className={`px-4 py-2 rounded-full mr-2 ${
+                    selectedDataUser?.id === link.patient.id ? 'bg-primary' : 'bg-lightGray'
+                  }`}
+                  onPress={() => setSelectedDataUser(link.patient!)}
+                >
+                  <Text
+                    className={`text-xs font-semibold ${
+                      selectedDataUser?.id === link.patient.id ? 'text-white' : 'text-dark'
+                    }`}
+                  >
+                    {link.patient.name}
+                  </Text>
+                </TouchableOpacity>
+              ) : null
+            )}
+          </ScrollView>
+          {lastRefreshedAt ? (
+            <Text className="text-[10px] text-gray mt-3">
+              {t('dashboard.updatedNow', {
+                time: lastRefreshedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              })}
+            </Text>
+          ) : null}
+        </View>
+
         {/* System Status Card */}
         <View className="mx-4 mt-5">
           <StatusCard
@@ -814,7 +883,7 @@ export const HomeScreen: React.FC = () => {
             isRemovingDevice={isRemovingDevice}
             isConnecting={isConnectingDevice}
             compact={isAndroid}
-            canManageDevice
+            canManageDevice={showingOwnData}
           />
         </View>
 
@@ -823,15 +892,15 @@ export const HomeScreen: React.FC = () => {
           <View className="flex-row items-center justify-between mb-3">
             <Text className="text-lg font-bold text-dark">{t('vitals.title')}</Text>
             <TouchableOpacity
-              className={`px-4 py-2 rounded-full ${isMeasuringVitals || vitalsRequesting ? 'bg-gray-200' : 'bg-primary'}`}
+              className={`px-4 py-2 rounded-full ${!showingOwnData || isMeasuringVitals || vitalsRequesting ? 'bg-gray-200' : 'bg-primary'}`}
               onPress={handleMeasureVitals}
-              disabled={isMeasuringVitals || vitalsRequesting}
+              disabled={!showingOwnData || isMeasuringVitals || vitalsRequesting}
             >
               {vitalsRequesting ? (
                 <ActivityIndicator size="small" color="#FFFFFF" />
               ) : (
-                <Text className={`text-xs font-bold ${isMeasuringVitals ? 'text-gray' : 'text-white'}`}>
-                  {isMeasuringVitals ? 'Measuring...' : 'Measure Vitals'}
+                <Text className={`text-xs font-bold ${!showingOwnData || isMeasuringVitals ? 'text-gray' : 'text-white'}`}>
+                  {!showingOwnData ? t('home.viewOnly') : isMeasuringVitals ? 'Measuring...' : 'Measure Vitals'}
                 </Text>
               )}
             </TouchableOpacity>

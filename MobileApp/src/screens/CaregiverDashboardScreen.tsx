@@ -18,6 +18,7 @@ import { storageService } from '../services/storage';
 import { CareDashboardItem, CareLink, User } from '../types';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { realtimeService } from '../services/realtime.service';
+import { formatApiDateOnly, formatApiDateTime, parseApiDate } from '../utils/helpers';
 
 export const CaregiverDashboardScreen: React.FC = () => {
   const { t } = useLanguage();
@@ -190,9 +191,10 @@ export const CaregiverDashboardScreen: React.FC = () => {
   const criticalCount = cards.filter((item) => item.alerts?.last?.severity === 'critical').length;
 
   const formatLiveStatus = (timestamp?: string | null) => {
-    if (!timestamp) return null;
+    const date = parseApiDate(timestamp);
+    if (!date) return null;
 
-    const diffMs = Math.max(0, clockTick - new Date(timestamp).getTime());
+    const diffMs = Math.max(0, clockTick - date.getTime());
     const diffMinutes = Math.floor(diffMs / 60000);
 
     if (diffMinutes < 1) {
@@ -212,12 +214,13 @@ export const CaregiverDashboardScreen: React.FC = () => {
       return t('datetime.hoursAgo', { count: diffHours });
     }
 
-    return new Date(timestamp).toLocaleDateString();
+    return formatApiDateOnly(timestamp);
   };
 
   const isLiveNow = (timestamp?: string | null) => {
-    if (!timestamp) return false;
-    const diffMs = Math.max(0, clockTick - new Date(timestamp).getTime());
+    const date = parseApiDate(timestamp);
+    if (!date) return false;
+    const diffMs = Math.max(0, clockTick - date.getTime());
     return diffMs < 60000;
   };
 
@@ -434,7 +437,7 @@ export const CaregiverDashboardScreen: React.FC = () => {
                       ) : null}
                     </View>
                     <Text className="text-[10px] text-gray text-right">
-                      {lastUpdated ? new Date(lastUpdated).toLocaleString() : '--'}
+                      {formatApiDateTime(lastUpdated)}
                     </Text>
                   </View>
 

@@ -3,6 +3,7 @@ Main API routes for the Fall Detection system - FIXED WITH PROPER HTTP STATUS CO
 """
 
 import logging
+import asyncio
 import re
 import io
 import json
@@ -18,13 +19,13 @@ from sqlalchemy import text, func, or_
 import math
 import time
 
-from ..database import get_db
-from ..services.ai_model import load_model_and_scaler, predict_from_sample, get_raw_buffer_size, clear_raw_buffer
+from ..database import get_db, SessionLocal
+from ..services.ai_model import append_raw_sample, load_model_and_scaler, predict_fall, get_raw_buffer_size, clear_raw_buffer
 from .. import crud, schemas, models
 from ..services.auth_service import AuthService
 from ..models import User, UserAuth, Alert, Prediction, Device, DeletedDevice, CareLink, VitalSensorData, EmergencyLog, UserPushToken
 from ..device_auth import device_auth
-from ..config import SECRET_KEY, ALGORITHM, ADMIN_EMAILS, MIN_REALTIME_SAMPLES_FOR_ALERT
+from ..config import SECRET_KEY, ALGORITHM, ADMIN_EMAILS, MIN_REALTIME_SAMPLES_FOR_ALERT, AI_PREDICTION_INTERVAL_SECONDS
 from ..double_verification import DoubleVerificationSystem
 from ..services.notification_service import NotificationService
 from ..services.mqtt_service import publish_device_command
@@ -35,10 +36,45 @@ from ..status_utils import build_device_status_payload, is_device_online, summar
 logger = logging.getLogger(__name__)
 router = APIRouter()
 notification_service = NotificationService()
+_last_ai_prediction_at_by_stream: Dict[str, float] = {}
+_caregiver_push_sent_alert_ids: set[int] = set()
 
 # ======================
 # Helper functions
 # ======================
+
+def _should_run_periodic_ai(buffer_key: str, now: Optional[float] = None) -> bool:
+    """Throttle neural inference for normal telemetry streams."""
+    now = time.monotonic() if now is None else now
+    last = _last_ai_prediction_at_by_stream.get(buffer_key, 0.0)
+    if now - last < AI_PREDICTION_INTERVAL_SECONDS:
+        return False
+    _last_ai_prediction_at_by_stream[buffer_key] = now
+    return True
+
+def _utc_iso_z(value: Any) -> Optional[str]:
+    """Serialize datetimes as explicit UTC so mobile clients do not shift by local timezone."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        if text.endswith("Z") or re.search(r"[+-]\d{2}:?\d{2}$", text):
+            return text
+        return f"{text}Z"
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        else:
+            value = value.astimezone(timezone.utc)
+        return value.isoformat().replace("+00:00", "Z")
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return None
+
+def _utc_now_iso_z() -> str:
+    return _utc_iso_z(datetime.utcnow()) or datetime.utcnow().isoformat() + "Z"
 
 def _json_safe_optional(value: Any) -> Any:
     if value is None:
@@ -48,7 +84,7 @@ def _json_safe_optional(value: Any) -> Any:
     if isinstance(value, (dict, list)):
         return value
     if hasattr(value, "isoformat"):
-        return value.isoformat()
+        return _utc_iso_z(value)
     return None
 
 def _get_column_value(model: Any, attr: str) -> Any:
@@ -69,13 +105,13 @@ def _serialize_alert(alert: Alert) -> Dict[str, Any]:
         "severity": alert.severity,
         "message": alert.message,
         "status": alert.status,
-        "timestamp": alert.timestamp.isoformat() if alert.timestamp else None,
-        "resolved_at": alert.resolved_at.isoformat() if getattr(alert, "resolved_at", None) else None,
+        "timestamp": _utc_iso_z(alert.timestamp),
+        "resolved_at": _utc_iso_z(getattr(alert, "resolved_at", None)),
         "location": _get_column_value(alert, "location"),
         "response_notes": _get_column_value(alert, "response_notes"),
         "metadata": _get_column_value(alert, "metadata"),
         "acknowledged_by": getattr(alert, "acknowledged_by", None),
-        "acknowledged_at": alert.acknowledged_at.isoformat() if getattr(alert, "acknowledged_at", None) else None,
+        "acknowledged_at": _utc_iso_z(getattr(alert, "acknowledged_at", None)),
     }
 
 
@@ -116,6 +152,32 @@ async def _notify_patient_and_caregivers(
         payload=payload,
         throttle_seconds=throttle_seconds,
     )
+
+def _notify_caregivers_push_once(db: Session, alert: Optional[Alert], reason: Optional[str] = None) -> None:
+    if not alert or not getattr(alert, "id", None) or not getattr(alert, "user_id", None):
+        return
+
+    alert_id = int(alert.id)
+    if alert_id in _caregiver_push_sent_alert_ids:
+        return
+
+    _caregiver_push_sent_alert_ids.add(alert_id)
+    notification_service.notify_caregivers_alert(
+        db=db,
+        patient_id=int(alert.user_id),
+        alert=alert,
+        reason=reason or getattr(alert, "alert_type", None),
+    )
+
+def _notify_caregivers_push_for_alert_id(alert_id: int, reason: Optional[str] = None) -> None:
+    db = SessionLocal()
+    try:
+        alert = db.query(Alert).filter(Alert.id == alert_id).first()
+        _notify_caregivers_push_once(db, alert, reason=reason)
+    except Exception as exc:
+        logger.warning("Caregiver push notification failed for alert_id=%s: %s", alert_id, exc)
+    finally:
+        db.close()
 
 def _get_latest_motion_timestamp(db: Session, device_id: str) -> Optional[datetime]:
     return (
@@ -180,8 +242,8 @@ def _serialize_device(
         "battery_level": device.battery_level,
         "is_connected": device.is_connected,
         "is_archived": device.is_archived,
-        "last_seen": device.last_seen.isoformat() if device.last_seen else None,
-        "created_at": device.created_at.isoformat() if device.created_at else None,
+        "last_seen": _utc_iso_z(device.last_seen),
+        "created_at": _utc_iso_z(device.created_at),
         **status_payload,
     }
 
@@ -200,7 +262,7 @@ def _serialize_motion(motion: models.MotionSensorData) -> Dict[str, Any]:
         "gyro_mag": motion.gyro_mag,
         "temperature": motion.temperature,
         "is_fall_suspected": motion.is_fall_suspected,
-        "timestamp": motion.timestamp.isoformat() if motion.timestamp else None,
+        "timestamp": _utc_iso_z(motion.timestamp),
     }
 
 def _serialize_user_profile(user: User) -> Dict[str, Any]:
@@ -225,10 +287,10 @@ def _serialize_user_profile(user: User) -> Dict[str, Any]:
         "is_active": user.is_active,
         "presence_status": presence_status,
         "online_devices": online_devices,
-        "created_at": user.created_at.isoformat() if user.created_at else None,
-        "updated_at": user.updated_at.isoformat() if user.updated_at else None,
+        "created_at": _utc_iso_z(user.created_at),
+        "updated_at": _utc_iso_z(user.updated_at),
         "devices": len(devices),
-        "last_seen": last_seen.isoformat() if last_seen else None,
+        "last_seen": _utc_iso_z(last_seen),
     }
 
 def _serialize_vital(vital: VitalSensorData) -> Dict[str, Any]:
@@ -244,7 +306,7 @@ def _serialize_vital(vital: VitalSensorData) -> Dict[str, Any]:
         "respiration_rate": vital.respiration_rate,
         "is_abnormal": bool(vital.is_abnormal),
         "abnormality_type": vital.abnormality_type,
-        "timestamp": vital.timestamp.isoformat() if vital.timestamp else None,
+        "timestamp": _utc_iso_z(vital.timestamp),
     }
 
 
@@ -360,7 +422,7 @@ def _normalize_vitals_status_payload(payload: Dict[str, Any], device: Optional[D
         "spo2_valid": spo2_valid and spo2 is not None and spo2 > 0,
         "max_powered": _safe_bool(payload.get("max_powered")),
         "signal_status": payload.get("signal_status"),
-        "timestamp": payload.get("timestamp") or datetime.utcnow().isoformat(),
+        "timestamp": _utc_iso_z(payload.get("timestamp")) or _utc_now_iso_z(),
     }
 
 
@@ -381,9 +443,9 @@ def _serialize_vitals_measurement(measurement: models.VitalsMeasurement) -> Dict
         "spo2_valid": bool(measurement.spo2_valid),
         "max_powered": bool(measurement.max_powered),
         "signal_status": measurement.signal_status,
-        "started_at": measurement.started_at.isoformat() if measurement.started_at else None,
-        "completed_at": measurement.completed_at.isoformat() if measurement.completed_at else None,
-        "updated_at": measurement.updated_at.isoformat() if measurement.updated_at else None,
+        "started_at": _utc_iso_z(measurement.started_at),
+        "completed_at": _utc_iso_z(measurement.completed_at),
+        "updated_at": _utc_iso_z(measurement.updated_at),
     }
 
 def _serialize_prediction(pred: Prediction) -> Dict[str, Any]:
@@ -399,7 +461,7 @@ def _serialize_prediction(pred: Prediction) -> Dict[str, Any]:
         "vital_check_result": pred.vital_check_result,
         "final_verdict": pred.final_verdict,
         "confidence_score": pred.confidence_score,
-        "timestamp": pred.timestamp.isoformat() if pred.timestamp else None,
+        "timestamp": _utc_iso_z(pred.timestamp),
     }
 
 def _build_emergency_message(
@@ -803,7 +865,7 @@ async def register_push_token(
         content={
             "success": True,
             "message": "Push token registered",
-            "timestamp": now.isoformat(),
+            "timestamp": _utc_iso_z(now),
         },
     )
 
@@ -841,7 +903,7 @@ async def health_check(db: Session = Depends(get_db)):
             status_code=status.HTTP_200_OK,
             content={
                 "status": health_status,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": _utc_now_iso_z(),
                 "components": {
                     "database": {
                         "connected": database_connected,
@@ -901,7 +963,7 @@ async def root():
                 "care_links": "/api/v1/care/links"
             },
             "status": "operational",
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": _utc_now_iso_z()
         }
     )
 
@@ -1455,12 +1517,191 @@ def _motion_dict_from_local_fall_alert(payload: Dict[str, Any], db: Session) -> 
     }
 
 
+def _run_fall_alert_side_effects(device_id: str, user_id: int, alert_id: int, alert_type: str) -> None:
+    """Send post-alert commands/notifications without blocking fast fall ingest."""
+    try:
+        publish_device_command(
+            device_id,
+            {
+                "message_type": "device_command",
+                "command": "vitals_start",
+                "request_id": f"{alert_type}-{alert_id}",
+                "duration_ms": 60000,
+                "source": "fall_alert",
+                "vitals_trigger": alert_type,
+            },
+        )
+    except Exception as exc:
+        logger.warning("Fall alert vitals command failed in background: %s", exc)
+
+    db = SessionLocal()
+    try:
+        alert = db.query(Alert).filter(Alert.id == alert_id).first()
+        if alert:
+            _notify_caregivers_push_once(
+                db,
+                alert,
+                reason="possible_fall" if alert_type == "fall_candidate" else "fall",
+            )
+    except Exception as exc:
+        logger.warning("Fall alert caregiver notification failed in background: %s", exc)
+    finally:
+        db.close()
+
+
+async def _notify_fast_fall_realtime_background(
+    user_id: int,
+    motion_payload: Optional[Dict[str, Any]],
+    prediction_payload: Optional[Dict[str, Any]],
+    alert_payload: Optional[Dict[str, Any]],
+) -> None:
+    db = SessionLocal()
+    try:
+        if motion_payload:
+            await _notify_patient_and_caregivers(db, user_id, "motions", action="created", payload=motion_payload, throttle_seconds=1.0)
+            await notify_admins("motions", action="created", payload=motion_payload, throttle_seconds=1.0)
+        if prediction_payload:
+            await _notify_patient_and_caregivers(db, user_id, "predictions", action="created", payload=prediction_payload, throttle_seconds=1.0)
+            await notify_admins("predictions", action="created", payload=prediction_payload, throttle_seconds=1.0)
+        if alert_payload:
+            await _notify_patient_and_caregivers(db, user_id, "alerts", action="created", payload=alert_payload)
+            await notify_admins("alerts", action="created", payload=alert_payload)
+    except Exception as exc:
+        logger.warning("Fast fall realtime notification failed in background: %s", exc)
+    finally:
+        db.close()
+
+
+def _motion_rows_to_raw_window(rows: List[models.MotionSensorData]) -> List[List[float]]:
+    return [
+        [
+            float(row.acc_x or 0.0),
+            float(row.acc_y or 0.0),
+            float(row.acc_z or 0.0),
+            float(row.gyro_x or 0.0),
+            float(row.gyro_y or 0.0),
+            float(row.gyro_z or 0.0),
+        ]
+        for row in rows
+    ]
+
+
+async def _review_fall_candidate_with_ai_background(alert_id: int, delay_seconds: float = 6.0) -> None:
+    """Confirm or auto-resolve fast algorithm candidates using later AI context."""
+    await asyncio.sleep(delay_seconds)
+
+    db = SessionLocal()
+    try:
+        alert = db.query(Alert).filter(Alert.id == alert_id).first()
+        if not alert:
+            return
+        if alert.alert_type != "fall_candidate" or alert.status not in {"pending", "sent"}:
+            return
+
+        since = alert.timestamp - timedelta(seconds=2)
+        recent_confirmed = (
+            db.query(Prediction)
+            .join(models.MotionSensorData, Prediction.motion_data_id == models.MotionSensorData.id)
+            .filter(Prediction.user_id == alert.user_id)
+            .filter(Prediction.timestamp >= since)
+            .filter(models.MotionSensorData.device_id == alert.device_id if alert.device_id else text("1=1"))
+            .filter(or_(Prediction.final_verdict == True, Prediction.fall_now_prediction == True))
+            .order_by(Prediction.timestamp.desc())
+            .first()
+        )
+
+        if recent_confirmed:
+            alert.alert_type = "fall_now"
+            alert.severity = "critical"
+            alert.status = "pending"
+            alert.prediction_id = recent_confirmed.id
+            alert.message = f"Confirmed fall detected by AI after fast bracelet alert. Confidence: {recent_confirmed.confidence_score:.2%}"
+            alert.timestamp = datetime.utcnow()
+            db.commit()
+            db.refresh(alert)
+            payload = _serialize_alert(alert)
+            await _notify_patient_and_caregivers(db, alert.user_id, "alerts", action="updated", payload=payload)
+            await notify_admins("alerts", action="updated", payload=payload)
+            return
+
+        rows_query = (
+            db.query(models.MotionSensorData)
+            .filter(models.MotionSensorData.user_id == alert.user_id)
+        )
+        if alert.device_id:
+            rows_query = rows_query.filter(models.MotionSensorData.device_id == alert.device_id)
+        rows = rows_query.order_by(models.MotionSensorData.timestamp.desc()).limit(100).all()
+        rows = list(reversed(rows))
+
+        ai_result: Dict[str, Any] = {"success": False}
+        if len(rows) >= 20:
+            ai_result = predict_fall(_motion_rows_to_raw_window(rows))
+
+        ai_confirms = bool(ai_result.get("success")) and (
+            bool(ai_result.get("fall_now_prediction")) or
+            float(ai_result.get("fall_now_probability", 0.0) or 0.0) >= 0.75
+        )
+
+        latest_motion_id = rows[-1].id if rows else None
+        review_prediction = None
+        if latest_motion_id and ai_result.get("success"):
+            review_prediction = Prediction(
+                user_id=alert.user_id,
+                motion_data_id=latest_motion_id,
+                fall_now_probability=float(ai_result.get("fall_now_probability", 0.0) or 0.0),
+                fall_soon_probability=float(ai_result.get("fall_soon_probability", 0.0) or 0.0),
+                fall_now_prediction=bool(ai_result.get("fall_now_prediction", False)),
+                fall_soon_prediction=bool(ai_result.get("fall_soon_prediction", False)),
+                vital_check_performed=False,
+                vital_check_result=None,
+                final_verdict=ai_confirms,
+                confidence_score=float(ai_result.get("confidence_score", 0.0) or 0.0),
+                timestamp=datetime.utcnow(),
+            )
+            db.add(review_prediction)
+            db.flush()
+
+        if ai_confirms:
+            alert.alert_type = "fall_now"
+            alert.severity = "critical"
+            alert.status = "pending"
+            alert.prediction_id = review_prediction.id if review_prediction else alert.prediction_id
+            alert.message = f"Confirmed fall detected by AI after fast bracelet alert. Confidence: {float(ai_result.get('confidence_score', 0.0) or 0.0):.2%}"
+            alert.timestamp = datetime.utcnow()
+        else:
+            alert.status = "resolved"
+            alert.resolved_at = datetime.utcnow()
+            if review_prediction:
+                alert.prediction_id = review_prediction.id
+            alert.message = "Possible fall auto-resolved after AI review did not confirm a fall."
+
+        db.commit()
+        db.refresh(alert)
+        payload = _serialize_alert(alert)
+        await _notify_patient_and_caregivers(db, alert.user_id, "alerts", action="updated", payload=payload)
+        await notify_admins("alerts", action="updated", payload=payload)
+
+        if ai_confirms:
+            await asyncio.to_thread(
+                _run_fall_alert_side_effects,
+                alert.device_id or "",
+                alert.user_id,
+                alert.id,
+                "fall_now",
+            )
+    except Exception as exc:
+        logger.warning("Fast fall candidate AI review failed: %s", exc)
+    finally:
+        db.close()
+
+
 def _process_motion_data_internal(
     data: Dict[str, Any],
     db: Session,
-) -> Tuple[Dict[str, Any], models.MotionSensorData, Prediction, Optional[Alert]]:
+    background_tasks: Optional[BackgroundTasks] = None,
+) -> Tuple[Dict[str, Any], models.MotionSensorData, Optional[Prediction], Optional[Alert]]:
     """Core motion processing logic without realtime notifications."""
-    logger.info(f"Processing motion data: {data}")
+    logger.debug("Processing motion data: %s", data)
 
     required_fields = ['user_id', 'device_id', 'acc_x', 'acc_y', 'acc_z', 'gyro_x', 'gyro_y', 'gyro_z']
     for field in required_fields:
@@ -1522,6 +1763,8 @@ def _process_motion_data_internal(
         )
 
     buffer_key = f"{user_id}:{device_id}"
+    raw_seq = append_raw_sample(buffer_key, acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z)
+    current_sample_count = int(min(len(raw_seq), MIN_REALTIME_SAMPLES_FOR_ALERT))
     wrist_result = update_wrist_fall_detector(
         buffer_key,
         ax=acc_x,
@@ -1532,15 +1775,66 @@ def _process_motion_data_internal(
         gz=gyro_z,
         timestamp=detector_timestamp,
     )
-    ai_result = predict_from_sample(
-        acc_x=acc_x,
-        acc_y=acc_y,
-        acc_z=acc_z,
-        gyro_x=gyro_x,
-        gyro_y=gyro_y,
-        gyro_z=gyro_z,
-        buffer_key=buffer_key
+    wrist_fall_detected = bool(wrist_result.get("fall_detected"))
+    wrist_possible_fall = bool(wrist_result.get("possible_fall"))
+    fast_physical_alert = (
+        bool(local_fall_hint.get("detected")) or
+        bool(local_fall_hint.get("candidate")) or
+        severe_motion_fall or
+        fast_fall_candidate_motion or
+        wrist_fall_detected or
+        wrist_possible_fall
     )
+
+    if fast_physical_alert:
+        confidence_hint = max(
+            float(local_fall_hint.get("confidence", 0.0) or 0.0),
+            float(wrist_result.get("confidence", 0.0) or 0.0),
+            min(0.88, max(acc_mag / 35.0, gyro_mag / 420.0)),
+            0.62,
+        )
+        ai_result = {
+            "success": True,
+            "fall_now_probability": confidence_hint if (severe_motion_fall or wrist_fall_detected or local_fall_hint.get("detected")) else 0.0,
+            "fall_soon_probability": confidence_hint,
+            "fall_now_prediction": bool(severe_motion_fall or wrist_fall_detected or local_fall_hint.get("detected")),
+            "fall_soon_prediction": True,
+            "confidence_score": confidence_hint,
+            "vital_check_performed": False,
+            "vital_check_result": None,
+            "is_mock": False,
+            "metadata": {
+                "fast_physical_bypass": True,
+                "samples": MIN_REALTIME_SAMPLES_FOR_ALERT,
+                "warmup": False,
+                "reason": "physical_fall_signal_before_ai",
+            },
+        }
+        ai_was_run = False
+    else:
+        should_run_ai = len(raw_seq) >= MIN_REALTIME_SAMPLES_FOR_ALERT and _should_run_periodic_ai(buffer_key)
+        if should_run_ai:
+            ai_result = predict_fall(raw_seq)
+            ai_was_run = True
+        else:
+            ai_result = {
+                "success": True,
+                "fall_now_probability": 0.0,
+                "fall_soon_probability": 0.0,
+                "fall_now_prediction": False,
+                "fall_soon_prediction": False,
+                "confidence_score": 0.0,
+                "vital_check_performed": False,
+                "vital_check_result": None,
+                "is_mock": False,
+                "metadata": {
+                    "prediction_skipped": True,
+                    "samples": current_sample_count,
+                    "warmup": len(raw_seq) < MIN_REALTIME_SAMPLES_FOR_ALERT,
+                    "reason": "ai_throttled_for_normal_motion",
+                },
+            }
+            ai_was_run = False
 
     if not ai_result.get("success", False):
         raise HTTPException(
@@ -1569,9 +1863,8 @@ def _process_motion_data_internal(
     prediction_metadata = ai_result.get("metadata", {}) or {}
     sample_count = int(prediction_metadata.get("samples", 0) or 0)
     warmup = bool(prediction_metadata.get("warmup", False))
-    alert_eligible = sample_count >= MIN_REALTIME_SAMPLES_FOR_ALERT
-    wrist_fall_detected = bool(wrist_result.get("fall_detected"))
-    wrist_possible_fall = bool(wrist_result.get("possible_fall"))
+    prediction_skipped = bool(prediction_metadata.get("prediction_skipped", False))
+    alert_eligible = (not prediction_skipped) and sample_count >= MIN_REALTIME_SAMPLES_FOR_ALERT
     ai_fall_now_prob = float(ai_result.get("fall_now_probability", 0.0) or 0.0)
     ai_fall_soon_prob = float(ai_result.get("fall_soon_probability", 0.0) or 0.0)
     ai_motion_supported_fall = alert_eligible and wrist_possible_fall and (
@@ -1637,7 +1930,7 @@ def _process_motion_data_internal(
                 "confidence_score": max(float(ai_result.get("confidence_score", 0.0) or 0.0), 0.92),
                 "decision_reason": "severe_motion_rule",
             }
-        elif fast_fall_candidate and not alert_eligible:
+        elif fast_fall_candidate:
             candidate_confidence = max(
                 float(wrist_result.get("confidence", 0.0) or 0.0),
                 min(0.82, max(acc_mag / 35.0, gyro_mag / 420.0)),
@@ -1705,48 +1998,48 @@ def _process_motion_data_internal(
             "confidence_score": ai_result.get("confidence_score", 0.0),
         }
 
-    db_pred = Prediction(
-        user_id=user_id,
-        motion_data_id=stored_motion.id,
-        fall_now_probability=verified.get("fall_now_probability", 0.0),
-        fall_soon_probability=verified.get("fall_soon_probability", 0.0),
-        fall_now_prediction=verified.get("fall_now_prediction", False),
-        fall_soon_prediction=verified.get("fall_soon_prediction", False),
-        vital_check_performed=verified.get("vital_check_performed", False),
-        vital_check_result=verified.get("vital_check_result"),
-        final_verdict=verified.get("final_verdict", False),
-        confidence_score=verified.get("confidence_score", 0.0),
-        timestamp=datetime.utcnow()
-    )
-    db.add(db_pred)
-    db.commit()
-    db.refresh(db_pred)
+    should_store_prediction = bool(ai_was_run or rule_based_fall or fast_fall_candidate or verified.get("final_verdict"))
+    db_pred = None
+    if should_store_prediction:
+        db_pred = Prediction(
+            user_id=user_id,
+            motion_data_id=stored_motion.id,
+            fall_now_probability=verified.get("fall_now_probability", 0.0),
+            fall_soon_probability=verified.get("fall_soon_probability", 0.0),
+            fall_now_prediction=verified.get("fall_now_prediction", False),
+            fall_soon_prediction=verified.get("fall_soon_prediction", False),
+            vital_check_performed=verified.get("vital_check_performed", False),
+            vital_check_result=verified.get("vital_check_result"),
+            final_verdict=verified.get("final_verdict", False),
+            confidence_score=verified.get("confidence_score", 0.0),
+            timestamp=datetime.utcnow()
+        )
+        db.add(db_pred)
+        db.commit()
+        db.refresh(db_pred)
 
     alert = None
-    if verification_system is not None:
+    if verification_system is not None and db_pred is not None:
         alert = verification_system.create_alert_if_needed(
             user_id=user_id,
             prediction_id=db_pred.id,
             verification_result=verified
         )
-    if alert and alert.alert_type == "fall_now":
-        publish_device_command(
-            device_id,
-            {
-                "message_type": "device_command",
-                "command": "vitals_start",
-                "request_id": f"fall-{alert.id}",
-                "duration_ms": 60000,
-                "source": "fall_alert",
-                "vitals_trigger": "fall_alert",
-            },
-        )
-        notification_service.notify_caregivers_alert(
-            db=db,
-            patient_id=user_id,
-            alert=alert,
-            reason="fall",
-        )
+    if alert and alert.alert_type in {"fall_candidate", "fall_now"}:
+        if background_tasks is not None:
+            if alert.alert_type == "fall_candidate":
+                background_tasks.add_task(_review_fall_candidate_with_ai_background, alert.id)
+            else:
+                background_tasks.add_task(
+                    _run_fall_alert_side_effects,
+                    device_id,
+                    user_id,
+                    alert.id,
+                    alert.alert_type,
+                )
+        else:
+            if alert.alert_type == "fall_now":
+                _run_fall_alert_side_effects(device_id, user_id, alert.id, alert.alert_type)
 
     response = {
         "success": True,
@@ -1761,13 +2054,15 @@ def _process_motion_data_internal(
             "final_verdict": verified.get("final_verdict", False),
             "vital_check_performed": verified.get("vital_check_performed", False),
             "vital_check_result": verified.get("vital_check_result"),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": _utc_now_iso_z(),
             "is_mock": ai_result.get("is_mock", False),
             "model_type": "dual_output" if "fall_soon_probability" in ai_result else "single_output",
             "warmup": warmup,
             "samples_collected": sample_count,
             "min_samples_for_alert": MIN_REALTIME_SAMPLES_FOR_ALERT,
             "alert_eligible": alert_eligible,
+            "prediction_skipped": prediction_skipped,
+            "ai_prediction_interval_seconds": AI_PREDICTION_INTERVAL_SECONDS,
             "rule_based_fall": rule_based_fall,
             "fast_fall_candidate": fast_fall_candidate,
             "local_detector_fall": local_detector_fall,
@@ -1786,7 +2081,7 @@ def _process_motion_data_internal(
         "timestamp": datetime.utcnow().isoformat(),
         "database_stored": True,
         "motion_id": stored_motion.id,
-        "prediction_id": db_pred.id,
+        "prediction_id": db_pred.id if db_pred else None,
         "alert_generated": alert is not None,
         "alert_id": alert.id if alert else None
     }
@@ -1797,6 +2092,7 @@ def _process_motion_data_internal(
 @router.post("/motion", response_model=Dict[str, Any])
 async def process_motion_data(
     data: Dict[str, Any],
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
     """
@@ -1806,17 +2102,19 @@ async def process_motion_data(
     try:
         response, stored_motion, db_pred, alert = _process_motion_data_internal(data, db)
 
-        prediction_payload = _serialize_prediction(db_pred)
+        prediction_payload = _serialize_prediction(db_pred) if db_pred else None
         motion_payload = _serialize_motion(stored_motion)
         await _notify_patient_and_caregivers(db, stored_motion.user_id, "motions", action="created", payload=motion_payload, throttle_seconds=2.0)
         await notify_admins("motions", action="created", payload=motion_payload, throttle_seconds=2.0)
-        await _notify_patient_and_caregivers(db, stored_motion.user_id, "predictions", action="created", payload=prediction_payload, throttle_seconds=2.0)
-        await notify_admins("predictions", action="created", payload=prediction_payload, throttle_seconds=2.0)
+        if prediction_payload:
+            await _notify_patient_and_caregivers(db, stored_motion.user_id, "predictions", action="created", payload=prediction_payload, throttle_seconds=2.0)
+            await notify_admins("predictions", action="created", payload=prediction_payload, throttle_seconds=2.0)
 
         if alert:
             alert_payload = _serialize_alert(alert)
             await _notify_patient_and_caregivers(db, alert.user_id, "alerts", action="created", payload=alert_payload)
             await notify_admins("alerts", action="created", payload=alert_payload)
+            background_tasks.add_task(_notify_caregivers_push_for_alert_id, alert.id, alert.alert_type)
 
         return response
 
@@ -1836,6 +2134,7 @@ async def process_motion_data(
 @router.post("/device-data", response_model=Dict[str, Any])
 async def ingest_device_data(
     payload: schemas.DeviceIngestPayload,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
     """Ingest combined device data (motion + vitals)."""
@@ -1866,8 +2165,9 @@ async def ingest_device_data(
                 if motion_payload:
                     await _notify_patient_and_caregivers(db, user_id, "motions", action="created", payload=motion_payload, throttle_seconds=2.0)
                     await notify_admins("motions", action="created", payload=motion_payload, throttle_seconds=2.0)
-                await _notify_patient_and_caregivers(db, user_id, "predictions", action="created", payload=prediction_payload, throttle_seconds=2.0)
-                await notify_admins("predictions", action="created", payload=prediction_payload, throttle_seconds=2.0)
+                if prediction_payload:
+                    await _notify_patient_and_caregivers(db, user_id, "predictions", action="created", payload=prediction_payload, throttle_seconds=2.0)
+                    await notify_admins("predictions", action="created", payload=prediction_payload, throttle_seconds=2.0)
             if result.get("vitals"):
                 await _notify_patient_and_caregivers(db, user_id, "vitals", action="created", payload=vital_payload, throttle_seconds=5.0)
                 await notify_admins("vitals", action="created", payload=vital_payload, throttle_seconds=5.0)
@@ -1876,6 +2176,9 @@ async def ingest_device_data(
             if motion_alert_id or vital_alert_id:
                 await _notify_patient_and_caregivers(db, user_id, "alerts", action="created", payload=alert_payload)
                 await notify_admins("alerts", action="created", payload=alert_payload)
+                latest_alert_id = motion_alert_id or vital_alert_id
+                if latest_alert_id:
+                    background_tasks.add_task(_notify_caregivers_push_for_alert_id, int(latest_alert_id), "fall")
             if device_payload:
                 await _notify_patient_and_caregivers(db, user_id, "devices", action="updated", payload=device_payload, throttle_seconds=10.0)
                 await notify_admins("devices", action="updated", payload=device_payload, throttle_seconds=10.0)
@@ -1900,6 +2203,7 @@ async def ingest_device_data(
 @router.post("/device-data/fall-alert", response_model=Dict[str, Any])
 async def ingest_device_fall_alert(
     payload: Dict[str, Any],
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
     """Ingest immediate ESP local fall alerts and run them through the same fusion pipeline."""
@@ -1913,19 +2217,22 @@ async def ingest_device_fall_alert(
             firmware_version=motion_dict.get("firmware_version"),
         )
 
-        response, stored_motion, db_pred, alert = _process_motion_data_internal(motion_dict, db)
+        response, stored_motion, db_pred, alert = _process_motion_data_internal(
+            motion_dict,
+            db,
+            background_tasks=background_tasks,
+        )
 
         motion_payload = _serialize_motion(stored_motion)
-        prediction_payload = _serialize_prediction(db_pred)
-        await _notify_patient_and_caregivers(db, stored_motion.user_id, "motions", action="created", payload=motion_payload, throttle_seconds=1.0)
-        await notify_admins("motions", action="created", payload=motion_payload, throttle_seconds=1.0)
-        await _notify_patient_and_caregivers(db, stored_motion.user_id, "predictions", action="created", payload=prediction_payload, throttle_seconds=1.0)
-        await notify_admins("predictions", action="created", payload=prediction_payload, throttle_seconds=1.0)
-
-        if alert:
-            alert_payload = _serialize_alert(alert)
-            await _notify_patient_and_caregivers(db, alert.user_id, "alerts", action="created", payload=alert_payload)
-            await notify_admins("alerts", action="created", payload=alert_payload)
+        prediction_payload = _serialize_prediction(db_pred) if db_pred else None
+        alert_payload = _serialize_alert(alert) if alert else None
+        background_tasks.add_task(
+            _notify_fast_fall_realtime_background,
+            stored_motion.user_id,
+            motion_payload,
+            prediction_payload,
+            alert_payload,
+        )
 
         return JSONResponse(
             status_code=status.HTTP_200_OK,
@@ -1948,6 +2255,7 @@ async def ingest_device_fall_alert(
 @router.post("/device-data/batch", response_model=Dict[str, Any])
 async def ingest_device_data_batch(
     batch: schemas.DeviceIngestBatch,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
     """Ingest batch device data for offline sync."""
@@ -1992,8 +2300,9 @@ async def ingest_device_data_batch(
             await notify_admins("motions", action="created", payload=motion_payload, throttle_seconds=2.0)
         latest_prediction = db.query(Prediction).filter(Prediction.user_id == uid).order_by(Prediction.timestamp.desc()).first()
         payload = _serialize_prediction(latest_prediction) if latest_prediction else None
-        await _notify_patient_and_caregivers(db, uid, "predictions", action="created", payload=payload, throttle_seconds=2.0)
-        await notify_admins("predictions", action="created", payload=payload, throttle_seconds=2.0)
+        if payload:
+            await _notify_patient_and_caregivers(db, uid, "predictions", action="created", payload=payload, throttle_seconds=2.0)
+            await notify_admins("predictions", action="created", payload=payload, throttle_seconds=2.0)
     for uid in vitals_users:
         latest_vital = db.query(VitalSensorData).filter(VitalSensorData.user_id == uid).order_by(VitalSensorData.timestamp.desc()).first()
         payload = _serialize_vital(latest_vital) if latest_vital else None
@@ -2004,6 +2313,8 @@ async def ingest_device_data_batch(
         payload = _serialize_alert(latest_alert) if latest_alert else None
         await _notify_patient_and_caregivers(db, uid, "alerts", action="created", payload=payload)
         await notify_admins("alerts", action="created", payload=payload)
+        if latest_alert:
+            background_tasks.add_task(_notify_caregivers_push_for_alert_id, latest_alert.id, latest_alert.alert_type)
     for uid in touched_users:
         device_obj = db.query(Device).filter(Device.user_id == uid).order_by(Device.created_at.desc()).first()
         payload = (
@@ -2024,7 +2335,7 @@ async def ingest_device_data_batch(
             "received": len(batch.items),
             "stored": len(results),
             "errors": errors,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": _utc_now_iso_z()
         }
     )
 
@@ -2311,7 +2622,7 @@ async def process_vital_data(
                     },
                     "warning": "Data not stored in database",
                     "is_test_data": False,
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": _utc_now_iso_z()
                 }
             )
         
@@ -2360,7 +2671,7 @@ async def get_motion_history(
             "gyro_mag": m.gyro_mag,
             "temperature": m.temperature,
             "is_fall_suspected": m.is_fall_suspected,
-            "timestamp": m.timestamp.isoformat() if m.timestamp else None
+            "timestamp": _utc_iso_z(m.timestamp)
         }
         for m in motions
     ]
@@ -2372,7 +2683,7 @@ async def get_motion_history(
             "user_id": user_id,
             "count": len(formatted),
             "data": formatted,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": _utc_now_iso_z()
         }
     )
 
@@ -2403,7 +2714,7 @@ async def get_vitals_history(
             "respiration_rate": v.respiration_rate,
             "is_abnormal": v.is_abnormal,
             "abnormality_type": v.abnormality_type,
-            "timestamp": v.timestamp.isoformat() if v.timestamp else None
+            "timestamp": _utc_iso_z(v.timestamp)
         }
         for v in vitals
     ]
@@ -2415,7 +2726,7 @@ async def get_vitals_history(
             "user_id": user_id,
             "count": len(formatted),
             "data": formatted,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": _utc_now_iso_z()
         }
     )
 
@@ -2447,7 +2758,7 @@ async def get_prediction_history(
             "vital_check_result": p.vital_check_result,
             "final_verdict": p.final_verdict,
             "confidence_score": p.confidence_score,
-            "timestamp": p.timestamp.isoformat() if p.timestamp else None
+            "timestamp": _utc_iso_z(p.timestamp)
         }
         for p in preds
     ]
@@ -2459,7 +2770,7 @@ async def get_prediction_history(
             "user_id": user_id,
             "count": len(formatted),
             "data": formatted,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": _utc_now_iso_z()
         }
     )
 
@@ -2527,7 +2838,7 @@ async def get_user_alerts(
                     "status": alert_status,
                     "severity": severity
                 },
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": _utc_now_iso_z()
             }
         )
         
@@ -2593,8 +2904,8 @@ async def update_alert_status(
                 "message": f"Alert status updated to {new_status}",
                 "alert_id": alert_id,
                 "status": new_status,
-                "resolved_at": alert.resolved_at.isoformat() if alert.resolved_at else None,
-                "timestamp": datetime.utcnow().isoformat()
+                "resolved_at": _utc_iso_z(alert.resolved_at),
+                "timestamp": _utc_now_iso_z()
             }
         )
         
@@ -2648,8 +2959,8 @@ async def acknowledge_alert(
                 "alert_id": alert_id,
                 "status": alert.status,
                 "acknowledged_by": alert.acknowledged_by,
-                "acknowledged_at": alert.acknowledged_at.isoformat() if alert.acknowledged_at else None,
-                "timestamp": datetime.utcnow().isoformat()
+                "acknowledged_at": _utc_iso_z(alert.acknowledged_at),
+                "timestamp": _utc_now_iso_z()
             }
         )
 
@@ -2694,8 +3005,8 @@ async def resolve_alert(
                 "message": "Alert resolved",
                 "alert_id": alert_id,
                 "status": alert.status,
-                "resolved_at": alert.resolved_at.isoformat() if alert.resolved_at else None,
-                "timestamp": datetime.utcnow().isoformat()
+                "resolved_at": _utc_iso_z(alert.resolved_at),
+                "timestamp": _utc_now_iso_z()
             }
         )
 
@@ -2708,6 +3019,102 @@ async def resolve_alert(
             detail={
                 "success": False,
                 "error": f"Failed to resolve alert: {str(e)}"
+            }
+        )
+
+@router.post("/alerts/{user_id}/clear", response_model=Dict[str, Any])
+async def clear_user_alerts(
+    user_id: int,
+    clear_data: Optional[Dict[str, Any]] = None,
+    db: Session = Depends(get_db)
+):
+    """Clear all alerts for a user. Default mode deletes; mode='resolve' keeps history as resolved."""
+    try:
+        user = crud.get_user(db, user_id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={"success": False, "error": f"User with ID {user_id} not found"}
+            )
+
+        mode = str((clear_data or {}).get("mode", "delete")).strip().lower()
+        query = db.query(Alert).filter(Alert.user_id == user_id)
+        count = query.count()
+
+        if count == 0:
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                content={
+                    "success": True,
+                    "message": "No alerts to clear",
+                    "user_id": user_id,
+                    "cleared_count": 0,
+                    "mode": mode,
+                    "timestamp": _utc_now_iso_z(),
+                },
+            )
+
+        if mode == "resolve":
+            now = datetime.utcnow()
+            updated = query.update(
+                {
+                    Alert.status: "resolved",
+                    Alert.resolved_at: now,
+                },
+                synchronize_session=False,
+            )
+            db.commit()
+            payload = {
+                "user_id": user_id,
+                "cleared_count": updated,
+                "mode": "resolve",
+                "timestamp": _utc_now_iso_z(),
+            }
+            await _notify_patient_and_caregivers(db, user_id, "alerts", action="cleared", payload=payload)
+            await notify_admins("alerts", action="cleared", payload=payload)
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                content={
+                    "success": True,
+                    "message": f"Resolved {updated} alerts",
+                    **payload,
+                },
+            )
+
+        if mode != "delete":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"success": False, "error": "mode must be 'delete' or 'resolve'"}
+            )
+
+        deleted = query.delete(synchronize_session=False)
+        db.commit()
+        payload = {
+            "user_id": user_id,
+            "cleared_count": deleted,
+            "mode": "delete",
+            "timestamp": _utc_now_iso_z(),
+        }
+        await _notify_patient_and_caregivers(db, user_id, "alerts", action="cleared", payload=payload)
+        await notify_admins("alerts", action="cleared", payload=payload)
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "message": f"Deleted {deleted} alerts",
+                **payload,
+            },
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error clearing alerts: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "success": False,
+                "error": f"Failed to clear alerts: {str(e)}"
             }
         )
 
@@ -5066,6 +5473,7 @@ async def restore_device(
 @router.post("/emergency/trigger", response_model=Dict[str, Any])
 async def trigger_emergency(
     emergency_data: schemas.EmergencyTrigger,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
     """Trigger emergency SMS delivery from the backend without requiring the iPhone Messages send button."""
@@ -5166,6 +5574,7 @@ async def trigger_emergency(
         payload = _serialize_alert(alert)
         await _notify_patient_and_caregivers(db, user.id, "alerts", action="created", payload=payload)
         await notify_admins("alerts", action="created", payload=payload)
+        background_tasks.add_task(_notify_caregivers_push_for_alert_id, alert.id, alert.alert_type)
 
         return JSONResponse(
             status_code=status.HTTP_200_OK,

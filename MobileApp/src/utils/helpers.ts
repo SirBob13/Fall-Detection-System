@@ -15,6 +15,21 @@ export const parseApiDate = (dateString?: string | null): Date | null => {
   return Number.isNaN(date.getTime()) ? null : date;
 };
 
+export const formatApiDateTime = (dateString?: string | null): string => {
+  return parseApiDate(dateString)?.toLocaleString() || '--';
+};
+
+export const formatApiTime = (dateString?: string | null): string => {
+  return parseApiDate(dateString)?.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+  }) || '--';
+};
+
+export const formatApiDateOnly = (dateString?: string | null): string => {
+  return parseApiDate(dateString)?.toLocaleDateString() || '--';
+};
+
 export const formatDate = (dateString: string): string => {
   const date = parseApiDate(dateString) ?? new Date(dateString);
   const now = new Date();
